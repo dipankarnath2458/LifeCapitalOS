@@ -3,8 +3,9 @@ import serverless from 'serverless-http';
 import { createApp } from '../src/app.factory';
 
 /**
- * Vercel serverless entrypoint for the NestJS API. The Nest app is built once per
- * warm container and cached; subsequent invocations reuse the Express handler.
+ * Vercel serverless entrypoint for the NestJS API. This optional catch-all
+ * ([[...path]]) handles every `/api/*` request (the Nest app sets a global `api`
+ * prefix). The app is built once per warm container and the Express handler cached.
  */
 type Handler = (req: Request, res: Response) => unknown;
 

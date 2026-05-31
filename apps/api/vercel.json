@@ -1,12 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @lcos/core build && prisma generate",
-  "installCommand": "pnpm install --frozen-lockfile=false",
+  "buildCommand": "pnpm --filter @lcos/core build && prisma generate && mkdir -p public",
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "outputDirectory": "public",
   "functions": {
-    "api/index.ts": {
+    "api/[[...path]].ts": {
       "memory": 1024,
       "maxDuration": 30
     }
-  },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+  }
 }
