@@ -1,19 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { login } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { apiHealth, login } from '@/lib/api';
 
 export default function AdminLogin() {
-  const [email, setEmail] = useState('admin@lifecapitalos.dev');
+  const [email, setEmail] = useState('roshan.manuel@gmail.com');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [health, setHealth] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiHealth().then((h) => setHealth(h.ok ? null : `API status: ${h.detail}`));
+  }, []);
 
   async function submit() {
+    setError(null);
     try {
       await login(email, password);
       window.location.href = '/dashboard';
-    } catch {
-      setError('Invalid credentials');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Login failed');
     }
   }
 
@@ -42,6 +48,7 @@ export default function AdminLogin() {
           Sign in
         </button>
         {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
+        {health && <p className="mt-2 text-xs text-amber-600">{health}</p>}
       </div>
     </main>
   );

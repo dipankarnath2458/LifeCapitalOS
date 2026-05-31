@@ -30,12 +30,34 @@ export async function adminSend<T>(path: string, method: string, body?: unknown)
 }
 
 export async function login(email: string, password: string): Promise<void> {
-  const res = await fetch(`${API_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) throw new Error('Invalid credentials');
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    // Network/CORS failure — usually NEXT_PUBLIC_API_URL is unset/wrong or the API is down.
+    throw new Error(`Cannot reach the API at ${API_URL}. Check NEXT_PUBLIC_API_URL and CORS.`);
+  }
+  if (res.status === 401) throw new Error('Invalid email or password.');
+  if (res.status >= 500) {
+    throw new Error(`API error ${res.status}. The server likely cannot reach the database (check DATABASE_URL).`);
+  }
+  if (!res.ok) throw new Error(`Login failed (HTTP ${res.status}).`);
   const data = (await res.json()) as { accessToken: string };
   localStorage.setItem('lcos_admin_token', data.accessToken);
+}
+
+/** Lightweight connectivity probe so the login screen can show API/DB status. */
+export async function apiHealth(): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const res = await fetch(`${API_URL}/health`);
+    if (!res.ok) return { ok: false, detail: `API responded HTTP ${res.status}` };
+    const body = (await res.json()) as { status?: string; db?: string };
+    return { ok: body.db === 'up', detail: `api:${body.status ?? '?'} db:${body.db ?? '?'}` };
+  } catch {
+    return { ok: false, detail: `unreachable at ${API_URL}` };
+  }
 }
