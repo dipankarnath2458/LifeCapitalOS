@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lcos
+          POSTGRES_PASSWORD: lcos
+          POSTGRES_DB: lcos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lcos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://lcos:lcos@localhost:5432/lcos?schema=public
+      FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @lcos/api prisma:generate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests (core)
+        run: pnpm --filter @lcos/core test
+
+      - name: Apply migrations
+        run: pnpm --filter @lcos/api exec prisma migrate deploy
+
+      - name: API e2e tests
+        run: pnpm --filter @lcos/api test:e2e

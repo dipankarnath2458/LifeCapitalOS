@@ -1,0 +1,357 @@
+// Life Capital OS — data model.
+// Monetary amounts are stored as BigInt minor units (paise/cents). PII fields are
+// encrypted at the application layer (see common/crypto) before persistence.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADVISOR
+  SUPPORT
+  ANALYST
+  ADMIN
+  SUPERADMIN
+}
+
+enum PlanTier {
+  free
+  premium
+  family_cfo
+}
+
+enum AccountType {
+  bank
+  investment
+  retirement
+  real_estate
+  vehicle
+  cash
+  other_asset
+  loan
+  credit_card
+}
+
+enum AssetClass {
+  equity
+  debt
+  gold
+  real_estate
+  cash
+  crypto
+  business
+  other
+}
+
+enum TransactionType {
+  income
+  expense
+  transfer
+}
+
+enum DebtType {
+  home_loan
+  personal_loan
+  vehicle_loan
+  education_loan
+  credit_card
+  other
+}
+
+enum GoalType {
+  retirement
+  child_education
+  child_marriage
+  home_purchase
+  emergency_fund
+  travel
+  custom
+}
+
+enum RiskTolerance {
+  conservative
+  moderate
+  aggressive
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+  trialing
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String?   @unique
+  passwordHash  String?
+  role          Role      @default(USER)
+  status        String    @default("active") // active | suspended | deleted
+  emailVerified Boolean   @default(false)
+  phoneVerified Boolean   @default(false)
+  totpSecret    String? // encrypted
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile          Profile?
+  subscription     Subscription?
+  featureOverrides FeatureOverride[]
+  accounts         Account[]
+  transactions     Transaction[]
+  debts            Debt[]
+  goals            Goal[]
+  familyMembers    FamilyMember[]
+  netWorthSnaps    NetWorthSnapshot[]
+  refreshTokens    RefreshToken[]
+  otpCodes         OtpCode[]
+  recommendations  Recommendation[]
+  consents         Consent[]
+  auditLogs        AuditLog[]        @relation("AuditActor")
+
+  @@index([status])
+  @@index([role])
+}
+
+model Profile {
+  id                  String        @id @default(cuid())
+  userId              String        @unique
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName            String // encrypted
+  dateOfBirth         DateTime?
+  baseCurrency        String        @default("INR")
+  annualIncomeMinor   BigInt?
+  monthlyExpensesMinor BigInt?
+  riskTolerance       RiskTolerance @default(moderate)
+  dependents          Int           @default(0)
+  taxResidency        String        @default("IN")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model FamilyMember {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String // encrypted
+  relation    String
+  dateOfBirth DateTime?
+  isDependent Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Account {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  type         AccountType
+  assetClass   AssetClass?
+  currency     String      @default("INR")
+  balanceMinor BigInt      @default(0)
+  isLiability  Boolean     @default(false)
+  // Account-aggregator linkage (nullable for manual accounts)
+  aaProvider   String?
+  aaAccountRef String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  transactions Transaction[]
+
+  @@index([userId])
+}
+
+model Transaction {
+  id         String          @id @default(cuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type       TransactionType
+  amountMinor BigInt
+  currency   String          @default("INR")
+  category   String
+  note       String?
+  occurredAt DateTime
+  createdAt  DateTime        @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([accountId])
+}
+
+model Debt {
+  id                   String   @id @default(cuid())
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                 String
+  type                 DebtType
+  currency             String   @default("INR")
+  principalMinor       BigInt
+  annualInterestRatePct Float
+  minimumPaymentMinor  BigInt
+  createdAt            DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Goal {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  type                  GoalType
+  currency              String   @default("INR")
+  targetAmountMinor     BigInt
+  currentAmountMinor    BigInt   @default(0)
+  targetDate            DateTime
+  expectedAnnualReturnPct Float  @default(10)
+  createdAt             DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model NetWorthSnapshot {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetsMinor     BigInt
+  liabilitiesMinor BigInt
+  netWorthMinor   BigInt
+  currency        String   @default("INR")
+  capturedAt      DateTime @default(now())
+
+  @@index([userId, capturedAt])
+}
+
+model Recommendation {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scoreKey   String
+  priority   Int
+  title      String
+  rationale  String
+  dismissed  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  tier          PlanTier @unique
+  name          String
+  priceMinor    BigInt
+  currency      String   @default("INR")
+  interval      String   @default("month") // month | year
+  features      Json
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 Plan               @relation(fields: [planId], references: [id])
+  status               SubscriptionStatus @default(active)
+  provider             String             @default("razorpay")
+  providerSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+model FeatureOverride {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature   String
+  enabled   Boolean
+  createdAt DateTime @default(now())
+
+  @@unique([userId, feature])
+}
+
+// Global feature flags / remote config managed from the admin panel.
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  enabled     Boolean  @default(false)
+  description String?
+  // Optional JSON payload (e.g. rollout %, segment rules, config values)
+  payload     Json?
+  updatedAt   DateTime @updatedAt
+}
+
+model Consent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   String // e.g. account_aggregation, marketing, data_processing
+  granted   Boolean
+  version   String   @default("1.0")
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   String // phone | email
+  target    String
+  codeHash  String
+  expiresAt DateTime
+  consumedAt DateTime?
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([target])
+}
+
+// Append-only audit trail. Never updated or deleted.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id])
+  actorRole  String?
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
