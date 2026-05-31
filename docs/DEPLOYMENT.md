@@ -10,25 +10,26 @@ by setting each project's **Root Directory** in Vercel.
 | `lcos-web`     | `apps/web`     | `https://lcos-web.vercel.app` |
 | `lcos-admin`   | `apps/admin`   | `https://lcos-admin.vercel.app` |
 
-## 1. Database (Supabase)
+## 1. Database (Supabase) — ALREADY PROVISIONED
 
-A Supabase project (`life-capital-os`, region `ap-south-1`) backs the app. Prisma
-needs two connection strings (Supabase → Project Settings → Database):
+A Supabase project **`life-capital-os`** (project ref **`tnpvdggerstntcranwvc`**,
+region `ap-south-1`) backs the app. The schema is **already migrated and seeded**
+(17 tables, 3 plans, 5 feature flags, a SUPERADMIN + demo user, demo balance sheet),
+and **RLS is enabled (deny-all)** so the public PostgREST API is locked down — the
+app reaches Postgres only via Prisma's database role.
 
-```bash
-# Pooled (PgBouncer, port 6543) — used at runtime by serverless functions
-DATABASE_URL="postgresql://postgres.<ref>:<PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
-# Direct (port 5432) — used by `prisma migrate deploy`
-DIRECT_URL="postgresql://postgres.<ref>:<PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
-```
-
-Apply the schema + seed once (from a machine with the connection strings):
+Connection strings (Supabase → Project Settings → Database; `<PASSWORD>` is the DB
+password set at project creation, or reset it there):
 
 ```bash
-cd apps/api
-DATABASE_URL=... DIRECT_URL=... pnpm exec prisma migrate deploy
-DATABASE_URL=... pnpm exec ts-node prisma/seed.ts
+# Pooled (PgBouncer, 6543) — runtime DATABASE_URL for serverless
+DATABASE_URL="postgresql://postgres.tnpvdggerstntcranwvc:<PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+# Direct (5432) — DIRECT_URL for `prisma migrate deploy`
+DIRECT_URL="postgresql://postgres.tnpvdggerstntcranwvc:<PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
 ```
+
+> Re-running migrations is only needed for future schema changes:
+> `cd apps/api && pnpm exec prisma migrate deploy`
 
 ## 2. API project (`apps/api`)
 
