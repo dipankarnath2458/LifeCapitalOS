@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Module, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Module, Post } from '@nestjs/common';
 import { ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsArray } from 'class-validator';
 import { can, resolveEntitlements, type FeatureKey } from '@lcos/core';
@@ -24,16 +24,26 @@ class AiController {
     private readonly billing: BillingService,
   ) {}
 
-  @Post('coach')
-  async coach(@CurrentUser() user: AuthUser, @Body() dto: CoachDto) {
-    // Gate behind the premium `ai_recommendations` entitlement.
-    const { tier, features } = await this.billing.entitlements(user.id);
+  /** Throws 403 unless the user has the premium `ai_recommendations` entitlement. */
+  private async assertAiAccess(userId: string): Promise<void> {
+    const { tier, features } = await this.billing.entitlements(userId);
     const ent = resolveEntitlements(tier);
     ent.features = new Set(features as FeatureKey[]);
     if (!can(ent, 'ai_recommendations')) {
-      throw new ForbiddenException('The AI Wealth Coach is a Premium feature. Upgrade to unlock it.');
+      throw new ForbiddenException('This is a Premium feature. Upgrade to unlock it.');
     }
+  }
+
+  @Post('coach')
+  async coach(@CurrentUser() user: AuthUser, @Body() dto: CoachDto) {
+    await this.assertAiAccess(user.id);
     return this.ai.coach(user.id, dto.messages ?? []);
+  }
+
+  @Get('second-opinion')
+  async secondOpinion(@CurrentUser() user: AuthUser) {
+    await this.assertAiAccess(user.id);
+    return this.ai.secondOpinion(user.id);
   }
 }
 
