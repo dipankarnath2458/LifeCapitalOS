@@ -28,6 +28,13 @@ export class ProfileService {
         : {}),
       ...(dto.riskTolerance !== undefined ? { riskTolerance: dto.riskTolerance } : {}),
       ...(dto.dependents !== undefined ? { dependents: dto.dependents } : {}),
+      ...(dto.hasTermCover !== undefined ? { hasTermCover: dto.hasTermCover } : {}),
+      ...(dto.hasHealthInsurance !== undefined
+        ? { hasHealthInsurance: dto.hasHealthInsurance }
+        : {}),
+      ...(dto.termLifeCoverMinor !== undefined
+        ? { termLifeCoverMinor: BigInt(dto.termLifeCoverMinor) }
+        : {}),
     };
     const profile = await this.prisma.profile.upsert({
       where: { userId },
