@@ -66,9 +66,6 @@ class InsightsService {
       return Number(g.targetAmountMinor) > 0 ? plan.gap.minor / Number(g.targetAmountMinor) : 0;
     });
 
-    // Insurance is not yet tracked as structured data; pass neutral flags so the
-    // signal stays informational rather than falsely red. (See profile insurance
-    // tracking — planned follow-up.)
     const report = computeEarlyWarning({
       allocationPct,
       monthlyExpensesMinor: monthlyExpenses,
@@ -78,8 +75,8 @@ class InsightsService {
       totalLiabilitiesMinor: liabilities,
       annualIncomeMinor: annualIncome,
       monthlyDebtPaymentMinor: monthlyDebtPayment,
-      hasTermCover: true,
-      hasHealthInsurance: true,
+      hasTermCover: profile?.hasTermCover ?? false,
+      hasHealthInsurance: profile?.hasHealthInsurance ?? false,
       dependents: profile?.dependents ?? 0,
       goalSlippage,
     });

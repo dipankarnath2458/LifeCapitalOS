@@ -1,7 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   Length,
@@ -91,4 +93,19 @@ export class UpdateProfileDto {
   @ApiProperty({ required: false })
   @IsOptional()
   dependents?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  hasTermCover?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  hasHealthInsurance?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  termLifeCoverMinor?: number;
 }

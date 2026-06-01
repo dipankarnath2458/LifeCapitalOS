@@ -7,6 +7,7 @@ import { SecondOpinion } from '@/components/SecondOpinion';
 import { EarlyWarning } from '@/components/EarlyWarning';
 import { Goals } from '@/components/Goals';
 import { Family } from '@/components/Family';
+import { Protection } from '@/components/Protection';
 
 interface NetWorth {
   assetsMinor: number;
@@ -30,6 +31,8 @@ export default function DashboardPage() {
   const [token, setToken] = useState<string | null>(null);
   const [netWorth, setNetWorth] = useState<NetWorth | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // Bumped when protection details change, to re-run the Early Warning scan.
+  const [warningKey, setWarningKey] = useState(0);
 
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
@@ -95,12 +98,16 @@ export default function DashboardPage() {
 
       {token && (
         <div className="mt-8">
-          <EarlyWarning token={token} />
+          <EarlyWarning key={warningKey} token={token} />
         </div>
       )}
 
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {token && <Goals token={token} />}
+        {token && <Protection token={token} onSaved={() => setWarningKey((k) => k + 1)} />}
+      </div>
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {token && <Family token={token} />}
       </div>
 

@@ -132,6 +132,10 @@ model Profile {
   riskTolerance       RiskTolerance @default(moderate)
   dependents          Int           @default(0)
   taxResidency        String        @default("IN")
+  // Protection tracking — powers the Insurance Gap and Early Warning signals.
+  hasTermCover        Boolean       @default(false)
+  hasHealthInsurance  Boolean       @default(false)
+  termLifeCoverMinor  BigInt        @default(0)
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 }
