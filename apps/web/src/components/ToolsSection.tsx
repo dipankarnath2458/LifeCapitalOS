@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { HealthCheck } from '@/components/HealthCheck';
 import { RetirementCalculator } from '@/components/RetirementCalculator';
 import { InsuranceGap } from '@/components/InsuranceGap';
+import { WealthDna } from '@/components/WealthDna';
 
-type Tool = 'health' | 'retirement' | 'insurance';
+type Tool = 'health' | 'retirement' | 'insurance' | 'dna';
 
 const TABS: { key: Tool; label: string; blurb: string }[] = [
   { key: 'health', label: 'Wealth Health Check', blurb: 'Your overall financial health score in 60 seconds.' },
   { key: 'retirement', label: 'Retirement Readiness', blurb: 'The corpus you need and the SIP to get there.' },
   { key: 'insurance', label: 'Insurance Gap', blurb: 'Is your family adequately protected?' },
+  { key: 'dna', label: 'Wealth DNA', blurb: 'Discover your financial personality — and its blind spots.' },
 ];
 
 /** Tabbed free-tools section — the lead-generation engine, all client-side. */
@@ -39,6 +41,7 @@ export function ToolsSection() {
       {tool === 'health' && <HealthCheck />}
       {tool === 'retirement' && <RetirementCalculator />}
       {tool === 'insurance' && <InsuranceGap />}
+      {tool === 'dna' && <WealthDna />}
     </div>
   );
 }

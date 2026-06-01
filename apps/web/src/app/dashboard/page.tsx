@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { WealthCoach } from '@/components/WealthCoach';
 import { SecondOpinion } from '@/components/SecondOpinion';
+import { EarlyWarning } from '@/components/EarlyWarning';
+import { Goals } from '@/components/Goals';
+import { Family } from '@/components/Family';
 
 interface NetWorth {
   assetsMinor: number;
@@ -88,6 +91,17 @@ export default function DashboardPage() {
             ))}
           </ul>
         )}
+      </div>
+
+      {token && (
+        <div className="mt-8">
+          <EarlyWarning token={token} />
+        </div>
+      )}
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-2">
+        {token && <Goals token={token} />}
+        {token && <Family token={token} />}
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-2">

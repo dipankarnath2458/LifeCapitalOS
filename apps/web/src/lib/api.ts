@@ -20,3 +20,12 @@ export async function apiGet<T>(path: string, token?: string): Promise<T> {
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return res.json() as Promise<T>;
 }
+
+export async function apiDelete<T>(path: string, token?: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return res.json() as Promise<T>;
+}

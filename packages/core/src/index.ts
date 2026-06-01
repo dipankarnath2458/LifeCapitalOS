@@ -16,6 +16,10 @@ export * from './finance/insurance.js';
 // Scoring & recommendations
 export * from './scoring/scores.js';
 export * from './scoring/recommendations.js';
+export * from './scoring/earlyWarning.js';
+
+// Assessments
+export * from './assessment/wealthDna.js';
 
 // Monetization entitlements
 export * from './entitlements/entitlements.js';

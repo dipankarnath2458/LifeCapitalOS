@@ -1,16 +1,19 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   analyzeAllocation,
   analyzeLifeInsuranceGap,
   computeRetirement,
+  computeWealthDna,
   computeWealthHealth,
   topWealthActions,
+  WEALTH_DNA_QUESTIONS,
   type Allocation,
   type CurrencyCode,
+  type WealthArchetype,
 } from '@lcos/core';
 import { Public } from '../common/decorators';
-import { AllocationDto, HealthCheckDto, InsuranceDto, RetirementDto } from './tools.dto';
+import { AllocationDto, HealthCheckDto, InsuranceDto, RetirementDto, WealthDnaDto } from './tools.dto';
 
 /**
  * Public, no-login "Wealth Tools" — the lead-generation engine from the blueprint.
@@ -54,5 +57,18 @@ export class ToolsController {
   @Post('insurance-gap')
   insurance(@Body() dto: InsuranceDto) {
     return analyzeLifeInsuranceGap({ ...dto, currency: dto.currency as CurrencyCode });
+  }
+
+  /** Wealth DNA personality assessment. GET returns the questionnaire; POST scores it. */
+  @Public()
+  @Get('wealth-dna/questions')
+  dnaQuestions() {
+    return { questions: WEALTH_DNA_QUESTIONS };
+  }
+
+  @Public()
+  @Post('wealth-dna')
+  wealthDna(@Body() dto: WealthDnaDto) {
+    return computeWealthDna(dto.answers as WealthArchetype[]);
   }
 }

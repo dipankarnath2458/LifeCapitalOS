@@ -11,6 +11,9 @@ import { UsersModule } from './users/users.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { DebtsModule } from './debts/debts.module';
+import { GoalsModule } from './goals/goals.module';
+import { FamilyModule } from './family/family.module';
+import { InsightsModule } from './insights/insights.module';
 import { NetWorthModule } from './networth/networth.module';
 import { ToolsModule } from './tools/tools.module';
 import { BillingModule } from './billing/billing.module';
@@ -29,6 +32,9 @@ import { HealthModule } from './health/health.module';
     AccountsModule,
     TransactionsModule,
     DebtsModule,
+    GoalsModule,
+    FamilyModule,
+    InsightsModule,
     NetWorthModule,
     ToolsModule,
     BillingModule,

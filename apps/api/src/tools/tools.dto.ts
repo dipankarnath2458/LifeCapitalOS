@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class HealthCheckDto {
   @ApiProperty() @IsInt() age!: number;
@@ -44,4 +44,16 @@ export class InsuranceDto {
   @ApiProperty() @IsInt() existingCoverMinor!: number;
   @ApiProperty({ default: 0 }) @IsInt() dependents = 0;
   @ApiProperty({ default: 'INR' }) @IsString() currency = 'INR';
+}
+
+export class WealthDnaDto {
+  @ApiProperty({
+    type: [String],
+    description: 'One archetype per question: builder | protector | explorer | achiever.',
+    example: ['builder', 'protector', 'builder', 'achiever', 'builder'],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  answers!: string[];
 }
