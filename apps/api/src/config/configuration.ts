@@ -20,6 +20,11 @@ export interface AppConfig {
     apiKey: string;
     sandbox: boolean;
   };
+  ai: {
+    apiKey: string;
+    model: string;
+    enabled: boolean;
+  };
 }
 
 export default (): AppConfig => ({
@@ -48,5 +53,11 @@ export default (): AppConfig => ({
     provider: process.env.AA_PROVIDER ?? 'setu',
     apiKey: process.env.AA_API_KEY ?? 'dummy_aa_key',
     sandbox: (process.env.AA_SANDBOX ?? 'true') === 'true',
+  },
+  ai: {
+    apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+    model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
+    // The coach is enabled only when an API key is present.
+    enabled: Boolean(process.env.ANTHROPIC_API_KEY),
   },
 });

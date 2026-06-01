@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
+import { WealthCoach } from '@/components/WealthCoach';
 
 interface NetWorth {
   assetsMinor: number;
@@ -87,6 +88,8 @@ export default function DashboardPage() {
           </ul>
         )}
       </div>
+
+      <div className="mt-8">{token && <WealthCoach token={token} />}</div>
     </main>
   );
 }

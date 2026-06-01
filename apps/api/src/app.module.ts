@@ -15,6 +15,7 @@ import { NetWorthModule } from './networth/networth.module';
 import { ToolsModule } from './tools/tools.module';
 import { BillingModule } from './billing/billing.module';
 import { AdminModule } from './admin/admin.module';
+import { AiModule } from './ai/ai.controller';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { HealthModule } from './health/health.module';
     ToolsModule,
     BillingModule,
     AdminModule,
+    AiModule,
     HealthModule,
   ],
   providers: [
