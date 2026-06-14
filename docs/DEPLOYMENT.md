@@ -45,15 +45,16 @@ Runs NestJS as a Vercel serverless function via `api/index.ts` (Express adapter 
 | `JWT_ACCESS_SECRET` | `openssl rand -hex 32` |
 | `JWT_REFRESH_SECRET` | `openssl rand -hex 32` |
 | `FIELD_ENCRYPTION_KEY` | `openssl rand -hex 32` (32 bytes) |
-| `CORS_ORIGINS` | `https://lcos-web.vercel.app,https://lcos-admin.vercel.app` |
+| `CORS_ORIGINS` | `https://lcos-web.vercel.app` |
 | `NODE_ENV` | `production` |
 | `RAZORPAY_*`, `AA_*` | sandbox defaults until live keys are added |
 
 > Prisma generates the `rhel-openssl-3.0.x` engine for Lambda (see `schema.prisma`).
 
-## 3. Web & Admin projects (`apps/web`, `apps/admin`)
+## 3. Web project (`apps/web`)
 
-Next.js apps. Each needs one variable pointing at the deployed API:
+Next.js app — also hosts the admin panel at `/admin` for admin roles. Needs one
+variable pointing at the deployed API:
 
 ```bash
 NEXT_PUBLIC_API_URL="https://lcos-api.vercel.app/api"
@@ -63,8 +64,8 @@ NEXT_PUBLIC_API_URL="https://lcos-api.vercel.app/api"
 
 1. Provision Supabase, set `DATABASE_URL` / `DIRECT_URL`, run `migrate deploy` + seed.
 2. Deploy **API**, set its env vars, note its URL.
-3. Set `NEXT_PUBLIC_API_URL` on **web** + **admin**, deploy them.
-4. Set `CORS_ORIGINS` on the API to the web/admin URLs; redeploy API.
+3. Set `NEXT_PUBLIC_API_URL` on **web**, deploy it.
+4. Set `CORS_ORIGINS` on the API to the web URL; redeploy API.
 
 ## 5. Production checklist
 

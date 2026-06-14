@@ -2,7 +2,7 @@
 
 India's AI-powered **Wealth Health & Family CFO** platform — a secure, monetizable
 web app (installable PWA) built so the same TypeScript core powers Android & iOS
-apps, with a full-control admin panel.
+apps, with a full-control admin panel built into the app for admin roles.
 
 > Positioning: *"Know Your Financial Health in 5 Minutes."* Not a mutual-fund
 > distributor — a **Financial Operating System** for a family's whole financial life.
@@ -10,13 +10,13 @@ apps, with a full-control admin panel.
 ## What's in this repo
 
 This is a **pnpm + Turborepo monorepo** implementing **Phases 0–2** of the roadmap
-(foundation, auth & profile, core financial modules) plus the full-control admin shell.
+(foundation, auth & profile, core financial modules) plus the full-control admin panel.
 
 ```
 apps/
   api/      NestJS API (REST + Swagger, Prisma, JWT/RBAC, audit log)
-  web/      Next.js user app (PWA) — landing + Wealth Health Check + dashboard
-  admin/    Next.js admin panel — users, plans, feature flags, audit, metrics
+  web/      Next.js user app (PWA) — landing, Wealth Health Check, dashboard,
+            and the admin panel at /admin (users, plans, flags, audit) for admin roles
 packages/
   core/     Shared TS: money, domain schemas, finance calculators, scoring, entitlements
   config/   Shared tsconfig presets
@@ -48,12 +48,14 @@ pnpm --filter @lcos/api exec prisma migrate dev --name init
 pnpm db:seed                 # seeds plans, flags, admin + demo user
 
 # 5. Run everything
-pnpm dev                     # api :4000, web :3000, admin :3001
+pnpm dev                     # api :4000, web :3000
 ```
 
 - API docs (Swagger): http://localhost:4000/api/docs
 - Web app: http://localhost:3000
-- Admin: http://localhost:3001 (login `admin@lifecapitalos.dev` / `Admin@12345`)
+- Admin panel: http://localhost:3000/admin — sign in as an admin
+  (`admin@lifecapitalos.dev` / `Admin@12345`); the **Admin** link appears in the
+  dashboard only for admin roles.
 
 ## Build, test, verify
 
