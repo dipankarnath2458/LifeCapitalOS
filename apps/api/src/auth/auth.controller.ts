@@ -5,10 +5,13 @@ import { CurrentUser, Public, AuthUser } from '../common/decorators';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
   LoginDto,
   RefreshDto,
   RegisterDto,
   RequestOtpDto,
+  ResetPasswordDto,
   VerifyOtpDto,
 } from './dto';
 
@@ -55,6 +58,23 @@ export class AuthController {
   async logout(@Body() dto: RefreshDto) {
     await this.auth.logout(dto.refreshToken);
     return { ok: true };
+  }
+
+  @Post('change-password')
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto.email, dto.token, dto.newPassword);
   }
 
   @Get('me')

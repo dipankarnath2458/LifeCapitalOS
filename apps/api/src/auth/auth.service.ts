@@ -18,6 +18,7 @@ export interface TokenPair {
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
+const RESET_TTL_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -114,6 +115,87 @@ export class AuthService {
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     return this.issueTokens(user.id, user.role);
+  }
+
+  // ---- Password management ----
+
+  /** Change the password for a signed-in user after verifying the current one. */
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ ok: true }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.passwordHash) {
+      throw new BadRequestException('Password change is not available for this account');
+    }
+    const ok = await argon2.verify(user.passwordHash, currentPassword);
+    if (!ok) throw new UnauthorizedException('Current password is incorrect');
+
+    const passwordHash = await argon2.hash(newPassword);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    // Revoke existing sessions so other devices must sign in again with the new password.
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.audit.log({ actorId: userId, action: 'user.password_changed', entityType: 'User', entityId: userId });
+    return { ok: true };
+  }
+
+  /**
+   * Start a password reset. Always reports success to avoid leaking which emails are
+   * registered; a token is only created (and, in sandbox, returned) when the user exists.
+   * In production the token would be emailed instead of returned.
+   */
+  async forgotPassword(email: string): Promise<{ sent: true; devToken?: string }> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) return { sent: true };
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.otpCode.create({
+      data: {
+        userId: user.id,
+        channel: 'password_reset',
+        target: email,
+        codeHash: this.crypto.hash(token),
+        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+      },
+    });
+    await this.audit.log({
+      actorId: user.id,
+      action: 'user.password_reset_requested',
+      entityType: 'User',
+      entityId: user.id,
+    });
+    const sandbox = this.config.get<string>('nodeEnv') !== 'production';
+    return sandbox ? { sent: true, devToken: token } : { sent: true };
+  }
+
+  /** Complete a password reset with the token from forgotPassword. */
+  async resetPassword(email: string, token: string, newPassword: string): Promise<{ ok: true }> {
+    const record = await this.prisma.otpCode.findFirst({
+      where: { target: email, channel: 'password_reset', consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!record) throw new BadRequestException('Reset token is invalid or has expired');
+    if (record.attempts >= MAX_OTP_ATTEMPTS) throw new BadRequestException('Too many attempts');
+
+    if (record.codeHash !== this.crypto.hash(token)) {
+      await this.prisma.otpCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } });
+      throw new UnauthorizedException('Invalid reset token');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new BadRequestException('Account not found');
+
+    const passwordHash = await argon2.hash(newPassword);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
+      this.prisma.otpCode.update({ where: { id: record.id }, data: { consumedAt: new Date() } }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+    await this.audit.log({ actorId: user.id, action: 'user.password_reset', entityType: 'User', entityId: user.id });
+    return { ok: true };
   }
 
   // ---- Tokens ----

@@ -66,6 +66,38 @@ export class RefreshDto {
   refreshToken!: string;
 }
 
+export class ChangePasswordDto {
+  @ApiProperty()
+  @IsString()
+  currentPassword!: string;
+
+  @ApiProperty({ minLength: 8 })
+  @MinLength(8)
+  @Matches(/[0-9]/, { message: 'Password must contain a number' })
+  newPassword!: string;
+}
+
+export class ForgotPasswordDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ description: 'Reset token from the forgot-password step.' })
+  @IsString()
+  token!: string;
+
+  @ApiProperty({ minLength: 8 })
+  @MinLength(8)
+  @Matches(/[0-9]/, { message: 'Password must contain a number' })
+  newPassword!: string;
+}
+
 export class UpdateProfileDto {
   @ApiProperty({ required: false })
   @IsOptional()
