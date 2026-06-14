@@ -51,7 +51,7 @@ export class AdminService {
         phone: u.phone,
         role: u.role,
         status: u.status,
-        tier: u.subscription?.plan.tier ?? 'free',
+        tier: u.subscription?.status === 'active' ? u.subscription.plan.tier : 'free',
         fullName: u.profile ? this.crypto.decrypt(u.profile.fullName) : null,
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
@@ -161,6 +161,37 @@ export class AdminService {
       metadata: { feature },
     });
     return { ok: true };
+  }
+
+  /**
+   * Set a user's plan tier directly (comp/grant or downgrade), bypassing payment.
+   * `free` cancels any active subscription; a paid tier activates one for 30 days.
+   */
+  async setUserSubscription(actor: Actor, userId: string, tier: 'free' | 'premium' | 'family_cfo') {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (tier === 'free') {
+      await this.prisma.subscription.updateMany({ where: { userId }, data: { status: 'canceled' } });
+    } else {
+      const plan = await this.prisma.plan.findUnique({ where: { tier } });
+      if (!plan) throw new NotFoundException(`Plan not found: ${tier}`);
+      const currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await this.prisma.subscription.upsert({
+        where: { userId },
+        create: { userId, planId: plan.id, status: 'active', provider: 'admin_comp', currentPeriodEnd },
+        update: { planId: plan.id, status: 'active', currentPeriodEnd },
+      });
+    }
+    await this.audit.log({
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: 'user.subscription_set',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { tier },
+    });
+    return { ok: true, tier };
   }
 
   // ---- Plans ----

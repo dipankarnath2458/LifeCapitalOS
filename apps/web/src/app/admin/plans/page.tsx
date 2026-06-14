@@ -35,6 +35,17 @@ export default function PlansPage() {
     }
   }
 
+  async function saveName(p: Plan, name: string) {
+    if (name.trim() === p.name || !name.trim()) return;
+    try {
+      await adminSend(`/admin/plans/${p.id}`, 'PUT', { name: name.trim() });
+      toast.success('Plan name updated.');
+      await load();
+    } catch {
+      toast.error('Could not update the name.');
+    }
+  }
+
   async function toggleActive(p: Plan) {
     try {
       await adminSend(`/admin/plans/${p.id}`, 'PUT', { active: !p.active });
@@ -51,7 +62,12 @@ export default function PlansPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         {plans.map((p) => (
           <div key={p.id} className="rounded-2xl bg-white p-6 shadow">
-            <div className="mb-1 text-lg font-semibold">{p.name}</div>
+            <label className="text-sm text-slate-600">Name</label>
+            <input
+              defaultValue={p.name}
+              onBlur={(e) => saveName(p, e.target.value)}
+              className="mb-2 mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-semibold"
+            />
             <div className="mb-4 text-sm text-slate-500">{p.tier}</div>
             <label className="text-sm text-slate-600">Price (₹/mo)</label>
             <input

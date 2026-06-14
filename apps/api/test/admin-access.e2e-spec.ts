@@ -137,6 +137,76 @@ describe('Admin access e2e', () => {
     expect(cleared.body).toEqual([]);
   });
 
+  it('lets an admin set a user plan tier (comp) and revert it', async () => {
+    const id = (
+      await request(app.getHttpServer()).get('/api/auth/me').set('Authorization', `Bearer ${userToken}`)
+    ).body.id as string;
+
+    await request(app.getHttpServer())
+      .put(`/api/admin/users/${id}/subscription`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ tier: 'premium' })
+      .expect(200);
+    let row = await request(app.getHttpServer())
+      .get(`/api/admin/users?search=${encodeURIComponent(userEmail)}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(row.body.data[0].tier).toBe('premium');
+
+    await request(app.getHttpServer())
+      .put(`/api/admin/users/${id}/subscription`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ tier: 'free' })
+      .expect(200);
+    row = await request(app.getHttpServer())
+      .get(`/api/admin/users?search=${encodeURIComponent(userEmail)}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(row.body.data[0].tier).toBe('free');
+  });
+
+  it('lets an admin create a flag and edit its description and payload', async () => {
+    const key = `test_flag_${Date.now()}`;
+    await request(app.getHttpServer())
+      .put(`/api/admin/flags/${key}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ enabled: false, description: 'created in test' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`/api/admin/flags/${key}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ payload: { rolloutPct: 25 } })
+      .expect(200);
+
+    const flags = await request(app.getHttpServer())
+      .get('/api/admin/flags')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const created = (flags.body as any[]).find((f) => f.key === key);
+    expect(created).toBeTruthy();
+    expect(created.description).toBe('created in test');
+    expect(created.payload).toEqual({ rolloutPct: 25 });
+  });
+
+  it('lets an admin rename a plan', async () => {
+    const plans = await request(app.getHttpServer())
+      .get('/api/admin/plans')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const plan = plans.body[0];
+    const newName = `Renamed ${Date.now()}`;
+    await request(app.getHttpServer())
+      .put(`/api/admin/plans/${plan.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: newName })
+      .expect(200);
+    const after = await request(app.getHttpServer())
+      .get('/api/admin/plans')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect((after.body as any[]).find((p) => p.id === plan.id).name).toBe(newName);
+  });
+
   it('lets a superadmin erase a user', async () => {
     const email = `erase_${Date.now()}@example.com`;
     const reg = await request(app.getHttpServer())

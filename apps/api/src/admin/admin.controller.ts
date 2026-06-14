@@ -63,6 +63,16 @@ export class AdminController {
     return this.admin.clearFeatureOverride(actor, id, feature);
   }
 
+  @Put('users/:id/subscription')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  setSubscription(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body('tier') tier: 'free' | 'premium' | 'family_cfo',
+  ) {
+    return this.admin.setUserSubscription(actor, id, tier);
+  }
+
   @Get('users/:id/export')
   @Roles(Role.ADMIN, Role.SUPERADMIN)
   exportData(@CurrentUser() actor: AuthUser, @Param('id') id: string) {

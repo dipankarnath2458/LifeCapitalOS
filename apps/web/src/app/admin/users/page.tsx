@@ -19,6 +19,7 @@ interface AdminUser {
 }
 
 const ROLES = ['USER', 'ADVISOR', 'SUPPORT', 'ANALYST', 'ADMIN', 'SUPERADMIN'];
+const TIERS = ['free', 'premium', 'family_cfo'];
 const TAKE = 25;
 
 export default function UsersPage() {
@@ -68,6 +69,18 @@ export default function UsersPage() {
       await load();
     } catch {
       toast.error('Could not update the user.');
+    }
+  }
+
+  async function changeTier(u: AdminUser, nextTier: string) {
+    if (nextTier === u.tier) return;
+    if (!window.confirm(`Set ${u.email ?? u.phone}'s plan to ${nextTier}? (comped, no payment)`)) return;
+    try {
+      await adminSend(`/admin/users/${u.id}/subscription`, 'PUT', { tier: nextTier });
+      toast.success(`Plan set to ${nextTier}.`);
+      await load();
+    } catch {
+      toast.error('Could not change the plan.');
     }
   }
 
@@ -169,7 +182,24 @@ export default function UsersPage() {
                     u.role
                   )}
                 </td>
-                <td className="p-3">{u.tier}</td>
+                <td className="p-3">
+                  {canManageFeatures ? (
+                    <select
+                      value={u.tier}
+                      onChange={(e) => changeTier(u, e.target.value)}
+                      aria-label={`Plan for ${u.email ?? u.phone}`}
+                      className="rounded-lg border border-slate-200 px-2 py-1"
+                    >
+                      {TIERS.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    u.tier
+                  )}
+                </td>
                 <td className="p-3">
                   <span
                     className={`rounded px-2 py-1 text-xs ${
