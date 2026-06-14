@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
 import { isAdminRole } from '@/lib/admin';
+import { AdminRoleContext } from '@/lib/adminContext';
 import { AdminShell } from '@/components/AdminShell';
 
 interface Me {
@@ -16,6 +17,7 @@ interface Me {
  */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<'checking' | 'allowed'>('checking');
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
@@ -25,8 +27,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
     apiGet<Me>('/auth/me', t)
       .then((me) => {
-        if (isAdminRole(me.role)) setState('allowed');
-        else window.location.href = '/dashboard';
+        if (isAdminRole(me.role)) {
+          setRole(me.role ?? null);
+          setState('allowed');
+        } else {
+          window.location.href = '/dashboard';
+        }
       })
       .catch(() => {
         window.location.href = '/login';
@@ -41,5 +47,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  return <AdminShell>{children}</AdminShell>;
+  return (
+    <AdminRoleContext.Provider value={role}>
+      <AdminShell>{children}</AdminShell>
+    </AdminRoleContext.Provider>
+  );
 }
