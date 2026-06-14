@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
-import { allFeatureKeys } from '@lcos/core';
+import { allFeatureKeys, parseFeatureKeys } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { CryptoService } from '../common/crypto.service';
@@ -212,7 +212,8 @@ export class AdminService {
         ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.priceMinor !== undefined ? { priceMinor: BigInt(data.priceMinor) } : {}),
         ...(data.active !== undefined ? { active: data.active } : {}),
-        ...(data.features !== undefined ? { features: data.features as Prisma.InputJsonValue } : {}),
+        // Keep only known feature keys so a plan can never grant a non-existent feature.
+        ...(data.features !== undefined ? { features: parseFeatureKeys(data.features) as Prisma.InputJsonValue } : {}),
       },
     });
     await this.audit.log({

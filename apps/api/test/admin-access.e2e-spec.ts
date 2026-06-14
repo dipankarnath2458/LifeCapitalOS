@@ -207,6 +207,55 @@ describe('Admin access e2e', () => {
     expect((after.body as any[]).find((p) => p.id === plan.id).name).toBe(newName);
   });
 
+  it('makes entitlements data-driven: editing a plan changes a user’s access', async () => {
+    const id = (
+      await request(app.getHttpServer()).get('/api/auth/me').set('Authorization', `Bearer ${userToken}`)
+    ).body.id as string;
+
+    // Comp the user to premium and confirm they get a premium feature.
+    await request(app.getHttpServer())
+      .put(`/api/admin/users/${id}/subscription`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ tier: 'premium' })
+      .expect(200);
+    let ent = await request(app.getHttpServer())
+      .get('/api/billing/entitlements')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    expect(ent.body.features).toContain('ai_recommendations');
+
+    // Edit the premium plan to drop that feature.
+    const plans = await request(app.getHttpServer())
+      .get('/api/admin/plans')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    const premium = (plans.body as any[]).find((p) => p.tier === 'premium');
+    const original = premium.features as string[];
+    await request(app.getHttpServer())
+      .put(`/api/admin/plans/${premium.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ features: original.filter((f) => f !== 'ai_recommendations') })
+      .expect(200);
+
+    ent = await request(app.getHttpServer())
+      .get('/api/billing/entitlements')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    expect(ent.body.features).not.toContain('ai_recommendations');
+
+    // Restore the plan and revert the user.
+    await request(app.getHttpServer())
+      .put(`/api/admin/plans/${premium.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ features: original })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`/api/admin/users/${id}/subscription`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ tier: 'free' })
+      .expect(200);
+  });
+
   it('lets a superadmin erase a user', async () => {
     const email = `erase_${Date.now()}@example.com`;
     const reg = await request(app.getHttpServer())
