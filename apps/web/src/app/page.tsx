@@ -81,7 +81,7 @@ export default function HomePage() {
             Most apps track expenses. Life Capital OS is a financial operating system for your whole
             family — wealth, protection, retirement and legacy, in one intelligent dashboard.
           </p>
-          <div className="mt-8 flex justify-center gap-4">
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <a
               href="#tools"
               className="rounded-xl bg-brand px-6 py-3 font-semibold text-white hover:bg-brand-dark"
@@ -95,7 +95,28 @@ export default function HomePage() {
               Create free account
             </a>
           </div>
-          <p className="mt-4 text-sm text-slate-400">No signup needed to try the tools below.</p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
+            <span>🔒 AES-256 encryption</span>
+            <span>🇮🇳 DPDP-ready consent</span>
+            <span>⚡ No signup to try the tools</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust / product stats */}
+      <section className="border-y border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-6 px-6 py-10 text-center sm:grid-cols-4">
+          {[
+            { stat: '60 sec', label: 'to your first wealth score' },
+            { stat: '5', label: 'wealth scores in one place' },
+            { stat: '6', label: 'early-warning signals' },
+            { stat: '₹0', label: 'to try every tool' },
+          ].map((s) => (
+            <div key={s.label}>
+              <div className="text-3xl font-bold text-brand">{s.stat}</div>
+              <div className="mt-1 text-sm text-slate-500">{s.label}</div>
+            </div>
+          ))}
         </div>
       </section>
 
