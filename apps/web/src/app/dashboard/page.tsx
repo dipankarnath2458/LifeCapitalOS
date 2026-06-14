@@ -10,6 +10,7 @@ import { Family } from '@/components/Family';
 import { Protection } from '@/components/Protection';
 import { NetWorthChart } from '@/components/NetWorthChart';
 import { AllocationDonut } from '@/components/AllocationDonut';
+import { isAdminRole } from '@/lib/admin';
 
 interface NetWorth {
   assetsMinor: number;
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const [token, setToken] = useState<string | null>(null);
   const [netWorth, setNetWorth] = useState<NetWorth | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   // Bumped when protection details change, to re-run the Early Warning scan.
   const [warningKey, setWarningKey] = useState(0);
 
@@ -48,12 +50,14 @@ export default function DashboardPage() {
 
   async function load(t: string) {
     try {
-      const [nw, accs] = await Promise.all([
+      const [nw, accs, me] = await Promise.all([
         apiGet<NetWorth>('/net-worth/current', t),
         apiGet<Account[]>('/accounts', t),
+        apiGet<{ role?: string }>('/auth/me', t).catch(() => ({ role: undefined })),
       ]);
       setNetWorth(nw);
       setAccounts(accs);
+      setIsAdmin(isAdminRole(me.role));
       // First-run: nudge new users into the guided onboarding instead of a cold dashboard.
       if (accs.length === 0 && !localStorage.getItem('lcos_onboarded')) {
         window.location.href = '/onboarding';
@@ -80,6 +84,11 @@ export default function DashboardPage() {
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Your Family Balance Sheet</h1>
         <nav className="flex items-center gap-4 text-sm">
+          {isAdmin && (
+            <a href="/admin" className="font-medium text-brand hover:underline">
+              Admin
+            </a>
+          )}
           <a href="/billing" className="text-brand hover:underline">
             Plans
           </a>
