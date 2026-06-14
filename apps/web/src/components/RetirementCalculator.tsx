@@ -1,54 +1,54 @@
 'use client';
 
 import { useState } from 'react';
-import { computeRetirement, formatMoney, money, type Money } from '@lcos/core';
+import { computeRetirement, formatMoney, type Money } from '@lcos/core';
+import { NumberField, parseField } from './NumberField';
 
 /** Retirement Readiness calculator — runs client-side via the shared @lcos/core engine. */
 export function RetirementCalculator() {
   const [form, setForm] = useState({
-    currentAge: 32,
-    retirementAge: 60,
-    yearsInRetirement: 25,
-    annualExpenses: 1200000,
-    currentCorpus: 2000000,
-    inflationRatePct: 6,
-    preReturnPct: 11,
-    postReturnPct: 7,
+    currentAge: '32',
+    retirementAge: '60',
+    yearsInRetirement: '25',
+    annualExpenses: '1200000',
+    currentCorpus: '2000000',
+    inflationRatePct: '6',
+    preReturnPct: '11',
+    postReturnPct: '7',
   });
   const [result, setResult] = useState<ReturnType<typeof computeRetirement> | null>(null);
 
   function run() {
     setResult(
       computeRetirement({
-        currentAge: form.currentAge,
-        retirementAge: form.retirementAge,
-        yearsInRetirement: form.yearsInRetirement,
-        currentAnnualExpensesMinor: form.annualExpenses * 100,
-        currentCorpusMinor: form.currentCorpus * 100,
-        inflationRatePct: form.inflationRatePct,
-        preRetirementReturnPct: form.preReturnPct,
-        postRetirementReturnPct: form.postReturnPct,
+        currentAge: parseField(form.currentAge),
+        retirementAge: parseField(form.retirementAge),
+        yearsInRetirement: parseField(form.yearsInRetirement),
+        currentAnnualExpensesMinor: parseField(form.annualExpenses) * 100,
+        currentCorpusMinor: parseField(form.currentCorpus) * 100,
+        inflationRatePct: parseField(form.inflationRatePct),
+        preRetirementReturnPct: parseField(form.preReturnPct),
+        postRetirementReturnPct: parseField(form.postReturnPct),
         currency: 'INR',
       }),
     );
   }
 
-  const n = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm({ ...form, [k]: Number(e.target.value) });
+  const set = (k: keyof typeof form) => (v: string) => setForm({ ...form, [k]: v });
 
   return (
     <div className="grid gap-8 md:grid-cols-2">
       <div className="rounded-2xl bg-white p-6 shadow">
         <h3 className="mb-4 text-lg font-semibold">Your retirement plan</h3>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Current age" value={form.currentAge} onChange={n('currentAge')} />
-          <Field label="Retirement age" value={form.retirementAge} onChange={n('retirementAge')} />
-          <Field label="Years in retirement" value={form.yearsInRetirement} onChange={n('yearsInRetirement')} />
-          <Field label="Annual expenses (₹)" value={form.annualExpenses} onChange={n('annualExpenses')} />
-          <Field label="Current corpus (₹)" value={form.currentCorpus} onChange={n('currentCorpus')} />
-          <Field label="Inflation %" value={form.inflationRatePct} onChange={n('inflationRatePct')} />
-          <Field label="Return before (%)" value={form.preReturnPct} onChange={n('preReturnPct')} />
-          <Field label="Return after (%)" value={form.postReturnPct} onChange={n('postReturnPct')} />
+          <NumberField label="Current age" mode="integer" value={form.currentAge} onChange={set('currentAge')} />
+          <NumberField label="Retirement age" mode="integer" value={form.retirementAge} onChange={set('retirementAge')} />
+          <NumberField label="Years in retirement" mode="integer" value={form.yearsInRetirement} onChange={set('yearsInRetirement')} />
+          <NumberField label="Annual expenses (₹)" value={form.annualExpenses} onChange={set('annualExpenses')} />
+          <NumberField label="Current corpus (₹)" value={form.currentCorpus} onChange={set('currentCorpus')} />
+          <NumberField label="Inflation %" mode="decimal" value={form.inflationRatePct} onChange={set('inflationRatePct')} />
+          <NumberField label="Return before (%)" mode="decimal" value={form.preReturnPct} onChange={set('preReturnPct')} />
+          <NumberField label="Return after (%)" mode="decimal" value={form.postReturnPct} onChange={set('postReturnPct')} />
         </div>
         <button
           onClick={run}
@@ -85,28 +85,6 @@ export function RetirementCalculator() {
         )}
       </div>
     </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <label className="text-sm">
-      <span className="mb-1 block text-slate-600">{label}</span>
-      <input
-        type="number"
-        value={value}
-        onChange={onChange}
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none"
-      />
-    </label>
   );
 }
 
