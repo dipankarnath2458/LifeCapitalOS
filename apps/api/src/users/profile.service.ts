@@ -19,6 +19,7 @@ export class ProfileService {
   async upsert(userId: string, dto: UpdateProfileDto) {
     const data = {
       ...(dto.fullName !== undefined ? { fullName: this.crypto.encrypt(dto.fullName)! } : {}),
+      ...(dto.dateOfBirth !== undefined ? { dateOfBirth: new Date(dto.dateOfBirth) } : {}),
       ...(dto.baseCurrency !== undefined ? { baseCurrency: dto.baseCurrency } : {}),
       ...(dto.annualIncomeMinor !== undefined
         ? { annualIncomeMinor: BigInt(dto.annualIncomeMinor) }

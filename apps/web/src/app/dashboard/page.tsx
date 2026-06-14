@@ -8,6 +8,8 @@ import { EarlyWarning } from '@/components/EarlyWarning';
 import { Goals } from '@/components/Goals';
 import { Family } from '@/components/Family';
 import { Protection } from '@/components/Protection';
+import { NetWorthChart } from '@/components/NetWorthChart';
+import { AllocationDonut } from '@/components/AllocationDonut';
 
 interface NetWorth {
   assetsMinor: number;
@@ -52,9 +54,19 @@ export default function DashboardPage() {
       ]);
       setNetWorth(nw);
       setAccounts(accs);
+      // First-run: nudge new users into the guided onboarding instead of a cold dashboard.
+      if (accs.length === 0 && !localStorage.getItem('lcos_onboarded')) {
+        window.location.href = '/onboarding';
+      }
     } catch {
       window.location.href = '/login';
     }
+  }
+
+  function logout() {
+    localStorage.removeItem('lcos_access');
+    localStorage.removeItem('lcos_refresh');
+    window.location.href = '/login';
   }
 
   async function addDemoAccount() {
@@ -65,13 +77,30 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="mb-8 text-2xl font-bold">Your Family Balance Sheet</h1>
+      <div className="mb-8 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Your Family Balance Sheet</h1>
+        <nav className="flex items-center gap-4 text-sm">
+          <a href="/billing" className="text-brand hover:underline">
+            Plans
+          </a>
+          <button onClick={logout} className="text-slate-500 hover:text-slate-800">
+            Sign out
+          </button>
+        </nav>
+      </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
         <Stat label="Net Worth" value={netWorth ? inr(netWorth.netWorthMinor) : '—'} highlight />
         <Stat label="Assets" value={netWorth ? inr(netWorth.assetsMinor) : '—'} />
         <Stat label="Liabilities" value={netWorth ? inr(netWorth.liabilitiesMinor) : '—'} />
       </div>
+
+      {token && (
+        <div className="mb-8 grid gap-8 lg:grid-cols-2">
+          <NetWorthChart token={token} />
+          <AllocationDonut token={token} />
+        </div>
+      )}
 
       <div className="rounded-2xl bg-white p-6 shadow">
         <div className="mb-4 flex items-center justify-between">

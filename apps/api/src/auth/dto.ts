@@ -72,6 +72,11 @@ export class UpdateProfileDto {
   @IsString()
   fullName?: string;
 
+  @ApiProperty({ required: false, description: 'ISO date (yyyy-mm-dd). Powers age-based scoring.' })
+  @IsOptional()
+  @IsString()
+  dateOfBirth?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
