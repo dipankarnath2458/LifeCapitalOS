@@ -23,6 +23,8 @@ const RETIREMENT_DEFAULTS = {
   inflationRatePct: 6,
   preRetirementReturnPct: 11,
   postRetirementReturnPct: 7,
+  /** Apply equity LTCG (12.5%) so the projected corpus/gap is post-tax, not gross. */
+  effectiveGainsTaxPct: 12.5,
 };
 
 const DEFAULT_AGE = 35;
@@ -143,6 +145,7 @@ export class FinancialSnapshotService {
       inflationRatePct: RETIREMENT_DEFAULTS.inflationRatePct,
       preRetirementReturnPct: RETIREMENT_DEFAULTS.preRetirementReturnPct,
       postRetirementReturnPct: RETIREMENT_DEFAULTS.postRetirementReturnPct,
+      effectiveGainsTaxPct: RETIREMENT_DEFAULTS.effectiveGainsTaxPct,
       currency,
     });
 

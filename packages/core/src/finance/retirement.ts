@@ -1,4 +1,5 @@
 import { CurrencyCode, fromMinor, Money } from '../money/money.js';
+import { netOfTaxReturnPct } from './tax.js';
 
 export interface RetirementInput {
   currentAge: number;
@@ -11,6 +12,12 @@ export interface RetirementInput {
   preRetirementReturnPct: number;
   postRetirementReturnPct: number;
   currency: CurrencyCode;
+  /**
+   * Effective tax on accumulation-phase gains (%). When set, the pre-retirement return
+   * is applied net of tax so corpus growth and the required SIP are realistic. Optional —
+   * omit for gross planning (preserves prior behaviour).
+   */
+  effectiveGainsTaxPct?: number;
 }
 
 export interface RetirementResult {
@@ -59,6 +66,12 @@ function sipForTarget(target: number, annualReturnPct: number, years: number): n
 export function computeRetirement(input: RetirementInput): RetirementResult {
   const yearsToRetire = Math.max(0, input.retirementAge - input.currentAge);
 
+  // Accumulation-phase return, optionally net of tax on gains.
+  const preReturnPct =
+    input.effectiveGainsTaxPct !== undefined
+      ? netOfTaxReturnPct(input.preRetirementReturnPct, input.effectiveGainsTaxPct)
+      : input.preRetirementReturnPct;
+
   const inflatedAnnual = futureValue(
     input.currentAnnualExpensesMinor,
     input.inflationRatePct,
@@ -72,14 +85,10 @@ export function computeRetirement(input: RetirementInput): RetirementResult {
     input.inflationRatePct,
   );
 
-  const projectedFromCurrent = futureValue(
-    input.currentCorpusMinor,
-    input.preRetirementReturnPct,
-    yearsToRetire,
-  );
+  const projectedFromCurrent = futureValue(input.currentCorpusMinor, preReturnPct, yearsToRetire);
 
   const gap = Math.max(0, requiredCorpus - projectedFromCurrent);
-  const sip = yearsToRetire > 0 ? sipForTarget(gap, input.preRetirementReturnPct, yearsToRetire) : gap;
+  const sip = yearsToRetire > 0 ? sipForTarget(gap, preReturnPct, yearsToRetire) : gap;
 
   return {
     inflatedAnnualExpenses: fromMinor(inflatedAnnual, input.currency),

@@ -12,6 +12,7 @@ export * from './finance/assetAllocation.js';
 export * from './finance/cashflow.js';
 export * from './finance/goals.js';
 export * from './finance/insurance.js';
+export * from './finance/tax.js';
 
 // Scoring & recommendations
 export * from './scoring/scores.js';
