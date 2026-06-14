@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost } from '@/lib/api';
+import { apiGet } from '@/lib/api';
+import { AddAccount } from '@/components/AddAccount';
 import { WealthCoach } from '@/components/WealthCoach';
 import { SecondOpinion } from '@/components/SecondOpinion';
 import { EarlyWarning } from '@/components/EarlyWarning';
@@ -73,12 +74,6 @@ export default function DashboardPage() {
     window.location.href = '/login';
   }
 
-  async function addDemoAccount() {
-    if (!token) return;
-    await apiPost('/accounts', { name: 'Savings', type: 'bank', currency: 'INR', balanceMinor: 50000000 }, token);
-    await load(token);
-  }
-
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8 flex items-center justify-between">
@@ -112,12 +107,12 @@ export default function DashboardPage() {
       )}
 
       <div className="rounded-2xl bg-white p-6 shadow">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Accounts</h2>
-          <button onClick={addDemoAccount} className="rounded-lg bg-brand px-3 py-2 text-sm text-white">
-            + Add account
-          </button>
-        </div>
+        <h2 className="mb-4 text-lg font-semibold">Accounts</h2>
+        {token && (
+          <div className="mb-4">
+            <AddAccount token={token} onAdded={() => load(token)} />
+          </div>
+        )}
         {accounts.length === 0 ? (
           <p className="text-slate-500">No accounts yet. Add one to build your balance sheet.</p>
         ) : (

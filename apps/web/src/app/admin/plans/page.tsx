@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { adminGet, adminSend } from '@/lib/admin';
+import { useToast } from '@/components/Toast';
 
 interface Plan {
   id: string;
@@ -13,6 +14,7 @@ interface Plan {
 
 export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
+  const toast = useToast();
 
   async function load() {
     setPlans(await adminGet<Plan[]>('/admin/plans'));
@@ -23,13 +25,24 @@ export default function PlansPage() {
   }, []);
 
   async function savePrice(p: Plan, rupees: number) {
-    await adminSend(`/admin/plans/${p.id}`, 'PUT', { priceMinor: Math.round(rupees * 100) });
-    await load();
+    if (Math.round(rupees * 100) === p.priceMinor) return;
+    try {
+      await adminSend(`/admin/plans/${p.id}`, 'PUT', { priceMinor: Math.round(rupees * 100) });
+      toast.success(`${p.name} price updated.`);
+      await load();
+    } catch {
+      toast.error('Could not update the price.');
+    }
   }
 
   async function toggleActive(p: Plan) {
-    await adminSend(`/admin/plans/${p.id}`, 'PUT', { active: !p.active });
-    await load();
+    try {
+      await adminSend(`/admin/plans/${p.id}`, 'PUT', { active: !p.active });
+      toast.success(`${p.name} ${p.active ? 'deactivated' : 'activated'}.`);
+      await load();
+    } catch {
+      toast.error('Could not update the plan.');
+    }
   }
 
   return (

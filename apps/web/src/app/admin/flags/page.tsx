@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { adminGet, adminSend } from '@/lib/admin';
+import { useToast } from '@/components/Toast';
 
 interface Flag {
   key: string;
@@ -11,6 +12,7 @@ interface Flag {
 
 export default function FlagsPage() {
   const [flags, setFlags] = useState<Flag[]>([]);
+  const toast = useToast();
 
   async function load() {
     setFlags(await adminGet<Flag[]>('/admin/flags'));
@@ -21,8 +23,13 @@ export default function FlagsPage() {
   }, []);
 
   async function toggle(f: Flag) {
-    await adminSend(`/admin/flags/${f.key}`, 'PUT', { enabled: !f.enabled });
-    await load();
+    try {
+      await adminSend(`/admin/flags/${f.key}`, 'PUT', { enabled: !f.enabled });
+      toast.success(`${f.key} turned ${f.enabled ? 'off' : 'on'}.`);
+      await load();
+    } catch {
+      toast.error('Could not toggle the flag.');
+    }
   }
 
   return (

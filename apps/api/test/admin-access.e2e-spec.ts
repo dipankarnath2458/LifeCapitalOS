@@ -75,4 +75,34 @@ describe('Admin access e2e', () => {
       .expect(200);
     expect(Array.isArray(flags.body)).toBe(true);
   });
+
+  it('lists users with a paginated shape and respects take', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/admin/users?take=1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(typeof res.body.total).toBe('number');
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeLessThanOrEqual(1);
+  });
+
+  it('lets a superadmin change a user role (powering the role dropdown)', async () => {
+    const me = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    const id = me.body.id as string;
+
+    await request(app.getHttpServer())
+      .patch(`/api/admin/users/${id}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ role: 'ANALYST' })
+      .expect(200);
+
+    const after = await request(app.getHttpServer())
+      .get(`/api/admin/users?search=${encodeURIComponent(userEmail)}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(after.body.data[0].role).toBe('ANALYST');
+  });
 });
