@@ -37,9 +37,10 @@ function securityHeaders(_req: Request, res: Response, next: NextFunction): void
  * Pass an existing Express instance to wrap it (serverless); omit it for local.
  */
 export async function createApp(expressInstance?: Express): Promise<INestApplication> {
+  // rawBody is needed to verify the Razorpay webhook HMAC against the exact payload.
   const app = expressInstance
-    ? await NestFactory.create(AppModule, new ExpressAdapter(expressInstance))
-    : await NestFactory.create(AppModule);
+    ? await NestFactory.create(AppModule, new ExpressAdapter(expressInstance), { rawBody: true })
+    : await NestFactory.create(AppModule, { rawBody: true });
 
   const config = app.get(ConfigService);
 
