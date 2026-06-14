@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
+import { useToast } from '@/components/Toast';
 
 interface Plan {
   id: string;
@@ -33,7 +34,7 @@ export default function BillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [ent, setEnt] = useState<Entitlements | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
@@ -57,13 +58,12 @@ export default function BillingPage() {
   async function subscribe(tier: string) {
     if (!token) return;
     setBusy(tier);
-    setMsg(null);
     try {
       const res = await apiPost<{ status: string }>('/billing/subscribe', { tier }, token);
-      setMsg(`Subscription ${res.status}. Your new features are now unlocked.`);
+      toast.success(`Subscription ${res.status}. Your new features are now unlocked.`);
       await load(token);
     } catch {
-      setMsg('Could not start the subscription. Please try again.');
+      toast.error('Could not start the subscription. Please try again.');
     } finally {
       setBusy(null);
     }
@@ -79,8 +79,6 @@ export default function BillingPage() {
           ← Back to dashboard
         </a>
       </div>
-
-      {msg && <div className="mb-6 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">{msg}</div>}
 
       <div className="grid gap-6 md:grid-cols-3">
         {plans.map((plan) => {
