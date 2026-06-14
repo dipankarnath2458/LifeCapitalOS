@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { computeWealthHealth, topWealthActions, type WealthHealthReport } from '@lcos/core';
+import { NumberField, parseField } from './NumberField';
 
 /**
  * Wealth Health Check — the lead-generation engine. Runs entirely client-side using
@@ -14,52 +15,52 @@ const BAND_COLOR: Record<string, string> = {
 };
 
 export function HealthCheck() {
+  // Values are kept as sanitized digit strings; NumberField formats them for display.
   const [form, setForm] = useState({
-    age: 35,
-    monthlyExpenses: 50000,
-    emergencyFund: 150000,
-    annualIncome: 2000000,
-    lifeCover: 5000000,
+    age: '35',
+    monthlyExpenses: '50000',
+    emergencyFund: '150000',
+    annualIncome: '2000000',
+    lifeCover: '5000000',
     hasHealthInsurance: true,
-    investments: 1000000,
-    totalAssets: 10000000,
-    totalLiabilities: 3000000,
+    investments: '1000000',
+    totalAssets: '10000000',
+    totalLiabilities: '3000000',
   });
   const [report, setReport] = useState<WealthHealthReport | null>(null);
 
   function run() {
     const r = computeWealthHealth({
-      age: form.age,
-      monthlyExpensesMinor: form.monthlyExpenses * 100,
-      emergencyFundMinor: form.emergencyFund * 100,
-      annualIncomeMinor: form.annualIncome * 100,
-      existingLifeCoverMinor: form.lifeCover * 100,
+      age: parseField(form.age),
+      monthlyExpensesMinor: parseField(form.monthlyExpenses) * 100,
+      emergencyFundMinor: parseField(form.emergencyFund) * 100,
+      annualIncomeMinor: parseField(form.annualIncome) * 100,
+      existingLifeCoverMinor: parseField(form.lifeCover) * 100,
       hasHealthInsurance: form.hasHealthInsurance,
-      investmentAssetsMinor: form.investments * 100,
-      totalAssetsMinor: form.totalAssets * 100,
-      totalLiabilitiesMinor: form.totalLiabilities * 100,
+      investmentAssetsMinor: parseField(form.investments) * 100,
+      totalAssetsMinor: parseField(form.totalAssets) * 100,
+      totalLiabilitiesMinor: parseField(form.totalLiabilities) * 100,
       retirementRequiredCorpusMinor: 0,
       retirementCorpusGapMinor: 0,
     });
     setReport(r);
   }
 
-  const num = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm({ ...form, [k]: Number(e.target.value) });
+  const set = (k: keyof typeof form) => (v: string) => setForm({ ...form, [k]: v });
 
   return (
     <div className="grid gap-8 md:grid-cols-2">
       <div className="rounded-2xl bg-white p-6 shadow">
         <h3 className="mb-4 text-lg font-semibold">Your numbers</h3>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Age" value={form.age} onChange={num('age')} />
-          <Field label="Monthly expenses (₹)" value={form.monthlyExpenses} onChange={num('monthlyExpenses')} />
-          <Field label="Emergency fund (₹)" value={form.emergencyFund} onChange={num('emergencyFund')} />
-          <Field label="Annual income (₹)" value={form.annualIncome} onChange={num('annualIncome')} />
-          <Field label="Life cover (₹)" value={form.lifeCover} onChange={num('lifeCover')} />
-          <Field label="Investments (₹)" value={form.investments} onChange={num('investments')} />
-          <Field label="Total assets (₹)" value={form.totalAssets} onChange={num('totalAssets')} />
-          <Field label="Total liabilities (₹)" value={form.totalLiabilities} onChange={num('totalLiabilities')} />
+          <NumberField label="Age" mode="integer" value={form.age} onChange={set('age')} />
+          <NumberField label="Monthly expenses (₹)" value={form.monthlyExpenses} onChange={set('monthlyExpenses')} />
+          <NumberField label="Emergency fund (₹)" value={form.emergencyFund} onChange={set('emergencyFund')} />
+          <NumberField label="Annual income (₹)" value={form.annualIncome} onChange={set('annualIncome')} />
+          <NumberField label="Life cover (₹)" value={form.lifeCover} onChange={set('lifeCover')} />
+          <NumberField label="Investments (₹)" value={form.investments} onChange={set('investments')} />
+          <NumberField label="Total assets (₹)" value={form.totalAssets} onChange={set('totalAssets')} />
+          <NumberField label="Total liabilities (₹)" value={form.totalLiabilities} onChange={set('totalLiabilities')} />
         </div>
         <label className="mt-4 flex items-center gap-2 text-sm">
           <input
@@ -115,27 +116,5 @@ export function HealthCheck() {
         )}
       </div>
     </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <label className="text-sm">
-      <span className="mb-1 block text-slate-600">{label}</span>
-      <input
-        type="number"
-        value={value}
-        onChange={onChange}
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-brand focus:outline-none"
-      />
-    </label>
   );
 }
