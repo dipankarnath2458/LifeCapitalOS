@@ -125,6 +125,13 @@ export class AdminService {
     return { ok: true };
   }
 
+  listFeatureOverrides(userId: string) {
+    return this.prisma.featureOverride.findMany({
+      where: { userId },
+      select: { feature: true, enabled: true },
+    });
+  }
+
   async setFeatureOverride(actor: Actor, userId: string, feature: string, enabled: boolean) {
     const row = await this.prisma.featureOverride.upsert({
       where: { userId_feature: { userId, feature } },
@@ -140,6 +147,20 @@ export class AdminService {
       metadata: { feature, enabled },
     });
     return row;
+  }
+
+  /** Remove an override so the feature reverts to the user's tier default. */
+  async clearFeatureOverride(actor: Actor, userId: string, feature: string) {
+    await this.prisma.featureOverride.deleteMany({ where: { userId, feature } });
+    await this.audit.log({
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: 'user.feature_override_cleared',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { feature },
+    });
+    return { ok: true };
   }
 
   // ---- Plans ----

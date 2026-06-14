@@ -105,4 +105,58 @@ describe('Admin access e2e', () => {
       .expect(200);
     expect(after.body.data[0].role).toBe('ANALYST');
   });
+
+  it('manages per-user feature overrides (grant, list, clear)', async () => {
+    const me = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .expect(200);
+    const id = me.body.id as string;
+
+    await request(app.getHttpServer())
+      .post(`/api/admin/users/${id}/feature-override`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ feature: 'ai_recommendations', enabled: true })
+      .expect(201);
+
+    const listed = await request(app.getHttpServer())
+      .get(`/api/admin/users/${id}/feature-overrides`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(listed.body).toEqual([{ feature: 'ai_recommendations', enabled: true }]);
+
+    await request(app.getHttpServer())
+      .delete(`/api/admin/users/${id}/feature-override/ai_recommendations`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const cleared = await request(app.getHttpServer())
+      .get(`/api/admin/users/${id}/feature-overrides`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(cleared.body).toEqual([]);
+  });
+
+  it('lets a superadmin erase a user', async () => {
+    const email = `erase_${Date.now()}@example.com`;
+    const reg = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ email, password: 'Passw0rd1', fullName: 'Throwaway' });
+    const id = (
+      await request(app.getHttpServer())
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${reg.body.accessToken}`)
+    ).body.id as string;
+
+    await request(app.getHttpServer())
+      .delete(`/api/admin/users/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const search = await request(app.getHttpServer())
+      .get(`/api/admin/users?search=${encodeURIComponent(email)}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(search.body.data).toHaveLength(0);
+  });
 });

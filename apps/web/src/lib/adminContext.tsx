@@ -12,3 +12,8 @@ export function useAdminRole(): string | null {
 export function isSuperadmin(role: string | null | undefined): boolean {
   return role === 'SUPERADMIN';
 }
+
+/** ADMIN or SUPERADMIN — the roles allowed to manage plans, flags and feature overrides. */
+export function isAdminLevel(role: string | null | undefined): boolean {
+  return role === 'ADMIN' || role === 'SUPERADMIN';
+}
