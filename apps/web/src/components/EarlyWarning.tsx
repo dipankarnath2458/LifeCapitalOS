@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
+import { BAND_META, StatusBadge, StatusDot, type Band } from './Status';
 
-type Band = 'green' | 'yellow' | 'red';
 interface Signal {
   key: string;
   label: string;
@@ -17,16 +17,6 @@ interface Report {
   yellowCount: number;
 }
 
-const DOT: Record<Band, string> = {
-  green: 'bg-emerald-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-rose-500',
-};
-const RING: Record<Band, string> = {
-  green: 'ring-emerald-200 bg-emerald-50',
-  yellow: 'ring-amber-200 bg-amber-50',
-  red: 'ring-rose-200 bg-rose-50',
-};
 const HEAD: Record<Band, string> = {
   green: 'All healthy',
   yellow: 'Attention needed',
@@ -43,15 +33,12 @@ export function EarlyWarning({ token }: { token: string }) {
   }, [token]);
 
   return (
-    <div className="rounded-2xl bg-white p-6 shadow">
+    <section className="rounded-2xl bg-white p-6 shadow" aria-labelledby="ew-heading">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Wealth Early Warning</h2>
-        {data && (
-          <span className={`flex items-center gap-2 rounded-full px-3 py-1 text-sm ring-1 ${RING[data.overall]}`}>
-            <span className={`h-2.5 w-2.5 rounded-full ${DOT[data.overall]}`} />
-            {HEAD[data.overall]}
-          </span>
-        )}
+        <h2 id="ew-heading" className="text-lg font-semibold">
+          Wealth Early Warning
+        </h2>
+        {data && <StatusBadge band={data.overall} headline={HEAD[data.overall]} />}
       </div>
 
       {err ? (
@@ -61,16 +48,19 @@ export function EarlyWarning({ token }: { token: string }) {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
           {data.signals.map((s) => (
-            <li key={s.key} className={`rounded-xl p-3 ring-1 ${RING[s.status]}`}>
+            <li key={s.key} className={`rounded-xl p-3 ring-1 ${BAND_META[s.status].ring}`}>
               <div className="flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${DOT[s.status]}`} />
+                <StatusDot band={s.status} />
                 <span className="text-sm font-medium">{s.label}</span>
+                <span className={`ml-auto text-xs font-medium ${BAND_META[s.status].text}`}>
+                  {BAND_META[s.status].label}
+                </span>
               </div>
               <p className="mt-1 text-xs text-slate-600">{s.detail}</p>
             </li>
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }

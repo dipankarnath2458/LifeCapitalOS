@@ -3,16 +3,7 @@
 import { useState } from 'react';
 import { computeWealthHealth, topWealthActions, type WealthHealthReport } from '@lcos/core';
 import { NumberField, parseField } from './NumberField';
-
-/**
- * Wealth Health Check — the lead-generation engine. Runs entirely client-side using
- * the shared @lcos/core scoring, so it delivers an instant score with no signup.
- */
-const BAND_COLOR: Record<string, string> = {
-  green: 'bg-emerald-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-rose-500',
-};
+import { BAND_META, type Band } from './Status';
 
 export function HealthCheck() {
   // Values are kept as sanitized digit strings; NumberField formats them for display.
@@ -89,20 +80,32 @@ export function HealthCheck() {
               <span className="text-slate-500">/ 100 overall</span>
             </div>
             <div className="space-y-3">
-              {report.subScores.map((s) => (
-                <div key={s.key}>
-                  <div className="flex justify-between text-sm">
-                    <span>{s.label}</span>
-                    <span className="font-medium">{s.score}</span>
-                  </div>
-                  <div className="h-2 w-full rounded bg-slate-100">
+              {report.subScores.map((s) => {
+                const band = s.band as Band;
+                return (
+                  <div key={s.key}>
+                    <div className="flex justify-between text-sm">
+                      <span>{s.label}</span>
+                      <span className="font-medium">
+                        {s.score}
+                        <span className={`ml-2 text-xs font-medium ${BAND_META[band].text}`}>
+                          {BAND_META[band].label}
+                        </span>
+                      </span>
+                    </div>
                     <div
-                      className={`h-2 rounded ${BAND_COLOR[s.band]}`}
-                      style={{ width: `${s.score}%` }}
-                    />
+                      className="h-2 w-full rounded bg-slate-100"
+                      role="progressbar"
+                      aria-label={`${s.label}: ${s.score} of 100, ${BAND_META[band].label}`}
+                      aria-valuenow={s.score}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div className={`h-2 rounded ${BAND_META[band].dot}`} style={{ width: `${s.score}%` }} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-6">
               <h4 className="mb-2 font-semibold">Top actions</h4>

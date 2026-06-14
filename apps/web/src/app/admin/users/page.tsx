@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { adminGet, adminSend } from '@/lib/admin';
-import { isSuperadmin, useAdminRole } from '@/lib/adminContext';
+import { isAdminLevel, isSuperadmin, useAdminRole } from '@/lib/adminContext';
 import { useToast } from '@/components/Toast';
 import { Pager } from '@/components/Pager';
+import { FeatureOverrides } from '@/components/FeatureOverrides';
 
 interface AdminUser {
   id: string;
@@ -25,8 +26,11 @@ export default function UsersPage() {
   const [total, setTotal] = useState(0);
   const [skip, setSkip] = useState(0);
   const [search, setSearch] = useState('');
+  const [featuresFor, setFeaturesFor] = useState<AdminUser | null>(null);
   const role = useAdminRole();
   const canChangeRole = isSuperadmin(role);
+  const canManageFeatures = isAdminLevel(role);
+  const canErase = isSuperadmin(role);
   const toast = useToast();
 
   const load = useCallback(
@@ -76,6 +80,25 @@ export default function UsersPage() {
       await load();
     } catch {
       toast.error('Could not change the role.');
+    }
+  }
+
+  async function erase(u: AdminUser) {
+    const ident = u.email ?? u.phone ?? '';
+    const typed = window.prompt(
+      `This permanently deletes ${ident} and all their data. Type their email/phone to confirm:`,
+    );
+    if (typed == null) return;
+    if (typed.trim() !== ident) {
+      toast.error('Confirmation did not match. Nothing was deleted.');
+      return;
+    }
+    try {
+      await adminSend(`/admin/users/${u.id}`, 'DELETE');
+      toast.success('User erased.');
+      await load();
+    } catch {
+      toast.error('Could not erase the user.');
     }
   }
 
@@ -162,9 +185,19 @@ export default function UsersPage() {
                   <button onClick={() => toggleStatus(u)} className="text-brand hover:underline">
                     {u.status === 'active' ? 'Suspend' : 'Reactivate'}
                   </button>
+                  {canManageFeatures && (
+                    <button onClick={() => setFeaturesFor(u)} className="text-slate-600 hover:underline">
+                      Features
+                    </button>
+                  )}
                   <button onClick={() => exportData(u)} className="text-slate-500 hover:underline">
                     Export
                   </button>
+                  {canErase && (
+                    <button onClick={() => erase(u)} className="text-rose-600 hover:underline">
+                      Erase
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -179,6 +212,14 @@ export default function UsersPage() {
         </table>
         <Pager skip={skip} take={TAKE} total={total} onChange={(s) => load(s)} />
       </div>
+
+      {featuresFor && (
+        <FeatureOverrides
+          userId={featuresFor.id}
+          userLabel={featuresFor.email ?? featuresFor.phone ?? featuresFor.id}
+          onClose={() => setFeaturesFor(null)}
+        />
+      )}
     </div>
   );
 }

@@ -41,6 +41,12 @@ export class AdminController {
     return this.admin.setUserRole(actor, id, role);
   }
 
+  @Get('users/:id/feature-overrides')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  featureOverrides(@Param('id') id: string) {
+    return this.admin.listFeatureOverrides(id);
+  }
+
   @Post('users/:id/feature-override')
   @Roles(Role.ADMIN, Role.SUPERADMIN)
   override(
@@ -49,6 +55,12 @@ export class AdminController {
     @Body() body: { feature: string; enabled: boolean },
   ) {
     return this.admin.setFeatureOverride(actor, id, body.feature, body.enabled);
+  }
+
+  @Delete('users/:id/feature-override/:feature')
+  @Roles(Role.ADMIN, Role.SUPERADMIN)
+  clearOverride(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Param('feature') feature: string) {
+    return this.admin.clearFeatureOverride(actor, id, feature);
   }
 
   @Get('users/:id/export')

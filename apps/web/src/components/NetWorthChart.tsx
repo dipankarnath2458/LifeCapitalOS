@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { apiGet, apiPost } from '@/lib/api';
+import { Skeleton } from './Skeleton';
 
 interface Snapshot {
   assetsMinor: number;
@@ -74,7 +75,7 @@ export function NetWorthChart({ token }: { token: string }) {
         </button>
       </div>
       {data === null ? (
-        <p className="text-slate-500">Loading…</p>
+        <Skeleton className="h-64 w-full" />
       ) : points.length < 2 ? (
         <p className="text-slate-500">
           Capture a snapshot now and again over time to see your net-worth trend.

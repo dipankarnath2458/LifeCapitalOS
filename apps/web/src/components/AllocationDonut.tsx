@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { allocationFromValues, type Allocation, type AssetClass } from '@lcos/core';
 import { apiGet } from '@/lib/api';
+import { Skeleton } from './Skeleton';
 
 interface Account {
   id: string;
@@ -54,7 +55,10 @@ export function AllocationDonut({ token }: { token: string }) {
     <div className="rounded-2xl bg-white p-6 shadow">
       <h2 className="mb-4 text-lg font-semibold">Asset Allocation</h2>
       {accounts === null ? (
-        <p className="text-slate-500">Loading…</p>
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-48 w-48 rounded-full" />
+          <Skeleton className="h-24 flex-1" />
+        </div>
       ) : slices.length === 0 ? (
         <p className="text-slate-500">
           Add investment accounts with an asset class to see your allocation.
