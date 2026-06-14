@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  resolveEntitlements,
+  defaultTierFeatures,
+  parseFeatureKeys,
+  resolveEntitlementsFromPlans,
   type FeatureKey,
   type PlanTier,
 } from '@lcos/core';
@@ -40,7 +42,18 @@ export class BillingService {
     const overrideRows = await this.prisma.featureOverride.findMany({ where: { userId } });
     const overrides: Partial<Record<FeatureKey, boolean>> = {};
     for (const o of overrideRows) overrides[o.feature as FeatureKey] = o.enabled;
-    const resolved = resolveEntitlements(tier, overrides);
+
+    // Source per-tier features from the plans table so admins can change access by
+    // editing a plan. Fall back to the code defaults for any tier with no features set.
+    const plans = await this.prisma.plan.findMany();
+    const planFeatures: Partial<Record<PlanTier, FeatureKey[]>> = {};
+    for (const t of ['free', 'premium', 'family_cfo'] as PlanTier[]) {
+      const plan = plans.find((p) => p.tier === t);
+      const parsed = plan ? parseFeatureKeys(plan.features) : [];
+      planFeatures[t] = parsed.length > 0 ? parsed : defaultTierFeatures(t);
+    }
+
+    const resolved = resolveEntitlementsFromPlans(tier, planFeatures, overrides);
     return { tier, features: Array.from(resolved.features) };
   }
 

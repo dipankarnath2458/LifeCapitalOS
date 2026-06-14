@@ -68,6 +68,42 @@ export function resolveEntitlements(
   return { tier, features, overrides };
 }
 
+/** The built-in (code-default) feature list for a tier — used as a fallback. */
+export function defaultTierFeatures(tier: PlanTier): FeatureKey[] {
+  return [...TIER_FEATURES[tier]];
+}
+
+/** Coerce an arbitrary JSON value (e.g. Plan.features) into known feature keys. */
+export function parseFeatureKeys(value: unknown): FeatureKey[] {
+  if (!Array.isArray(value)) return [];
+  const known = new Set<string>(allFeatureKeys());
+  return value.filter((v): v is FeatureKey => typeof v === 'string' && known.has(v));
+}
+
+/**
+ * Data-driven entitlements: like resolveEntitlements, but the per-tier feature lists come
+ * from the plans table instead of the built-in map, so editing a plan changes access.
+ * Higher tiers still inherit lower-tier features (cascade by tier order).
+ */
+export function resolveEntitlementsFromPlans(
+  tier: PlanTier,
+  planFeatures: Partial<Record<PlanTier, FeatureKey[]>>,
+  overrides?: Partial<Record<FeatureKey, boolean>>,
+): Entitlements {
+  const features = new Set<FeatureKey>();
+  for (const t of TIER_ORDER) {
+    for (const f of planFeatures[t] ?? []) features.add(f);
+    if (t === tier) break;
+  }
+  if (overrides) {
+    for (const [key, enabled] of Object.entries(overrides)) {
+      if (enabled) features.add(key as FeatureKey);
+      else features.delete(key as FeatureKey);
+    }
+  }
+  return { tier, features, overrides };
+}
+
 export function can(entitlements: Entitlements, feature: FeatureKey): boolean {
   return entitlements.features.has(feature);
 }

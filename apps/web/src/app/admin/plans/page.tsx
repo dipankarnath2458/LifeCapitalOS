@@ -10,14 +10,23 @@ interface Plan {
   name: string;
   priceMinor: number;
   active: boolean;
+  features: string[];
 }
+
+const featureLabel = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [allFeatures, setAllFeatures] = useState<string[]>([]);
   const toast = useToast();
 
   async function load() {
-    setPlans(await adminGet<Plan[]>('/admin/plans'));
+    const [p, f] = await Promise.all([
+      adminGet<Plan[]>('/admin/plans'),
+      adminGet<string[]>('/admin/features'),
+    ]);
+    setPlans(p);
+    setAllFeatures(f);
   }
 
   useEffect(() => {
@@ -56,10 +65,25 @@ export default function PlansPage() {
     }
   }
 
+  async function toggleFeature(p: Plan, feature: string) {
+    const has = p.features.includes(feature);
+    const features = has ? p.features.filter((f) => f !== feature) : [...p.features, feature];
+    try {
+      await adminSend(`/admin/plans/${p.id}`, 'PUT', { features });
+      toast.success(`${featureLabel(feature)} ${has ? 'removed from' : 'added to'} ${p.name}.`);
+      await load();
+    } catch {
+      toast.error('Could not update plan features.');
+    }
+  }
+
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Plans &amp; Billing</h1>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <h1 className="mb-2 text-2xl font-bold">Plans &amp; Billing</h1>
+      <p className="mb-6 text-sm text-slate-500">
+        Features assigned here drive access. Higher tiers inherit lower-tier features.
+      </p>
+      <div className="grid gap-4 lg:grid-cols-3">
         {plans.map((p) => (
           <div key={p.id} className="rounded-2xl bg-white p-6 shadow">
             <label className="text-sm text-slate-600">Name</label>
@@ -84,6 +108,24 @@ export default function PlansPage() {
             >
               {p.active ? 'Active' : 'Inactive'}
             </button>
+
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <div className="mb-2 text-sm font-medium text-slate-600">Features granted by this tier</div>
+              <ul className="space-y-1">
+                {allFeatures.map((f) => (
+                  <li key={f}>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={p.features.includes(f)}
+                        onChange={() => toggleFeature(p, f)}
+                      />
+                      <span>{featureLabel(f)}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         ))}
       </div>
