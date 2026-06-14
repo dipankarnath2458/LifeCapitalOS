@@ -30,9 +30,7 @@ export interface AppConfig {
 export default (): AppConfig => ({
   port: parseInt(process.env.PORT ?? '4000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
-  corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:3001').split(
-    ',',
-  ),
+  corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000').split(','),
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret-change-me',
     refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret-change-me',
