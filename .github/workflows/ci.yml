@@ -59,5 +59,10 @@ jobs:
       - name: Apply migrations
         run: pnpm --filter @lcos/api exec prisma migrate deploy
 
+      # The admin-access e2e suite signs in as the seeded SUPERADMIN, so the DB
+      # must be seeded before e2e runs.
+      - name: Seed database
+        run: pnpm db:seed
+
       - name: API e2e tests
         run: pnpm --filter @lcos/api test:e2e
