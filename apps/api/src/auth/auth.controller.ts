@@ -91,7 +91,10 @@ export class AuthController {
       profile: record?.profile
         ? { ...record.profile, fullName: this.crypto.decrypt(record.profile.fullName) }
         : null,
-      tier: record?.subscription?.plan.tier ?? 'free',
+      // Only an active subscription grants a paid tier; cancelled/past-due fall back to
+      // free, matching the entitlements the API actually enforces.
+      tier:
+        record?.subscription?.status === 'active' ? record.subscription.plan.tier : 'free',
     };
   }
 }

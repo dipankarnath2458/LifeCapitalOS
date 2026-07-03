@@ -41,6 +41,18 @@ describe('debt payoff', () => {
     expect(r.months).toBeGreaterThan(0);
     expect(r.months).toBeLessThan(1200);
     expect(r.payoffOrder).toHaveLength(2);
+    expect(r.converged).toBe(true);
+  });
+
+  it('flags non-convergence when the budget cannot cover interest', () => {
+    // A 36% card with no minimum and no extra budget can never be paid down.
+    const stuck = [
+      { id: 'a', name: 'Card', principalMinor: 50_000_00, annualInterestRatePct: 36, minimumPaymentMinor: 0 },
+    ];
+    const r = simulateDebtPayoff(stuck, 0, 'avalanche', 'INR');
+    expect(r.converged).toBe(false);
+    expect(r.months).toBe(1200);
+    expect(r.payoffOrder).toHaveLength(0);
   });
 
   it('avalanche targets the highest rate first', () => {

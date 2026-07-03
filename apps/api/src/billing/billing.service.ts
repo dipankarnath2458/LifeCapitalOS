@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import {
+  can,
   defaultTierFeatures,
   parseFeatureKeys,
+  resolveEntitlements,
   resolveEntitlementsFromPlans,
   type FeatureKey,
   type PlanTier,
@@ -55,6 +57,19 @@ export class BillingService {
 
     const resolved = resolveEntitlementsFromPlans(tier, planFeatures, overrides);
     return { tier, features: Array.from(resolved.features) };
+  }
+
+  /**
+   * Throw 403 unless the user's resolved entitlements include `feature`. Centralises the
+   * tier + per-user-override gate so feature controllers don't re-implement it.
+   */
+  async assertFeature(userId: string, feature: FeatureKey, message?: string): Promise<void> {
+    const { tier, features } = await this.entitlements(userId);
+    const ent = resolveEntitlements(tier);
+    ent.features = new Set(features as FeatureKey[]);
+    if (!can(ent, feature)) {
+      throw new ForbiddenException(message ?? 'This feature is not available on your plan.');
+    }
   }
 
   async plans() {

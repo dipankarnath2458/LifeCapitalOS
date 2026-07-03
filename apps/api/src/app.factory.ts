@@ -6,6 +6,7 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { assertProductionConfig } from './config/configuration';
 
 // Make BigInt serializable in JSON responses.
 (BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function () {
@@ -43,6 +44,16 @@ export async function createApp(expressInstance?: Express): Promise<INestApplica
     : await NestFactory.create(AppModule, { rawBody: true });
 
   const config = app.get(ConfigService);
+
+  // Fail fast if a production deploy is still using built-in dev secrets.
+  assertProductionConfig({
+    nodeEnv: config.get<string>('nodeEnv') ?? 'development',
+    jwt: {
+      accessSecret: config.get<string>('jwt.accessSecret') ?? '',
+      refreshSecret: config.get<string>('jwt.refreshSecret') ?? '',
+    },
+    encryptionKey: config.get<string>('encryptionKey') ?? '',
+  });
 
   app.setGlobalPrefix('api');
   app.use(securityHeaders);
