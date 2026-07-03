@@ -9,7 +9,6 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
-import { can, resolveEntitlements, type FeatureKey } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingModule } from '../billing/billing.module';
 import { BillingService } from '../billing/billing.service';
@@ -60,12 +59,11 @@ class AaService {
     const flag = await this.prisma.featureFlag.findUnique({ where: { key: 'aa.enabled' } });
     if (!flag?.enabled) throw new ForbiddenException('Account Aggregation is not enabled.');
 
-    const { tier, features } = await this.billing.entitlements(userId);
-    const ent = resolveEntitlements(tier);
-    ent.features = new Set(features as FeatureKey[]);
-    if (!can(ent, 'account_aggregation')) {
-      throw new ForbiddenException('Account Aggregation is a Premium feature. Upgrade to unlock it.');
-    }
+    await this.billing.assertFeature(
+      userId,
+      'account_aggregation',
+      'Account Aggregation is a Premium feature. Upgrade to unlock it.',
+    );
   }
 
   /**

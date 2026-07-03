@@ -28,13 +28,14 @@ jobs:
     env:
       DATABASE_URL: postgresql://lcos:lcos@localhost:5432/lcos?schema=public
       FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      # e2e auth flows assert the dev OTP/reset token is echoed back; opt in for CI only.
+      SANDBOX_RETURN_SECRETS: 'true'
 
     steps:
       - uses: actions/checkout@v4
 
+      # Use the pnpm version pinned in package.json's "packageManager" field.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:

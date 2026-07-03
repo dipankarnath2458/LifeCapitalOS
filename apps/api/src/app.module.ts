@@ -18,7 +18,7 @@ import { NetWorthModule } from './networth/networth.module';
 import { ToolsModule } from './tools/tools.module';
 import { BillingModule } from './billing/billing.module';
 import { AdminModule } from './admin/admin.module';
-import { AiModule } from './ai/ai.controller';
+import { AiModule } from './ai/ai.module';
 import { AaModule } from './aa/aa.module';
 import { HealthModule } from './health/health.module';
 

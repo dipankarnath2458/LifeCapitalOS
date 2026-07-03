@@ -16,6 +16,11 @@ export interface DebtPayoffResult {
   totalInterestMinor: number;
   /** Order in which debts are cleared. */
   payoffOrder: { id: string; name: string; clearedInMonth: number }[];
+  /**
+   * False when the simulation hit the safety cap with debts still outstanding — e.g. the
+   * budget doesn't cover interest. `months` is then the cap, not a real payoff horizon.
+   */
+  converged: boolean;
   currency: CurrencyCode;
 }
 
@@ -86,6 +91,7 @@ export function simulateDebtPayoff(
     months: month,
     totalInterestMinor: totalInterest,
     payoffOrder,
+    converged: !balances.some((d) => d.balance > 0),
     currency,
   };
 }

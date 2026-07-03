@@ -19,6 +19,9 @@ export interface TokenPair {
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const RESET_TTL_MS = 30 * 60 * 1000;
+// Per-target send throttle to prevent SMS/email bombing and unbounded row growth.
+const SEND_WINDOW_MS = 15 * 60 * 1000;
+const MAX_SENDS_PER_WINDOW = 3;
 
 @Injectable()
 export class AuthService {
@@ -33,6 +36,7 @@ export class AuthService {
   // ---- OTP (primary for India phone-first onboarding) ----
 
   async requestOtp(channel: 'phone' | 'email', target: string): Promise<{ sent: true; devCode?: string }> {
+    await this.assertSendAllowed(channel, target);
     const code = randomInt(100000, 999999).toString();
     await this.prisma.otpCode.create({
       data: {
@@ -42,9 +46,22 @@ export class AuthService {
         expiresAt: new Date(Date.now() + OTP_TTL_MS),
       },
     });
-    // In production this dispatches via SMS/email provider. In sandbox we return it.
-    const sandbox = this.config.get<string>('nodeEnv') !== 'production';
-    return sandbox ? { sent: true, devCode: code } : { sent: true };
+    // In production this dispatches via SMS/email provider. Codes are only echoed back
+    // when SANDBOX_RETURN_SECRETS is explicitly enabled (never in production).
+    return this.config.get<boolean>('returnDevSecrets') ? { sent: true, devCode: code } : { sent: true };
+  }
+
+  /**
+   * Windowed per-target throttle for one-time codes. Rejects once a target has been sent
+   * MAX_SENDS_PER_WINDOW codes within SEND_WINDOW_MS, independent of the global rate limit.
+   */
+  private async assertSendAllowed(channel: string, target: string): Promise<void> {
+    const recent = await this.prisma.otpCode.count({
+      where: { channel, target, createdAt: { gt: new Date(Date.now() - SEND_WINDOW_MS) } },
+    });
+    if (recent >= MAX_SENDS_PER_WINDOW) {
+      throw new BadRequestException('Too many requests. Please wait a few minutes and try again.');
+    }
   }
 
   async verifyOtp(channel: 'phone' | 'email', target: string, code: string): Promise<TokenPair> {
@@ -145,6 +162,9 @@ export class AuthService {
    * In production the token would be emailed instead of returned.
    */
   async forgotPassword(email: string): Promise<{ sent: true; devToken?: string }> {
+    // Throttle by target regardless of whether the account exists, so this can't be used
+    // to probe registration state via differing rate-limit behaviour.
+    await this.assertSendAllowed('password_reset', email);
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) return { sent: true };
 
@@ -164,8 +184,7 @@ export class AuthService {
       entityType: 'User',
       entityId: user.id,
     });
-    const sandbox = this.config.get<string>('nodeEnv') !== 'production';
-    return sandbox ? { sent: true, devToken: token } : { sent: true };
+    return this.config.get<boolean>('returnDevSecrets') ? { sent: true, devToken: token } : { sent: true };
   }
 
   /** Complete a password reset with the token from forgotPassword. */

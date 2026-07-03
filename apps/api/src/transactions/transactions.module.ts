@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Injectable, Module, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Injectable,
+  Module,
+  NotFoundException,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 import { summarizeCashflow, type CurrencyCode } from '@lcos/core';
@@ -31,6 +41,11 @@ class TransactionsService {
   }
 
   async create(userId: string, dto: CreateTransactionDto) {
+    // A transaction may only be attached to an account the caller owns.
+    const account = await this.prisma.account.findUnique({ where: { id: dto.accountId } });
+    if (!account) throw new NotFoundException('Account not found');
+    if (account.userId !== userId) throw new ForbiddenException();
+
     const tx = await this.prisma.transaction.create({
       data: {
         userId,
