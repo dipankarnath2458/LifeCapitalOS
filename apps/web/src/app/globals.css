@@ -2,12 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * Design tokens (V2). Semantic colors as raw "R G B" triplets so Tailwind's
+ * `rgb(var(--token) / <alpha-value>)` mapping (tailwind.config.ts) supports opacity
+ * utilities like `bg-success/10`. Light is the default; `.dark` on <html> flips them.
+ * Existing V1 pages use hardcoded slate classes and are unaffected until they adopt
+ * these tokens.
+ */
 :root {
   color-scheme: light;
+
+  --ds-background: 248 250 252; /* slate-50 */
+  --ds-surface: 255 255 255; /* white */
+  --ds-muted: 241 245 249; /* slate-100 */
+  --ds-border: 226 232 240; /* slate-200 */
+  --ds-foreground: 15 23 42; /* slate-900 */
+  --ds-subtle: 100 116 139; /* slate-500 */
+  --ds-primary: 15 118 110; /* brand teal-700 */
+  --ds-primary-foreground: 255 255 255;
+  --ds-success: 5 150 105; /* emerald-600 */
+  --ds-warning: 217 119 6; /* amber-600 */
+  --ds-danger: 225 29 72; /* rose-600 */
+  --ds-info: 2 132 199; /* sky-600 */
+  --ds-ring: 15 118 110;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --ds-background: 2 6 23; /* slate-950 */
+  --ds-surface: 15 23 42; /* slate-900 */
+  --ds-muted: 30 41 59; /* slate-800 */
+  --ds-border: 51 65 85; /* slate-700 */
+  --ds-foreground: 241 245 249; /* slate-100 */
+  --ds-subtle: 148 163 184; /* slate-400 */
+  --ds-primary: 45 212 191; /* teal-400 (brighter on dark) */
+  --ds-primary-foreground: 4 47 46; /* teal-950 */
+  --ds-success: 52 211 153; /* emerald-400 */
+  --ds-warning: 251 191 36; /* amber-400 */
+  --ds-danger: 251 113 133; /* rose-400 */
+  --ds-info: 56 189 248; /* sky-400 */
+  --ds-ring: 45 212 191;
 }
 
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/**
+ * Opt-in theming surface: any subtree wrapped by the design-system ThemeProvider
+ * gets token-driven background/foreground so light/dark works without editing V1 pages.
+ */
+.ds-root {
+  @apply bg-background text-foreground;
 }
 
 @layer components {

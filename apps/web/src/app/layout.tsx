@@ -14,7 +14,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the design-system ThemeScript sets the theme class /
+    // data-theme on <html> before hydration to avoid a light/dark flash; this silences
+    // the expected attribute mismatch on <html> only (standard theme-provider pattern).
+    <html lang="en" suppressHydrationWarning>
       <body>
         <ToastProvider>{children}</ToastProvider>
       </body>
