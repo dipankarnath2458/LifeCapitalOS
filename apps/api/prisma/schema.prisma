@@ -87,6 +87,32 @@ enum SubscriptionStatus {
   trialing
 }
 
+// ---- Phase 2 tenancy (MOD-1 / MOD-3) ----
+// Firm-scoped staff role, resolved per Membership (not the global User.role).
+enum FirmRole {
+  OWNER
+  ADVISOR
+  ANALYST
+  SUPPORT
+}
+
+// Client-scoped role within a household.
+enum HouseholdRole {
+  OWNER
+  MEMBER
+  VIEWER
+}
+
+// Legal owner of accounts within a household.
+enum EntityType {
+  individual
+  huf
+  trust
+  llp
+  company
+  other
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String?   @unique
@@ -115,6 +141,7 @@ model User {
   recommendations  Recommendation[]
   consents         Consent[]
   auditLogs        AuditLog[]        @relation("AuditActor")
+  memberships      Membership[]
 
   @@index([status])
   @@index([role])
@@ -340,6 +367,103 @@ model OtpCode {
   createdAt DateTime @default(now())
 
   @@index([target])
+}
+
+// ---- Phase 2 tenancy tables (MOD-1 Firm & Tenancy, MOD-3 Household & Family) ----
+// Additive only: these new tables carry their own firmId/householdId scope. Existing
+// retail (userId-keyed) models are untouched in this migration. Every table below ships
+// with an RLS lockdown (see the paired migration) so it is never exposed via PostgREST.
+
+// A Firm is the tenant: a wealth-management practice that advisors belong to and
+// households are owned by.
+model Firm {
+  id            String   @id @default(cuid())
+  name          String
+  brandName     String? // for report branding
+  logoKey       String? // object-storage key
+  baseCurrency  String   @default("INR")
+  reviewCadence String   @default("quarterly")
+  status        String   @default("active") // active | suspended | deleted
+  planId        String? // firm-level plan (MOD-12; not yet wired)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships Membership[]
+  households  Household[]
+
+  @@index([status])
+}
+
+// Join of a User to a Firm with a firm-scoped role. Authority inside a firm is
+// resolved here, not from the global User.role.
+model Membership {
+  id        String   @id @default(cuid())
+  firmId    String
+  userId    String
+  firmRole  FirmRole @default(SUPPORT)
+  status    String   @default("active") // active | invited | disabled
+  invitedAt DateTime @default(now())
+
+  firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([firmId, userId])
+  @@index([userId])
+}
+
+// A Household groups everything for one family; it belongs to a firm and has an
+// assigned advisor. Family name is encrypted at the service layer (CryptoService).
+model Household {
+  id           String   @id @default(cuid())
+  firmId       String
+  name         String // encrypted
+  advisorId    String? // assigned advisor (User); plain column, no FK back-relation yet
+  baseCurrency String   @default("INR")
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  firm     Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  members  HouseholdMember[]
+  entities Entity[]
+
+  @@index([firmId])
+  @@index([advisorId])
+}
+
+// A person in a household. userId is set when the member has a portal login.
+// name is encrypted at the service layer.
+model HouseholdMember {
+  id            String        @id @default(cuid())
+  householdId   String
+  userId        String? // set when the member has a portal login
+  name          String // encrypted
+  relation      String
+  dateOfBirth   DateTime?
+  isDependent   Boolean       @default(true)
+  householdRole HouseholdRole @default(MEMBER)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([userId])
+}
+
+// A legal entity (individual / HUF / trust / LLP / company) that owns accounts
+// within a household. name and taxId are encrypted at the service layer.
+model Entity {
+  id          String     @id @default(cuid())
+  householdId String
+  firmId      String
+  name        String // encrypted
+  type        EntityType @default(individual)
+  taxId       String? // encrypted
+  createdAt   DateTime   @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([firmId])
 }
 
 // Append-only audit trail. Never updated or deleted.
