@@ -6,7 +6,9 @@ export type CardVariant = 'default' | 'muted' | 'ghost';
 const variantClasses: Record<CardVariant, string> = {
   default: 'bg-surface border border-border shadow-card',
   muted: 'bg-muted',
-  ghost: 'bg-transparent',
+  // No background utility so callers can supply their own without a class conflict
+  // (this project doesn't use tailwind-merge, so stacked `bg-*` classes are ambiguous).
+  ghost: '',
 };
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
@@ -92,7 +94,13 @@ export function StatCard({
 }) {
   return (
     <Card
-      className={cn(highlight && 'border-transparent bg-primary text-primary-foreground', className)}
+      // Use the background-less `ghost` variant when highlighted so only `bg-primary`
+      // applies (avoids the bg-surface/bg-primary conflict without tailwind-merge).
+      variant={highlight ? 'ghost' : 'default'}
+      className={cn(
+        highlight && 'border border-transparent bg-primary text-primary-foreground shadow-card',
+        className,
+      )}
     >
       <div className="flex items-start justify-between">
         <div>
