@@ -30,9 +30,9 @@ interface Household {
 
 // Tabs that arrive in later milestones (M2+). Shown here as a disabled roadmap so the
 // detail shell reflects the target information architecture (doc 03 §2.2). "Balance
-// sheet" is live (M2-7) and rendered as a link, so it is not in this list.
+// sheet" (M2-7) and "Cashflow" (M2-4) are live and rendered as links, so they are not
+// in this list.
 const UPCOMING_TABS = [
-  'Cashflow',
   'Goals',
   'Scores',
   'Allocation',
@@ -131,19 +131,30 @@ export default function HouseholdDetailPage() {
               milestones.
             </CardDescription>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            leftIcon={<IconChart className="h-4 w-4" />}
-            onClick={() => (window.location.href = `/app/households/${id}/balance-sheet`)}
-          >
-            Balance sheet
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<IconChart className="h-4 w-4" />}
+              onClick={() => (window.location.href = `/app/households/${id}/balance-sheet`)}
+            >
+              Balance sheet
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<IconChart className="h-4 w-4" />}
+              onClick={() => (window.location.href = `/app/households/${id}/cashflow`)}
+            >
+              Cashflow
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             <Badge tone="primary">Overview</Badge>
             <Badge tone="success">Balance sheet</Badge>
+            <Badge tone="success">Cashflow</Badge>
             {UPCOMING_TABS.map((t) => (
               <Badge key={t} variant="outline">
                 {t} · soon
