@@ -3,7 +3,7 @@
 > Living snapshot of where the product is. **Updated after every merged PR** per the
 > [AI Engineering Workflow](./docs/AI_ENGINEERING_WORKFLOW.md).
 >
-> **Last updated:** M2-5 (Household debt & payoff engine) — Module 2 in progress.
+> **Last updated:** M2-6 (Financial Snapshot Contract — the financial kernel) — Module 2 in progress.
 
 ## Current phase
 
@@ -40,26 +40,25 @@ advisor `/app` workspace shell.
 | #16      | M2-3  | Household net worth + immutable snapshots + timeline (MOD-4.2), multi-currency via `FxService` (static/config `FxRateProvider`)                       |
 | #17      | M2-7  | Family Balance Sheet UI (`/app/households/[id]/balance-sheet`) — reads immutable snapshots + accounts; no UI recompute                                |
 | #18      | M2-4  | Household cashflow & budget engine — transaction ledger (single source of truth), monthly summary/timeline, budget-vs-actual; multi-currency via `FxService` |
-| _(this)_ | M2-5  | Household debt & payoff engine — detailed liability ledger + payments, live summary/payoff (snowball/avalanche), immutable `DebtSnapshot` timeline (ADR-011) |
+| #19      | M2-5  | Household debt & payoff engine — detailed liability ledger + payments, live summary/payoff (snowball/avalanche), immutable `DebtSnapshot` timeline (ADR-011) |
+| _(this)_ | M2-6  | Financial Snapshot Contract (the **financial kernel**) — immutable, versioned, checksummed `FinancialSnapshot` composing M2-2…M2-5; the canonical read model every future module consumes (ADR-012) |
 
-Planned next: M2-6 household FinancialSnapshot seam (reconciles net worth + debt + cashflow).
-(M2-8 scheduled snapshots deferred to M0.)
+Planned next: M3 (planning, scores & analysis) consumes the Financial Snapshot.
+(M2-8 scheduled snapshots deferred to M0 — the M2-6 contract is ready for the worker.)
 
 ## Health snapshot (merged `main` + this PR)
 
-- **Migrations:** 10, apply cleanly from scratch; no drift (M2-5 adds the `business_loan` enum value and
-  `DebtStatus`/`DebtPaymentType` enums, relaxes `Debt.userId` to nullable, promotes `Debt.householdId` to a
-  relation + adds an `entityId` relation, adds `secured`/`outstandingMinor`/`emiMinor`/lifecycle/provenance
-  columns, and creates the `DebtPayment`/`DebtSnapshot` tables — all additive, with RLS lockdown on the new
-  tables).
-- **Build:** 3/3 packages (incl. Next.js web) · **Lint:** 4/4 · **`@lcos/core`:** 57/57 · **API e2e:** 86/86 (12 suites).
-- **Vercel:** web preview builds/deploys on `apps/web` changes (M2-5 builds a preview); skipped otherwise.
+- **Migrations:** 11, apply cleanly from scratch; no drift (M2-6 adds the `SnapshotGeneratedBy`/
+  `FinancialSnapshotStatus` enums and the `FinancialSnapshot` table — envelope + versioned JSON payload +
+  checksum — all additive, with RLS lockdown on the new table; M2-2…M2-5 unchanged).
+- **Build:** 3/3 packages (incl. Next.js web) · **Lint:** 4/4 · **`@lcos/core`:** 60/60 · **API e2e:** 92/92 (13 suites).
+- **Vercel:** web preview builds/deploys on `apps/web` changes (M2-6 builds a preview); skipped otherwise.
 - `main` is deployable.
 
 ## What's next
 
-**M2-6 — Household FinancialSnapshot seam**: the single place that reconciles net-worth accounts (M2-3), the
-debt ledger (M2-5), and the cashflow summary (M2-4) into one household financial snapshot — consuming the
-existing immutable snapshots/summaries, never re-aggregating (ADR-011). The Balance Sheet UI (M2-7) will pick
-up a debt/liabilities detail section (documented extension point). Awaiting owner approval to begin the next
-slice.
+Module 2 is **feature-complete**: accounts (M2-2), net worth (M2-3), cashflow/budget (M2-4), debt (M2-5), the
+Balance Sheet UI (M2-7), and now the **Financial Snapshot kernel (M2-6)** — the canonical read model. The next
+phase is **M3 (planning, scores & analysis)**, whose modules (Financial Health Score, retirement, goals, tax…)
+**consume the Financial Snapshot** rather than raw tables (ADR-012, §10 extension points). Scheduled snapshot
+capture (M2-8) is deferred to the M0 worker (the contract is ready). Awaiting owner approval to begin M3.
