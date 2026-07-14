@@ -632,6 +632,30 @@ Consequences · Alternatives considered.
   rate/EMI/lifecycle detail, or bloats `Account`; a future opt-in mapping remains possible); post debt balances
   directly into net worth (rejected — double-counts, mutates the M2-3 computation, breaks immutability).
 
+### ADR-012 — The Financial Snapshot is the canonical read model (M2-6)
+
+- **Status:** Accepted
+- **Context:** M2-2…M2-5 each own a financial slice (accounts, net worth, cashflow/budget, debt). Every future
+  module (retirement, tax, goals, scores, AI…) needs "the household's whole financial position." Letting each
+  re-query and re-reconcile four engines would multiply logic, drift assumptions, and couple every consumer to
+  internal schemas. A trustworthy AI/reporting layer also needs a **frozen, reproducible** input, not a live
+  ledger.
+- **Decision:** Introduce an **immutable `FinancialSnapshot`** (ADR-004) that **composes** M2-2…M2-5 at capture
+  into one versioned, checksummed payload — the **single canonical read model**. Consumers (and AI) read
+  snapshots, never raw tables, and never re-aggregate. The snapshot **reconciles** the M2-3 account-based net
+  worth with the M2-5 debt ledger in `householdEquity` (the one place the two liability views are unified,
+  without double-counting — resolving the reconciliation deferred by ADR-011). The payload shape is a
+  **contract** governed by `schemaVersion` (additive-only; old snapshots never rewritten). Full spec:
+  [`M2_FINANCIAL_SNAPSHOT_CONTRACT.md`](./M2_FINANCIAL_SNAPSHOT_CONTRACT.md).
+- **Consequences:** Consumers depend on a stable contract, not on M2-2…M2-5 internals, which can evolve freely;
+  reads are O(1) indexed row fetches; AI/reporting is reproducible and auditable (checksum + engine/FX versions).
+  Storage grows with capture cadence (bounded; pruning is a future policy). Capture must stay a faithful
+  composition — no new aggregation math lives in the seam.
+- **Alternatives considered:** A live "virtual" aggregate with no persistence (rejected — not reproducible, no
+  frozen AI input, O(n) every read); each consumer re-aggregates the engines (rejected — duplicated logic,
+  drift, tight coupling); fold everything into `NetWorthSnapshot` (rejected — overloads M2-3, breaks its
+  immutability/shape, no room for cashflow/debt/versioning).
+
 ---
 
 _This document is maintained alongside Module 2 development. Update it in the same PR whenever an M2 change

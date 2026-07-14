@@ -111,6 +111,26 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
   analyst read-only; audited. Only `active` debts feed summary/payoff/snapshot. New tables get RLS lockdown.
   Minimal UI: `/app/households/[id]/debt` (summary + list + add-form + payoff projection), presentation-only.
   Design: [`docs/architecture/M2-5_DEBT_DESIGN.md`](./docs/architecture/M2-5_DEBT_DESIGN.md).
+- **Financial Snapshot kernel (M2-6, ADR-012):** the **canonical read model** — an **immutable, versioned,
+  checksummed** `FinancialSnapshot` that **composes** M2-2…M2-5 (accounts, net worth, cashflow/budget, debt) into
+  one base-currency payload. **Every future module (and all AI) reads snapshots, never raw tables, and never
+  re-aggregates** — the seam introduces **no new aggregation math** (it calls the existing services + core FX).
+  Envelope: `id`/`householdId`/`entityId?`(reserved, null in v1)/`capturedAt`/`snapshotVersion`(ordinal, per
+  household)/`schemaVersion`(=1, the payload **contract** consumers pin to)/`engineVersion`(`m2-6.x`)/`fxVersion`
+  (from `FxService.version`, `static-v1`)/`generatedBy`/`checksum`(SHA-256 over **canonical** JSON — sorted keys,
+  in core `canonicalStringify`)/`status`/`provenance`/`payload`. Payload (`schemaVersion 1`): netWorth, assets,
+  liabilities, debt, cashflowSummary, budgetSummary, assetAllocation, currencyExposure, **householdEquity**
+  (reconciles M2-3 net worth vs M2-5 debt — `reconciledEquityMinor = netWorth − totalDebt`; the one place the two
+  liability views unify, resolving ADR-011), entityHoldings, relationships (ids/counts only — **no PII**, ADR-006).
+  **Immutable** (ADR-004): capture inserts a new row; **no update/delete**; reading a stored snapshot returns it
+  **verbatim** (proven by an e2e reproducibility test — checksum/net worth unchanged after later mutations). The
+  **only** live path is `GET …/financial-snapshot/current` (composed preview, **never persisted**, no id/checksum).
+  Schema evolution is **additive-only**; breaking → bump `schemaVersion` (old rows never rewritten) + `upgradePayload`
+  registry (identity for v1) in core. Routes household-scoped under `HouseholdScopeGuard`: `POST` (capture,
+  OWNER/ADVISOR/SUPPORT, audited), `GET current|latest|timeline|:snapshotId` (any in-scope member; analyst
+  read-only). New table has RLS lockdown; M2-2…M2-5 untouched. Minimal UI: `/app/households/[id]/financial-snapshot`
+  (composed view + capture + timeline), presentation-only. Contract:
+  [`docs/architecture/M2_FINANCIAL_SNAPSHOT_CONTRACT.md`](./docs/architecture/M2_FINANCIAL_SNAPSHOT_CONTRACT.md).
 - **Net worth + snapshots (M2-3):** `FxService` (`common/`, global) implements the core `FxRateProvider` over
   a **static/config** table (defaults from `DEFAULT_USD_PER_UNIT`, override via `FX_USD_PER_UNIT` JSON env);
   swap for a live provider without touching call sites. `HouseholdNetWorthService` FX-converts each account to

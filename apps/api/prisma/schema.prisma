@@ -80,6 +80,19 @@ enum DebtPaymentType {
   foreclosure
 }
 
+enum SnapshotGeneratedBy {
+  manual
+  scheduled
+  event
+  migration
+}
+
+enum FinancialSnapshotStatus {
+  active
+  superseded
+  void
+}
+
 enum GoalType {
   retirement
   child_education
@@ -405,6 +418,43 @@ model DebtSnapshot {
   @@index([householdId, capturedAt])
 }
 
+// The canonical, immutable Financial Snapshot (M2-6) — the household's whole financial
+// position composed from M2-2..M2-5 at capture, in the household base currency. The
+// single read model every future module consumes. Create-only (ADR-004/012). See
+// docs/architecture/M2_FINANCIAL_SNAPSHOT_CONTRACT.md.
+model FinancialSnapshot {
+  id              String                  @id @default(cuid())
+  householdId     String
+  firmId          String
+  // Reserved for future per-entity snapshots; null (household-level) in v1.
+  entityId        String?
+  capturedAt      DateTime                @default(now())
+  // Monotonic ordinal per household (best-effort; capturedAt+id is authoritative order).
+  snapshotVersion Int                     @default(1)
+  // Payload shape version (the contract); consumers pin to this.
+  schemaVersion   Int                     @default(1)
+  engineVersion   String
+  fxVersion       String
+  currency        String                  @default("INR")
+  generatedBy     SnapshotGeneratedBy     @default(manual)
+  createdById     String?
+  // SHA-256 over the canonical-JSON payload (tamper-evidence; never recomputed).
+  checksum        String
+  status          FinancialSnapshotStatus @default(active)
+  // Source ids/counts the payload was composed from.
+  provenance      Json?
+  // The §3 contents at schemaVersion.
+  payload         Json
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([firmId])
+  @@index([entityId])
+  @@index([householdId, capturedAt])
+  @@index([householdId, snapshotVersion])
+}
+
 model Goal {
   id                    String   @id @default(cuid())
   userId                String
@@ -631,6 +681,7 @@ model Household {
   budgets       Budget[]
   debts         Debt[]
   debtSnapshots DebtSnapshot[]
+  financialSnapshots FinancialSnapshot[]
 
   @@index([firmId])
   @@index([advisorId])

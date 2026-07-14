@@ -4,6 +4,7 @@ import { compareDebtStrategies, simulateDebtPayoff, summarizeDebt } from './debt
 import { computeRetirement, financialFreedomNumber } from './retirement.js';
 import { analyzeAllocation, recommendedAllocation } from './assetAllocation.js';
 import { evaluateBudget, summarizeCashflow } from './cashflow.js';
+import { canonicalStringify, upgradePayload } from './financialSnapshot.js';
 import { planGoal } from './goals.js';
 import { analyzeLifeInsuranceGap, emergencyFundTarget } from './insurance.js';
 import { fromMinor, money, toMajor } from '../money/money.js';
@@ -160,6 +161,23 @@ describe('cashflow & budget', () => {
   it('flags over-budget envelopes', () => {
     const [b] = evaluateBudget([{ category: 'food', limitMinor: 10_000_00, spentMinor: 12_000_00 }]);
     expect(b?.overBudget).toBe(true);
+  });
+});
+
+describe('financial snapshot contract', () => {
+  it('canonicalises key order so equal payloads hash identically', () => {
+    const a = { b: 1, a: { y: 2, x: [3, { n: 4, m: 5 }] } };
+    const b = { a: { x: [3, { m: 5, n: 4 }], y: 2 }, b: 1 };
+    expect(canonicalStringify(a)).toBe(canonicalStringify(b));
+  });
+
+  it('preserves array order (order is meaningful)', () => {
+    expect(canonicalStringify([1, 2, 3])).not.toBe(canonicalStringify([3, 2, 1]));
+  });
+
+  it('up-converts as identity within the same schema version', () => {
+    const payload = { netWorth: { netWorthMinor: 100 } } as never;
+    expect(upgradePayload(payload, 1, 1)).toBe(payload);
   });
 });
 

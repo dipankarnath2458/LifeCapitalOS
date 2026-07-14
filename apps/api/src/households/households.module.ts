@@ -17,6 +17,8 @@ import { HouseholdBudgetController } from './household-budget.controller';
 import { HouseholdBudgetService } from './household-budget.service';
 import { HouseholdDebtController } from './household-debt.controller';
 import { HouseholdDebtService } from './household-debt.service';
+import { HouseholdFinancialSnapshotController } from './household-financial-snapshot.controller';
+import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
 
 @Module({
   imports: [FirmsModule],
@@ -29,6 +31,7 @@ import { HouseholdDebtService } from './household-debt.service';
     HouseholdCashflowController,
     HouseholdBudgetController,
     HouseholdDebtController,
+    HouseholdFinancialSnapshotController,
   ],
   providers: [
     HouseholdsService,
@@ -39,6 +42,7 @@ import { HouseholdDebtService } from './household-debt.service';
     HouseholdCashflowService,
     HouseholdBudgetService,
     HouseholdDebtService,
+    HouseholdFinancialSnapshotService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],
