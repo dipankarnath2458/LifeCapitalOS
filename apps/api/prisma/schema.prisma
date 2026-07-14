@@ -196,10 +196,18 @@ model Account {
   aaAccountRef String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+  // Phase 2 advisory scoping — nullable, additive; the retail userId path is
+  // unchanged. Populated when an account belongs to a household/entity (M1b).
+  firmId       String?
+  householdId  String?
+  entityId     String?
 
   transactions Transaction[]
 
   @@index([userId])
+  @@index([firmId])
+  @@index([householdId])
+  @@index([entityId])
 }
 
 model Transaction {
@@ -215,9 +223,14 @@ model Transaction {
   note       String?
   occurredAt DateTime
   createdAt  DateTime        @default(now())
+  // Phase 2 advisory scoping — nullable, additive (M1b).
+  firmId      String?
+  householdId String?
 
   @@index([userId, occurredAt])
   @@index([accountId])
+  @@index([firmId])
+  @@index([householdId])
 }
 
 model Debt {
@@ -232,8 +245,13 @@ model Debt {
   minimumPaymentMinor  BigInt
   createdAt            DateTime @default(now())
   updatedAt           DateTime @updatedAt
+  // Phase 2 advisory scoping — nullable, additive (M1b).
+  firmId               String?
+  householdId          String?
 
   @@index([userId])
+  @@index([firmId])
+  @@index([householdId])
 }
 
 model Goal {
@@ -249,8 +267,16 @@ model Goal {
   expectedAnnualReturnPct Float  @default(10)
   createdAt             DateTime @default(now())
   updatedAt            DateTime @updatedAt
+  // Phase 2 advisory scoping — nullable, additive; memberId links a goal to a
+  // household member (M1b).
+  firmId                String?
+  householdId           String?
+  memberId              String?
 
   @@index([userId])
+  @@index([firmId])
+  @@index([householdId])
+  @@index([memberId])
 }
 
 model NetWorthSnapshot {
@@ -262,8 +288,13 @@ model NetWorthSnapshot {
   netWorthMinor   BigInt
   currency        String   @default("INR")
   capturedAt      DateTime @default(now())
+  // Phase 2 advisory scoping — nullable, additive (M1b).
+  firmId          String?
+  householdId     String?
 
   @@index([userId, capturedAt])
+  @@index([firmId])
+  @@index([householdId])
 }
 
 model Recommendation {
@@ -276,8 +307,14 @@ model Recommendation {
   rationale  String
   dismissed  Boolean  @default(false)
   createdAt  DateTime @default(now())
+  // Phase 2 advisory scoping — nullable, additive; persists Top Actions per
+  // household (M1b).
+  firmId     String?
+  householdId String?
 
   @@index([userId])
+  @@index([firmId])
+  @@index([householdId])
 }
 
 model Plan {
@@ -339,8 +376,13 @@ model Consent {
   granted   Boolean
   version   String   @default("1.0")
   createdAt DateTime @default(now())
+  // Phase 2 advisory scoping — nullable, additive; consent at household scope (M1b).
+  firmId    String?
+  householdId String?
 
   @@index([userId, purpose])
+  @@index([firmId])
+  @@index([householdId])
 }
 
 model RefreshToken {
@@ -479,8 +521,11 @@ model AuditLog {
   metadata   Json?
   ip         String?
   createdAt  DateTime @default(now())
+  // Phase 2 advisory scoping — nullable, additive; tenant-scoped audit (M1b).
+  firmId     String?
 
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+  @@index([firmId])
 }
