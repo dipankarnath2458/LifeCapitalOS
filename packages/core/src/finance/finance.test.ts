@@ -119,6 +119,22 @@ describe('cashflow & budget', () => {
     expect(s.byCategory[0]?.category).toBe('rent');
   });
 
+  it('excludes transfers and adjustments from income/expense', () => {
+    const s = summarizeCashflow(
+      [
+        { type: 'income', amountMinor: 100_000_00, category: 'salary' },
+        { type: 'expense', amountMinor: 40_000_00, category: 'rent' },
+        { type: 'transfer', amountMinor: 25_000_00, category: 'savings' },
+        { type: 'adjustment', amountMinor: 5_000_00, category: 'correction' },
+      ],
+      'INR',
+    );
+    expect(s.income.minor).toBe(100_000_00);
+    expect(s.expense.minor).toBe(40_000_00);
+    expect(s.net.minor).toBe(60_000_00);
+    expect(s.byCategory.map((c) => c.category)).toEqual(['rent']);
+  });
+
   it('flags over-budget envelopes', () => {
     const [b] = evaluateBudget([{ category: 'food', limitMinor: 10_000_00, spentMinor: 12_000_00 }]);
     expect(b?.overBudget).toBe(true);
