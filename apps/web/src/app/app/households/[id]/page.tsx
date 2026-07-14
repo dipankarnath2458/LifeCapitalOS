@@ -12,12 +12,13 @@ import {
   CardContent,
   StatCard,
   Badge,
+  Button,
   Heading,
   Text,
   LoadingState,
   ErrorState,
 } from '@/ui';
-import { IconUsers, IconHome } from '@/ui/icons';
+import { IconUsers, IconHome, IconChart } from '@/ui/icons';
 
 interface Household {
   id: string;
@@ -28,9 +29,9 @@ interface Household {
 }
 
 // Tabs that arrive in later milestones (M2+). Shown here as a disabled roadmap so the
-// detail shell reflects the target information architecture (doc 03 §2.2).
+// detail shell reflects the target information architecture (doc 03 §2.2). "Balance
+// sheet" is live (M2-7) and rendered as a link, so it is not in this list.
 const UPCOMING_TABS = [
-  'Balance sheet',
   'Cashflow',
   'Goals',
   'Scores',
@@ -98,10 +99,13 @@ export default function HouseholdDetailPage() {
         </a>
         <div className="mt-2 flex items-center gap-3">
           <Heading level={1}>{household.name}</Heading>
-          <Badge tone={household.status === 'active' ? 'success' : 'neutral'}>{household.status}</Badge>
+          <Badge tone={household.status === 'active' ? 'success' : 'neutral'}>
+            {household.status}
+          </Badge>
         </div>
         <Text muted>
-          Base currency {household.baseCurrency} · {household.advisorId ? 'Advisor assigned' : 'Unassigned'}
+          Base currency {household.baseCurrency} ·{' '}
+          {household.advisorId ? 'Advisor assigned' : 'Unassigned'}
         </Text>
       </div>
 
@@ -123,13 +127,23 @@ export default function HouseholdDetailPage() {
           <div>
             <CardTitle>Overview</CardTitle>
             <CardDescription>
-              The household record. Wealth, planning, documents and AI tabs arrive in later milestones.
+              The household record. Wealth, planning, documents and AI tabs arrive in later
+              milestones.
             </CardDescription>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<IconChart className="h-4 w-4" />}
+            onClick={() => (window.location.href = `/app/households/${id}/balance-sheet`)}
+          >
+            Balance sheet
+          </Button>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             <Badge tone="primary">Overview</Badge>
+            <Badge tone="success">Balance sheet</Badge>
             {UPCOMING_TABS.map((t) => (
               <Badge key={t} variant="outline">
                 {t} · soon
