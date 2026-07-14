@@ -183,8 +183,11 @@ model FamilyMember {
 
 model Account {
   id           String      @id @default(cuid())
-  userId       String
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Retail owner. Nullable so an account can instead be owned by a household
+  // (advisory tier). A row is either retail (userId set) or advisory (householdId
+  // set); relaxing NOT NULL is backward-compatible — existing rows keep userId.
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
   name         String
   type         AccountType
   assetClass   AssetClass?
@@ -196,11 +199,13 @@ model Account {
   aaAccountRef String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
-  // Phase 2 advisory scoping — nullable, additive; the retail userId path is
-  // unchanged. Populated when an account belongs to a household/entity (M1b).
+  // Phase 2 advisory scoping (M1b, promoted to relations in M2-2). Native currency
+  // is kept per account; FX to the household base currency happens at aggregation.
   firmId       String?
   householdId  String?
   entityId     String?
+  household    Household?  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  entity       Entity?     @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   transactions Transaction[]
 
@@ -469,6 +474,7 @@ model Household {
   firm     Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
   members  HouseholdMember[]
   entities Entity[]
+  accounts Account[]
 
   @@index([firmId])
   @@index([advisorId])
@@ -504,6 +510,7 @@ model Entity {
   createdAt   DateTime   @default(now())
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  accounts  Account[]
 
   @@index([householdId])
   @@index([firmId])
