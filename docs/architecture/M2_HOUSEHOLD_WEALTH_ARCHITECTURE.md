@@ -460,5 +460,160 @@ Module 2's `FinancialSnapshot` seam and household-scoped services are the plug-i
 
 ---
 
+## 16. Architecture Decision Records (ADRs)
+
+Records of the major architectural decisions taken so far. Each is **Accepted** and in force; supersede with
+a new ADR rather than editing an accepted one. Format: ID · Title · Status · Context · Decision ·
+Consequences · Alternatives considered.
+
+### ADR-001 — Household as the Aggregate Root
+
+- **Status:** Accepted
+- **Context:** Phase 2 serves many families per firm. Wealth records (accounts, transactions, debts, goals,
+  snapshots) need one consistent ownership and scoping anchor; the V1 retail model keyed everything off a
+  single `userId`, which does not express "a firm's book of households."
+- **Decision:** The **`Household`** is the aggregate root for all wealth data. Every wealth record carries
+  `householdId` (and `firmId`); aggregation (net worth, cashflow, allocation) is always computed at household
+  scope. Entities and members partition a household but never own data outside it.
+- **Consequences:** Simple, consistent scoping and cascade semantics; a single place to enforce isolation and
+  compute consolidated figures; queries filter by `householdId` (indexed). Cross-household reporting must
+  explicitly aggregate across households (firm scope).
+- **Alternatives considered:** Entity as root (rejected — families hold assets across multiple legal entities;
+  the family is the unit of advice); per-user scoping (rejected — doesn't model shared family wealth);
+  firm as the only scope (rejected — too coarse; leaks between families in a firm).
+
+### ADR-002 — `HouseholdScopeGuard` for tenant isolation
+
+- **Status:** Accepted
+- **Context:** Advisors must see only their assigned households; no request may read or write across firms or
+  outside an advisor's book. Isolation cannot be left to per-endpoint discipline.
+- **Decision:** A reusable **`HouseholdScopeGuard`** resolves the household → its firm → the caller's active
+  `Membership`, then intersects read access with assignment (OWNER/ANALYST firm-wide; ADVISOR/SUPPORT
+  assigned-only) and enforces `@FirmRoles(...)`. Out-of-scope or cross-firm access returns **404** (not 403).
+  Postgres **RLS** is the backstop.
+- **Consequences:** Isolation is centralized, testable, and hard to forget; existence never leaks across
+  tenants; every M2 route mounts the guard. Guard adds a couple of indexed lookups per request (negligible).
+- **Alternatives considered:** Per-controller manual checks (rejected — error-prone, easy to omit); RLS-only
+  (rejected — app connects as table owner and bypasses RLS; RLS is a backstop, not the primary control);
+  403 for out-of-scope (rejected — leaks resource existence).
+
+### ADR-003 — FX conversion only inside the domain layer
+
+- **Status:** Accepted
+- **Context:** Households hold assets in multiple currencies (NRI/global families). Summing mixed currencies
+  naively yields wrong net worth. `money.ts` intentionally throws on mixed-currency arithmetic.
+- **Decision:** All currency conversion lives in **`@lcos/core`** (`fx.ts`: `FxRateProvider`, `convertMoney`,
+  `sumInBaseCurrency`). Amounts are stored in their **native** currency and converted to the household base
+  currency **at read/aggregation time**, upstream of `computeNetWorth`. Controllers/services never do ad-hoc
+  currency math; the rate source is injected via `FxRateProvider`.
+- **Consequences:** One correct, unit-tested conversion path; provider-agnostic (static now, live later)
+  without touching call sites; conversions round to minor units (documented, non-reversible within 1 minor
+  unit). Requires a rate provider wired at the API layer (M2-3).
+- **Alternatives considered:** Convert-and-store in base currency (rejected — loses native amounts, re-rate on
+  every rate change, lossy); per-service conversion (rejected — duplication, drift, mixed-unit bugs);
+  ignore FX / single-currency households (rejected — wrong for the target segment, R-FX).
+
+### ADR-004 — Immutable financial snapshots
+
+- **Status:** Accepted
+- **Context:** The net-worth timeline must be a trustworthy historical record; mutable history would let past
+  positions be rewritten and break trend/report reproducibility.
+- **Decision:** **`NetWorthSnapshot`** rows are **immutable** — captured point-in-time and never updated or
+  deleted. Corrections are new snapshots. Current net worth is always _computed_ (not stored) from live
+  accounts; only snapshots persist history.
+- **Consequences:** Reliable, reproducible history for charts/reports/scores; simple audit story. Storage
+  grows with cadence (bounded; pruning is a future policy). A wrong snapshot is corrected by a new one, not
+  an edit.
+- **Alternatives considered:** Mutable "latest" row (rejected — no history); recompute history from a ledger
+  on demand (rejected — expensive, needs a full immutable transaction ledger not yet present); editable
+  snapshots (rejected — breaks immutability/audit trust).
+
+### ADR-005 — Append-only audit log
+
+- **Status:** Accepted
+- **Context:** Advisory actions on client wealth must be attributable and tamper-evident for compliance
+  (DPDP, firm trust & safety).
+- **Decision:** Every advisor/admin mutation writes an **`AuditLog`** row via `AuditService` (actor, role,
+  action, entity, `{ firmId, householdId }`, ip). The log is **append-only** — never updated or deleted.
+- **Consequences:** Complete, tamper-evident trail; enables a tenant-scoped audit viewer; uniform mutation
+  pattern across modules. Small write per mutation. (`AuditLog.firmId` column exists since M1-6; populating it
+  from metadata is a tracked follow-up.)
+- **Alternatives considered:** Per-row `updatedBy`/history columns (rejected — partial, not tamper-evident);
+  external log stream only (rejected — no relational query/tenant scoping); no audit (rejected — compliance
+  non-starter).
+
+### ADR-006 — Encryption-at-rest for sensitive financial data
+
+- **Status:** Accepted
+- **Context:** Household/member/entity identities and tax identifiers are sensitive PII under DPDP; a DB
+  compromise or the Supabase PostgREST surface must not expose them in plaintext.
+- **Decision:** PII fields (`Household.name`, `HouseholdMember.name`, `Entity.name`, `Entity.taxId`) are
+  **encrypted at rest** with **AES-256-GCM** via **`CryptoService`** (`iv:tag:ciphertext`), decrypted only at
+  the response boundary. RLS lockdown closes PostgREST. Monetary amounts stay unencrypted `BigInt` (not PII in
+  isolation) but tenant-isolated. New identifying PII added in M2 follows the same rule.
+- **Consequences:** PII unreadable at rest / via PostgREST; consistent crypto path. Encrypted columns aren't
+  queryable/indexable by value (acceptable — we query by id/scope). Key governance (KMS, rotation) is an M0
+  hardening item.
+- **Alternatives considered:** DB-level TDE only (rejected — doesn't protect the PostgREST/app-tier surface);
+  no field encryption (rejected — DPDP/exposure risk); encrypt everything incl. amounts (rejected — breaks
+  aggregation, needless).
+
+### ADR-007 — Small feature branches, one milestone per PR
+
+- **Status:** Accepted
+- **Context:** Large mixed PRs are slow to review, risky to revert, and hard to keep green.
+- **Decision:** Each roadmap milestone is delivered on its **own feature branch as one focused PR**, targeting
+  **200–500 changed lines** where practical, landing with its migration + tests + docs. After a PR merges the
+  branch is restarted from `main`; work is never stacked on already-merged history.
+- **Consequences:** Fast, reviewable PRs; easy revert; `main` stays releasable; clear traceability
+  (milestone → PR). More PRs and more merge coordination; strict sequencing when milestones depend on each
+  other (a later milestone waits for its dependency to merge).
+- **Alternatives considered:** Long-lived module branch merged once (rejected — huge diff, delayed
+  integration, drift); trunk-based direct commits (rejected — no review gate, breaks the approval rule).
+
+### ADR-008 — Never merge without explicit approval
+
+- **Status:** Accepted
+- **Context:** The repository owner is the release authority; automated or unilateral merges would remove
+  human oversight of client-facing financial software.
+- **Decision:** PRs are opened as **drafts**; nothing is merged without the **owner's explicit approval**. The
+  agent stops after opening a PR and after each post-merge health check, awaiting the owner.
+- **Consequences:** Owner retains full control; predictable, auditable cadence. Throughput is gated by owner
+  availability (accepted trade-off).
+- **Alternatives considered:** Auto-merge on green CI (rejected — removes human judgment on scope/architecture);
+  merge-queue automation (rejected — same; revisit only if the owner opts in).
+
+### ADR-009 — Keep `main` always deployable
+
+- **Status:** Accepted
+- **Context:** `main` is the source of truth for deploys (Railway API, Vercel web); a broken `main` blocks
+  everyone and risks a bad production push.
+- **Decision:** Every change is **additive and backward-compatible**; a change that can't keep `main` green is
+  split until it can. CI (build, lint, migrations, tests, e2e) must be green before merge; CI is never
+  bypassed; retail paths and completed modules are not regressed. Post-merge, `main` health is re-verified.
+- **Consequences:** `main` is always releasable; safe continuous integration; contributors branch from a known
+  good base. Some features must be split across several additive PRs (e.g. nullable column → backfill →
+  tighten).
+- **Alternatives considered:** Feature-freeze/stabilization branches (rejected — integration debt); allowing
+  temporary red `main` behind flags (rejected — fragile, blocks others).
+
+### ADR-010 — Backward-compatible, additive migrations
+
+- **Status:** Accepted
+- **Context:** A live retail (`userId`-keyed) product coexists with the new advisory model on shared tables;
+  destructive migrations risk data loss and downtime and violate keep-`main`-deployable.
+- **Decision:** Migrations are **additive**: new tables (with RLS lockdown) or new **nullable** columns; no
+  reshaping of coherent existing models (R-SCHEMA-DRIFT). Scope columns land nullable, are backfilled, then
+  tightened only where invariant. M1-6 scalar scope columns are **promoted to relations** via additive FK on
+  nullable columns (nulls allowed → retail rows unaffected). Every migration verifies clean `migrate reset` +
+  no `migrate diff` drift.
+- **Consequences:** Zero-downtime, reversible-in-dev migrations; retail and advisory rows coexist; no backfill
+  risk in the additive step. Full normalization (NOT NULL, discriminator) is deferred to later tightening
+  migrations.
+- **Alternatives considered:** Big-bang reshape to a unified advisory schema (rejected — data-loss/downtime
+  risk, breaks retail); separate advisory database (rejected — cross-product joins, ops cost, splits tenancy).
+
+---
+
 _This document is maintained alongside Module 2 development. Update it in the same PR whenever an M2 change
 diverges from what's written here (workflow §11.6)._
