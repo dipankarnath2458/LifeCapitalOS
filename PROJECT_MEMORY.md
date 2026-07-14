@@ -46,6 +46,31 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
 - **Design system frozen:** `apps/web/src/ui/*` is never edited; screens compose primitives; nav is
   `NavSection[]` data.
 
+## Module 2 (household wealth) decisions
+
+- **M2 architecture reference** is the source of truth:
+  [`docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md`](./docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md)
+  (16 sections incl. ADR-001..010). Update it in the same PR when an M2 change diverges.
+- **FX only in the domain layer (ADR-003, M2-1):** `@lcos/core/fx.ts` — `FxRateProvider`,
+  `convertMoney`/`convertMinor`/`sumInBaseCurrency`. `money.ts` throws on mixed currencies; store native
+  currency, convert to household base **at aggregation**. Rates via provider (static `StaticFxRateProvider`
+  now; live later). All supported currencies use 100 minor units/major, so conversion applies the major-unit
+  rate directly to minor units.
+- **`Account.userId` relaxed to nullable (M2-2):** a row is **either** retail (`userId` set) **or** advisory
+  (`householdId` set). Same pattern will apply to `Transaction`/`Debt`/`NetWorthSnapshot` when M2-3/4/5 scope
+  them. Relaxing NOT NULL is backward-compatible (existing rows keep `userId`).
+- **Scope columns → relations (M2-2):** `Account.householdId` → `Household` (`onDelete: Cascade`),
+  `Account.entityId` → `Entity` (`onDelete: SetNull`); `firmId` kept as an indexed scalar. Back-relations
+  `Household.accounts` / `Entity.accounts` added.
+- **Household finance module pattern:** `apps/api/src/households/household-<resource>.{controller,service,dto}.ts`,
+  mounted at `/api/households/:id/<resource>`, under `HouseholdScopeGuard`; writes gated to
+  `OWNER/ADVISOR/SUPPORT` (analyst read-only); a sub-resource is verified to belong to the path household
+  before update/delete; every mutation audited with `{ firmId, householdId }`. Native-currency accounts stored
+  as-is; hard delete (history lives in snapshots, not per-account).
+- **`schema.prisma` is not `prettier`/`prisma format` canonical** on `main` and no gate enforces it — do **not**
+  run `prisma format` (it reformats the whole file → large unrelated diff). Edit models by hand matching local
+  style. Prettier has no `.prisma` parser (schema.prisma is skipped by `prettier --check .`).
+
 ## Conventions & gotchas
 
 - **Feature branch reuse:** after a milestone's PR merges, restart the designated branch from `origin/main`
