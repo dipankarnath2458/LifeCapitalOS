@@ -8,6 +8,7 @@ import { CommonModule } from './common/common.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { AuthModule } from './auth/auth.module';
 import { FirmsModule } from './firms/firms.module';
+import { HouseholdsModule } from './households/households.module';
 import { UsersModule } from './users/users.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { TransactionsModule } from './transactions/transactions.module';
@@ -31,6 +32,7 @@ import { HealthModule } from './health/health.module';
     CommonModule,
     AuthModule,
     FirmsModule,
+    HouseholdsModule,
     UsersModule,
     AccountsModule,
     TransactionsModule,
