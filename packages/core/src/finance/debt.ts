@@ -96,6 +96,53 @@ export function simulateDebtPayoff(
   };
 }
 
+export interface DebtSummaryEntry {
+  /** Debt type key (e.g. home_loan) — free string so the domain layer stays enum-agnostic. */
+  type: string;
+  outstandingMinor: number;
+  /** Scheduled monthly obligation (EMI or minimum payment). */
+  monthlyPaymentMinor: number;
+  annualInterestRatePct: number;
+}
+
+export interface DebtSummary {
+  totalOutstandingMinor: number;
+  totalMonthlyPaymentMinor: number;
+  /** Outstanding-weighted average annual rate; 0 when nothing is outstanding. */
+  weightedAvgRatePct: number;
+  debtCount: number;
+  byType: { type: string; outstandingMinor: number }[];
+  currency: CurrencyCode;
+}
+
+/**
+ * Summarise a household's active debts (already converted to one currency): total
+ * outstanding, total monthly obligation, outstanding-weighted average rate, and a
+ * per-type breakdown. Pure — FX conversion happens in the caller (ADR-003).
+ */
+export function summarizeDebt(entries: DebtSummaryEntry[], currency: CurrencyCode): DebtSummary {
+  let totalOutstanding = 0;
+  let totalMonthly = 0;
+  let weightedRateNumerator = 0;
+  const byTypeMap = new Map<string, number>();
+  for (const e of entries) {
+    totalOutstanding += e.outstandingMinor;
+    totalMonthly += e.monthlyPaymentMinor;
+    weightedRateNumerator += e.outstandingMinor * e.annualInterestRatePct;
+    byTypeMap.set(e.type, (byTypeMap.get(e.type) ?? 0) + e.outstandingMinor);
+  }
+  return {
+    totalOutstandingMinor: totalOutstanding,
+    totalMonthlyPaymentMinor: totalMonthly,
+    weightedAvgRatePct: totalOutstanding > 0 ? weightedRateNumerator / totalOutstanding : 0,
+    debtCount: entries.length,
+    byType: [...byTypeMap.entries()]
+      .map(([type, outstandingMinor]) => ({ type, outstandingMinor }))
+      .sort((a, b) => b.outstandingMinor - a.outstandingMinor),
+    currency,
+  };
+}
+
 /** Convenience: compare both strategies and report interest saved by avalanche. */
 export function compareDebtStrategies(
   debts: DebtInput[],

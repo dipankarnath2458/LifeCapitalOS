@@ -61,8 +61,23 @@ enum DebtType {
   personal_loan
   vehicle_loan
   education_loan
+  business_loan
   credit_card
   other
+}
+
+enum DebtStatus {
+  active
+  closed
+  written_off
+  archived
+}
+
+enum DebtPaymentType {
+  emi
+  extra
+  prepayment
+  foreclosure
 }
 
 enum GoalType {
@@ -297,23 +312,97 @@ model BudgetLine {
 
 model Debt {
   id                   String   @id @default(cuid())
-  userId               String
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Retail owner. Nullable so a debt can instead be owned by a household (advisory
+  // tier). A row is either retail (userId set) or advisory (householdId set);
+  // relaxing NOT NULL is backward-compatible — existing rows keep userId.
+  userId               String?
+  user                 User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                 String
   type                 DebtType
+  // Secured (home/vehicle/loan-against-asset) vs unsecured (personal/education/card).
+  secured              Boolean  @default(false)
+  lender               String?
   currency             String   @default("INR")
+  // Original sanctioned amount; outstanding is the current balance (seeded to
+  // principal at creation, reduced by payments).
   principalMinor       BigInt
+  outstandingMinor     BigInt?
   annualInterestRatePct Float
   minimumPaymentMinor  BigInt
+  // Scheduled installment for fixed-EMI loans (nullable; cards use the minimum).
+  emiMinor             BigInt?
+  status               DebtStatus @default(active)
+  startedAt            DateTime?
+  maturityAt           DateTime?
+  dueDayOfMonth        Int?
+  note                 String?
   createdAt            DateTime @default(now())
   updatedAt           DateTime @updatedAt
-  // Phase 2 advisory scoping — nullable, additive (M1b).
+  createdById          String?
+  updatedById          String?
+  // Phase 2 advisory scoping — nullable, additive (M1b; householdId promoted to a
+  // relation in M2-5). entityId supports entity-owned debts.
   firmId               String?
   householdId          String?
+  entityId             String?
+  household            Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  entity               Entity?    @relation(fields: [entityId], references: [id], onDelete: SetNull)
+
+  payments  DebtPayment[]
 
   @@index([userId])
   @@index([firmId])
   @@index([householdId])
+  @@index([householdId, status])
+  @@index([entityId])
+}
+
+// A repayment event against a debt (M2-5). The principal portion reduces the debt's
+// outstanding balance; the interest portion is cost. Optionally links to the M2-4
+// cashflow Transaction (reuse, not duplicate) via transactionId.
+model DebtPayment {
+  id             String          @id @default(cuid())
+  debtId         String
+  householdId    String
+  firmId         String
+  type           DebtPaymentType @default(emi)
+  amountMinor    BigInt
+  principalMinor BigInt          @default(0)
+  interestMinor  BigInt          @default(0)
+  currency       String          @default("INR")
+  paidOn         DateTime
+  transactionId  String?
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+
+  debt Debt @relation(fields: [debtId], references: [id], onDelete: Cascade)
+
+  @@index([debtId])
+  @@index([householdId])
+  @@index([firmId])
+}
+
+// Immutable point-in-time capture of a household's consolidated debt position, in the
+// household base currency (M2-5). Mirrors NetWorthSnapshot (ADR-004) — create-only,
+// never updated or deleted. `breakdown` freezes per-type/per-debt detail.
+model DebtSnapshot {
+  id                    String   @id @default(cuid())
+  householdId           String
+  firmId                String
+  totalOutstandingMinor BigInt
+  totalEmiMinor         BigInt
+  weightedAvgRatePct    Float
+  debtCount             Int
+  breakdown             Json?
+  currency              String   @default("INR")
+  capturedAt            DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([firmId])
+  @@index([householdId, capturedAt])
 }
 
 model Goal {
@@ -540,6 +629,8 @@ model Household {
   netWorthSnaps NetWorthSnapshot[]
   transactions  Transaction[]
   budgets       Budget[]
+  debts         Debt[]
+  debtSnapshots DebtSnapshot[]
 
   @@index([firmId])
   @@index([advisorId])
@@ -576,6 +667,7 @@ model Entity {
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
   accounts  Account[]
+  debts     Debt[]
 
   @@index([householdId])
   @@index([firmId])
