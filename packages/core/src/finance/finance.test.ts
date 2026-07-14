@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeNetWorth, financialIndependenceRatio } from './networth.js';
-import { compareDebtStrategies, simulateDebtPayoff } from './debt.js';
+import { compareDebtStrategies, simulateDebtPayoff, summarizeDebt } from './debt.js';
 import { computeRetirement, financialFreedomNumber } from './retirement.js';
 import { analyzeAllocation, recommendedAllocation } from './assetAllocation.js';
 import { evaluateBudget, summarizeCashflow } from './cashflow.js';
@@ -63,6 +63,28 @@ describe('debt payoff', () => {
   it('avalanche never costs more interest than snowball', () => {
     const { interestSaved } = compareDebtStrategies(debts, 10_000_00, 'INR');
     expect(interestSaved.minor).toBeGreaterThanOrEqual(0);
+  });
+
+  it('summarises outstanding, monthly obligation and weighted rate by type', () => {
+    const s = summarizeDebt(
+      [
+        { type: 'home_loan', outstandingMinor: 300_000_00, monthlyPaymentMinor: 25_000_00, annualInterestRatePct: 8 },
+        { type: 'credit_card', outstandingMinor: 100_000_00, monthlyPaymentMinor: 5_000_00, annualInterestRatePct: 36 },
+      ],
+      'INR',
+    );
+    expect(s.totalOutstandingMinor).toBe(400_000_00);
+    expect(s.totalMonthlyPaymentMinor).toBe(30_000_00);
+    // Outstanding-weighted: (300k*8 + 100k*36) / 400k = 15.
+    expect(s.weightedAvgRatePct).toBeCloseTo(15, 5);
+    expect(s.byType[0]?.type).toBe('home_loan');
+    expect(s.debtCount).toBe(2);
+  });
+
+  it('reports a zero weighted rate when nothing is outstanding', () => {
+    const s = summarizeDebt([], 'INR');
+    expect(s.totalOutstandingMinor).toBe(0);
+    expect(s.weightedAvgRatePct).toBe(0);
   });
 });
 
