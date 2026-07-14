@@ -70,6 +70,15 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
 - **`schema.prisma` is not `prettier`/`prisma format` canonical** on `main` and no gate enforces it — do **not**
   run `prisma format` (it reformats the whole file → large unrelated diff). Edit models by hand matching local
   style. Prettier has no `.prisma` parser (schema.prisma is skipped by `prettier --check .`).
+- **Net worth + snapshots (M2-3):** `FxService` (`common/`, global) implements the core `FxRateProvider` over
+  a **static/config** table (defaults from `DEFAULT_USD_PER_UNIT`, override via `FX_USD_PER_UNIT` JSON env);
+  swap for a live provider without touching call sites. `HouseholdNetWorthService` FX-converts each account to
+  `Household.baseCurrency` (`convertMinor`) then `computeNetWorth` — `/current` is **computed live** (never
+  stored). `POST /net-worth/snapshot` creates an **immutable** `NetWorthSnapshot` (create-only; no
+  update/delete); `/timeline` reads history ordered by `capturedAt` (composite index `(householdId,
+capturedAt)`). `NetWorthSnapshot.userId` relaxed to nullable + `householdId`→`Household` relation, mirroring
+  the M2-2 Account pattern. Snapshot capture is a write (OWNER/ADVISOR/SUPPORT); analyst read-only. Design:
+  [`docs/architecture/M2-3_NET_WORTH_DESIGN.md`](./docs/architecture/M2-3_NET_WORTH_DESIGN.md).
 
 ## Conventions & gotchas
 

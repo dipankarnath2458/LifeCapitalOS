@@ -9,6 +9,8 @@ import { EntitiesController } from './entities.controller';
 import { EntitiesService } from './entities.service';
 import { HouseholdAccountsController } from './household-accounts.controller';
 import { HouseholdAccountsService } from './household-accounts.service';
+import { HouseholdNetWorthController } from './household-networth.controller';
+import { HouseholdNetWorthService } from './household-networth.service';
 
 @Module({
   imports: [FirmsModule],
@@ -17,12 +19,14 @@ import { HouseholdAccountsService } from './household-accounts.service';
     HouseholdMembersController,
     EntitiesController,
     HouseholdAccountsController,
+    HouseholdNetWorthController,
   ],
   providers: [
     HouseholdsService,
     HouseholdMembersService,
     EntitiesService,
     HouseholdAccountsService,
+    HouseholdNetWorthService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],
