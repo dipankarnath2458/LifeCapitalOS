@@ -94,6 +94,23 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
   lockdown. Minimal UI: `/app/households/[id]/cashflow` (month summary + ledger + add-form + budget-vs-actual),
   presentation-only. Design:
   [`docs/architecture/M2_CASHFLOW_ENGINE.md`](./docs/architecture/M2_CASHFLOW_ENGINE.md).
+- **Debt & payoff engine (M2-5, ADR-011):** `Debt` is a **detailed liability ledger parallel to the M2-3
+  net-worth accounts** — M2-5 **does not change how net worth is computed** (accounts stay the net-worth
+  liability source), so debt and liability accounts **don't double-count**; the **M2-6 seam** reconciles them.
+  Reuses core `simulateDebtPayoff` + new `summarizeDebt` (outstanding-weighted avg rate, by type); FX per debt
+  via `FxService`/`convertMinor` (ADR-003). Schema (additive): `DebtType += business_loan`; new enums
+  `DebtStatus` (`active|closed|written_off|archived`) + `DebtPaymentType` (`emi|extra|prepayment|foreclosure`);
+  `Debt.userId` relaxed nullable + `householdId`→`Household` relation + `entityId`→`Entity` (`SetNull`,
+  entity-owned); added `secured`/`lender`/`outstandingMinor`(current vs `principalMinor` original)/`emiMinor`/
+  lifecycle dates/`status`/provenance + `(householdId, status)` index. New tables **`DebtPayment`** (principal
+  reduces `outstandingMinor`; foreclosure → `closed`; optional `transactionId` link to the M2-4 ledger — reuse,
+  not duplicate) and immutable **`DebtSnapshot`** (create-only per ADR-004; `breakdown` JSON freezes per-debt
+  detail; mirrors `NetWorthSnapshot`). Routes household-scoped under `HouseholdScopeGuard`
+  (`/households/:id/debts` CRUD, `.../debts/summary`, `.../debts/payoff?strategy=&extraMonthlyMinor=`,
+  `.../debts/:debtId/payments`, `.../debts/snapshot`, `.../debts/timeline`); writes `OWNER/ADVISOR/SUPPORT`,
+  analyst read-only; audited. Only `active` debts feed summary/payoff/snapshot. New tables get RLS lockdown.
+  Minimal UI: `/app/households/[id]/debt` (summary + list + add-form + payoff projection), presentation-only.
+  Design: [`docs/architecture/M2-5_DEBT_DESIGN.md`](./docs/architecture/M2-5_DEBT_DESIGN.md).
 - **Net worth + snapshots (M2-3):** `FxService` (`common/`, global) implements the core `FxRateProvider` over
   a **static/config** table (defaults from `DEFAULT_USD_PER_UNIT`, override via `FX_USD_PER_UNIT` JSON env);
   swap for a live provider without touching call sites. `HouseholdNetWorthService` FX-converts each account to

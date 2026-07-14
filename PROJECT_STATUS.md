@@ -3,7 +3,7 @@
 > Living snapshot of where the product is. **Updated after every merged PR** per the
 > [AI Engineering Workflow](./docs/AI_ENGINEERING_WORKFLOW.md).
 >
-> **Last updated:** M2-4 (Household cashflow & budget engine) — Module 2 in progress.
+> **Last updated:** M2-5 (Household debt & payoff engine) — Module 2 in progress.
 
 ## Current phase
 
@@ -39,23 +39,27 @@ advisor `/app` workspace shell.
 | #15      | M2-2  | Household accounts (MOD-4.1): entity-owned, household-scoped CRUD; promote `Account` scope columns to relations; `Account.userId` relaxed to nullable |
 | #16      | M2-3  | Household net worth + immutable snapshots + timeline (MOD-4.2), multi-currency via `FxService` (static/config `FxRateProvider`)                       |
 | #17      | M2-7  | Family Balance Sheet UI (`/app/households/[id]/balance-sheet`) — reads immutable snapshots + accounts; no UI recompute                                |
-| _(this)_ | M2-4  | Household cashflow & budget engine — transaction ledger (single source of truth), monthly summary/timeline, budget-vs-actual; multi-currency via `FxService` |
+| #18      | M2-4  | Household cashflow & budget engine — transaction ledger (single source of truth), monthly summary/timeline, budget-vs-actual; multi-currency via `FxService` |
+| _(this)_ | M2-5  | Household debt & payoff engine — detailed liability ledger + payments, live summary/payoff (snowball/avalanche), immutable `DebtSnapshot` timeline (ADR-011) |
 
-Planned next: M2-5 debt · M2-6 household FinancialSnapshot seam.
+Planned next: M2-6 household FinancialSnapshot seam (reconciles net worth + debt + cashflow).
 (M2-8 scheduled snapshots deferred to M0.)
 
 ## Health snapshot (merged `main` + this PR)
 
-- **Migrations:** 9, apply cleanly from scratch; no drift (M2-4 adds the `adjustment` enum value, relaxes
-  `Transaction.userId` to nullable, promotes `Transaction.householdId` to a relation, adds
-  `baseCurrency`/`tags`/`status`/provenance columns, and creates the `Budget`/`BudgetLine` tables — all
-  additive, with RLS lockdown on the new tables).
-- **Build:** 3/3 packages (incl. Next.js web) · **Lint:** 4/4 · **`@lcos/core`:** 55/55 · **API e2e:** 77/77 (11 suites).
-- **Vercel:** web preview builds/deploys on `apps/web` changes (M2-4 builds a preview); skipped otherwise.
+- **Migrations:** 10, apply cleanly from scratch; no drift (M2-5 adds the `business_loan` enum value and
+  `DebtStatus`/`DebtPaymentType` enums, relaxes `Debt.userId` to nullable, promotes `Debt.householdId` to a
+  relation + adds an `entityId` relation, adds `secured`/`outstandingMinor`/`emiMinor`/lifecycle/provenance
+  columns, and creates the `DebtPayment`/`DebtSnapshot` tables — all additive, with RLS lockdown on the new
+  tables).
+- **Build:** 3/3 packages (incl. Next.js web) · **Lint:** 4/4 · **`@lcos/core`:** 57/57 · **API e2e:** 86/86 (12 suites).
+- **Vercel:** web preview builds/deploys on `apps/web` changes (M2-5 builds a preview); skipped otherwise.
 - `main` is deployable.
 
 ## What's next
 
-**M2-5 — Household debt & payoff**, then M2-6 (household FinancialSnapshot seam, which consumes the cashflow
-engine's monthly summary). The Balance Sheet UI (M2-7) will pick up a debt section as it lands (documented
-extension point). Awaiting owner approval to begin the next slice.
+**M2-6 — Household FinancialSnapshot seam**: the single place that reconciles net-worth accounts (M2-3), the
+debt ledger (M2-5), and the cashflow summary (M2-4) into one household financial snapshot — consuming the
+existing immutable snapshots/summaries, never re-aggregating (ADR-011). The Balance Sheet UI (M2-7) will pick
+up a debt/liabilities detail section (documented extension point). Awaiting owner approval to begin the next
+slice.
