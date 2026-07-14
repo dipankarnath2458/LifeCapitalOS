@@ -70,6 +70,14 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
 - **`schema.prisma` is not `prettier`/`prisma format` canonical** on `main` and no gate enforces it — do **not**
   run `prisma format` (it reformats the whole file → large unrelated diff). Edit models by hand matching local
   style. Prettier has no `.prisma` parser (schema.prisma is skipped by `prettier --check .`).
+- **Family Balance Sheet UI (M2-7):** `/app/households/[id]/balance-sheet` (advisor `/app`). **Presentation
+  only** — reads M2-3 `/net-worth/timeline` (immutable snapshots) for the consolidated summary + history and
+  M2-2 `/accounts` for the current-holdings breakdown; **never computes/converts net worth in the browser**
+  (no cross-currency summation client-side). Snapshot selector defaults to newest; historical views are
+  read-only; an optional "Capture snapshot" affordance (write roles) delegates to the M2-3 POST. Composes
+  `@/ui` primitives only (**no `ui/*` changes**); money formatted via `Intl.NumberFormat` (display only).
+  Household detail page links to it (the "Balance sheet" chip is now live). Design:
+  [`docs/architecture/M2_FAMILY_BALANCE_SHEET_UI.md`](./docs/architecture/M2_FAMILY_BALANCE_SHEET_UI.md).
 - **Net worth + snapshots (M2-3):** `FxService` (`common/`, global) implements the core `FxRateProvider` over
   a **static/config** table (defaults from `DEFAULT_USD_PER_UNIT`, override via `FX_USD_PER_UNIT` JSON env);
   swap for a live provider without touching call sites. `HouseholdNetWorthService` FX-converts each account to
