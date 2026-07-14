@@ -11,6 +11,7 @@ export interface AuthUser {
   id: string;
   role: Role;
   email?: string | null;
+  activeFirmId?: string | null;
 }
 
 /** Extracts the authenticated user attached by JwtStrategy. */

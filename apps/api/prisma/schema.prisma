@@ -123,6 +123,7 @@ model User {
   emailVerified Boolean   @default(false)
   phoneVerified Boolean   @default(false)
   totpSecret    String? // encrypted
+  activeFirmId  String? // last-used firm context for multi-firm users (MOD-1.5)
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
