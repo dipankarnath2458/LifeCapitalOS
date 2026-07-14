@@ -10,6 +10,7 @@ export * from './finance/debt.js';
 export * from './finance/retirement.js';
 export * from './finance/assetAllocation.js';
 export * from './finance/cashflow.js';
+export * from './finance/fx.js';
 export * from './finance/goals.js';
 export * from './finance/insurance.js';
 export * from './finance/tax.js';
