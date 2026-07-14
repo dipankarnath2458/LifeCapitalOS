@@ -78,6 +78,22 @@ SUPPORT`) × resource scope (`Household.advisorId` / `HouseholdMember` link).
   `@/ui` primitives only (**no `ui/*` changes**); money formatted via `Intl.NumberFormat` (display only).
   Household detail page links to it (the "Balance sheet" chip is now live). Design:
   [`docs/architecture/M2_FAMILY_BALANCE_SHEET_UI.md`](./docs/architecture/M2_FAMILY_BALANCE_SHEET_UI.md).
+- **Cashflow & budget engine (M2-4):** the household `Transaction` ledger is the **single source of truth**
+  for financial activity — future modules (M2-5 debt, M2-6 seam, statements, goals…) **consume its service
+  summaries** rather than re-aggregating. Types `income|expense|transfer|adjustment` (`adjustment` added
+  additively); `transfer`/`adjustment`/`void` are **excluded** from income/expense (core `summarizeCashflow`).
+  Store **native** currency + `baseCurrency` reference; **no converted amount stored** — convert at aggregation
+  via `FxService`/`convertMinor` (ADR-003). `Transaction.userId` relaxed nullable + `householdId`→`Household`
+  relation (mirrors M2-2/2-3); added `baseCurrency`/`tags`/`status`/`createdById`/`updatedById` +
+  `(householdId, occurredAt)` index. **Budget engine:** `Budget` (one per `(householdId, periodMonth 'YYYY-MM')`,
+  optional overall cap) + `BudgetLine` (per-category envelope, unique `(budgetId, category)`); POST **upserts**
+  (replaces the envelope set in a `$transaction`); budget-vs-actual pulls live actuals from the ledger and runs
+  core `evaluateBudget`. Routes mounted household-scoped (`/households/:id/cashflow`, `.../cashflow/summary`,
+  `.../cashflow/timeline`, `/households/:id/budget`) under `HouseholdScopeGuard`; writes `OWNER/ADVISOR/SUPPORT`
+  (spec's "SUPERVISOR" maps to `SUPPORT` — no such role, avoid drift), analyst read-only. New tables get RLS
+  lockdown. Minimal UI: `/app/households/[id]/cashflow` (month summary + ledger + add-form + budget-vs-actual),
+  presentation-only. Design:
+  [`docs/architecture/M2_CASHFLOW_ENGINE.md`](./docs/architecture/M2_CASHFLOW_ENGINE.md).
 - **Net worth + snapshots (M2-3):** `FxService` (`common/`, global) implements the core `FxRateProvider` over
   a **static/config** table (defaults from `DEFAULT_USD_PER_UNIT`, override via `FX_USD_PER_UNIT` JSON env);
   swap for a live provider without touching call sites. `HouseholdNetWorthService` FX-converts each account to
