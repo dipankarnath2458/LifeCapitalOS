@@ -53,6 +53,7 @@ enum TransactionType {
   income
   expense
   transfer
+  adjustment
 }
 
 enum DebtType {
@@ -217,25 +218,81 @@ model Account {
 
 model Transaction {
   id         String          @id @default(cuid())
-  userId     String
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Retail owner. Nullable so a transaction can instead be owned by a household
+  // (advisory tier). A row is either retail (userId set) or advisory (householdId
+  // set); relaxing NOT NULL is backward-compatible — existing rows keep userId.
+  userId     String?
+  user       User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   accountId  String
   account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
   type       TransactionType
   amountMinor BigInt
+  // Native ISO currency of the transaction; FX to the household base happens at
+  // aggregation (ADR-003) — no converted amount is stored.
   currency   String          @default("INR")
+  // Household base currency at entry time (denormalized reference only).
+  baseCurrency String?
   category   String
   note       String?
+  tags       String[]        @default([])
+  // Lifecycle: cleared | pending | void (void excluded from summaries).
+  status     String          @default("cleared")
   occurredAt DateTime
   createdAt  DateTime        @default(now())
-  // Phase 2 advisory scoping — nullable, additive (M1b).
+  updatedAt  DateTime        @default(now()) @updatedAt
+  // Provenance of the acting users (advisory tier).
+  createdById String?
+  updatedById String?
+  // Phase 2 advisory scoping — nullable, additive (M1b; householdId promoted to a
+  // relation in M2-4).
   firmId      String?
   householdId String?
+  household   Household?      @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([userId, occurredAt])
   @@index([accountId])
   @@index([firmId])
   @@index([householdId])
+  @@index([householdId, occurredAt])
+}
+
+// Monthly household budget (M2-4). One per (householdId, periodMonth 'YYYY-MM').
+// The overall cap plus per-category envelopes (BudgetLine); actuals are computed
+// live from the transaction ledger, never stored here.
+model Budget {
+  id              String       @id @default(cuid())
+  householdId     String
+  firmId          String
+  // Budget period as 'YYYY-MM' (a household budgets one month at a time).
+  periodMonth     String
+  // Base currency the envelopes are expressed in.
+  currency        String       @default("INR")
+  // Optional overall monthly cap (minor units); null = no overall cap.
+  totalAmountMinor BigInt?
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now()) @updatedAt
+
+  household Household    @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  lines     BudgetLine[]
+
+  @@unique([householdId, periodMonth])
+  @@index([householdId])
+  @@index([firmId])
+}
+
+// A per-category envelope within a monthly budget (M2-4).
+model BudgetLine {
+  id          String @id @default(cuid())
+  budgetId    String
+  category    String
+  amountMinor BigInt
+
+  budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, category])
+  @@index([budgetId])
 }
 
 model Debt {
@@ -481,6 +538,8 @@ model Household {
   entities      Entity[]
   accounts      Account[]
   netWorthSnaps NetWorthSnapshot[]
+  transactions  Transaction[]
+  budgets       Budget[]
 
   @@index([firmId])
   @@index([advisorId])
