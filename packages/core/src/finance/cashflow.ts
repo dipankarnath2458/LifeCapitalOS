@@ -1,7 +1,12 @@
 import { CurrencyCode, fromMinor, Money } from '../money/money.js';
 
 export interface CashflowEntry {
-  type: 'income' | 'expense' | 'transfer';
+  /**
+   * `transfer` (moving money between the household's own accounts) and `adjustment`
+   * (balance corrections) are carried on the ledger but excluded from income/expense
+   * summaries — only `income` and `expense` affect the cashflow totals.
+   */
+  type: 'income' | 'expense' | 'transfer' | 'adjustment';
   amountMinor: number;
   category: string;
 }

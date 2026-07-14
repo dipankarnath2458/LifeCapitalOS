@@ -11,6 +11,10 @@ import { HouseholdAccountsController } from './household-accounts.controller';
 import { HouseholdAccountsService } from './household-accounts.service';
 import { HouseholdNetWorthController } from './household-networth.controller';
 import { HouseholdNetWorthService } from './household-networth.service';
+import { HouseholdCashflowController } from './household-cashflow.controller';
+import { HouseholdCashflowService } from './household-cashflow.service';
+import { HouseholdBudgetController } from './household-budget.controller';
+import { HouseholdBudgetService } from './household-budget.service';
 
 @Module({
   imports: [FirmsModule],
@@ -20,6 +24,8 @@ import { HouseholdNetWorthService } from './household-networth.service';
     EntitiesController,
     HouseholdAccountsController,
     HouseholdNetWorthController,
+    HouseholdCashflowController,
+    HouseholdBudgetController,
   ],
   providers: [
     HouseholdsService,
@@ -27,6 +33,8 @@ import { HouseholdNetWorthService } from './household-networth.service';
     EntitiesService,
     HouseholdAccountsService,
     HouseholdNetWorthService,
+    HouseholdCashflowService,
+    HouseholdBudgetService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],
