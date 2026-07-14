@@ -14,6 +14,12 @@ import { CurrencyCode, FxRateProvider, StaticFxRateProvider } from '@lcos/core';
 export class FxService implements FxRateProvider {
   private readonly logger = new Logger(FxService.name);
   private readonly provider: FxRateProvider;
+  /**
+   * Identifier of the rate set in use. Stamped into Financial Snapshots (M2-6) so a
+   * conversion is reproducible. `static-v1` is the default table; an override switches
+   * it to `static-override` (the config-supplied rates).
+   */
+  readonly version: string;
 
   constructor() {
     let overrides: Partial<Record<CurrencyCode, number>> | undefined;
@@ -26,6 +32,7 @@ export class FxService implements FxRateProvider {
       }
     }
     this.provider = new StaticFxRateProvider(overrides);
+    this.version = overrides ? 'static-override' : 'static-v1';
   }
 
   rate(from: CurrencyCode, to: CurrencyCode): number {
