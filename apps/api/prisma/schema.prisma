@@ -286,20 +286,25 @@ model Goal {
 
 model NetWorthSnapshot {
   id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Retail owner. Nullable — a snapshot is either retail (userId set) or advisory
+  // (householdId set). Relaxing NOT NULL is backward-compatible.
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   assetsMinor     BigInt
   liabilitiesMinor BigInt
   netWorthMinor   BigInt
   currency        String   @default("INR")
   capturedAt      DateTime @default(now())
-  // Phase 2 advisory scoping — nullable, additive (M1b).
+  // Phase 2 advisory scoping (M1b; householdId promoted to a relation in M2-3).
+  // Snapshots are immutable and stored in the household base currency at capture.
   firmId          String?
   householdId     String?
+  household       Household? @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([userId, capturedAt])
   @@index([firmId])
   @@index([householdId])
+  @@index([householdId, capturedAt])
 }
 
 model Recommendation {
@@ -471,10 +476,11 @@ model Household {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  firm     Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  members  HouseholdMember[]
-  entities Entity[]
-  accounts Account[]
+  firm          Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  members       HouseholdMember[]
+  entities      Entity[]
+  accounts      Account[]
+  netWorthSnaps NetWorthSnapshot[]
 
   @@index([firmId])
   @@index([advisorId])

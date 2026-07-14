@@ -36,20 +36,21 @@ advisor `/app` workspace shell.
 | PR       | Slice | Summary                                                                                                                                               |
 | -------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #14      | M2-1  | FX conversion boundary in `@lcos/core` (`FxRateProvider`, `convertMoney`, `sumInBaseCurrency`) + M2 architecture reference (+ ADRs)                   |
-| _(this)_ | M2-2  | Household accounts (MOD-4.1): entity-owned, household-scoped CRUD; promote `Account` scope columns to relations; `Account.userId` relaxed to nullable |
+| #15      | M2-2  | Household accounts (MOD-4.1): entity-owned, household-scoped CRUD; promote `Account` scope columns to relations; `Account.userId` relaxed to nullable |
+| _(this)_ | M2-3  | Household net worth + immutable snapshots + timeline (MOD-4.2), multi-currency via `FxService` (static/config `FxRateProvider`)                       |
 
-Planned next: M2-3 net worth + snapshots (multi-currency) · M2-4 cashflow · M2-5 debt · M2-6 household
-FinancialSnapshot seam · M2-7 Family Balance Sheet UI. (M2-8 scheduled snapshots deferred to M0.)
+Planned next: M2-4 cashflow · M2-5 debt · M2-6 household FinancialSnapshot seam · M2-7 Family Balance Sheet UI.
+(M2-8 scheduled snapshots deferred to M0.)
 
 ## Health snapshot (merged `main` + this PR)
 
-- **Migrations:** 7, apply cleanly from scratch; no drift.
-- **Build:** 3/3 packages · **Lint:** 4/4 · **`@lcos/core`:** 54/54 · **API e2e:** 65/65 (9 suites).
+- **Migrations:** 8, apply cleanly from scratch; no drift.
+- **Build:** 3/3 packages · **Lint:** 4/4 · **`@lcos/core`:** 54/54 · **API e2e:** 69/69 (10 suites).
 - **Vercel:** web preview builds/deploys on `apps/web` changes; skipped otherwise.
 - `main` is deployable.
 
 ## What's next
 
-**M2-3 — Household net worth + snapshots (multi-currency).** FX-convert each household account to the
-household base currency (via M2-1) then `computeNetWorth`; on-demand `NetWorthSnapshot` capture + timeline,
-scoped to the household. Depends on M2-1 (FX) + M2-2 (accounts). Awaiting owner approval after M2-2 merges.
+**M2-4 — Household cashflow & budget**, or **M2-5 — Household debt & payoff** (parallelizable after M2-2).
+Then M2-6 (household FinancialSnapshot seam) and M2-7 (Family Balance Sheet UI, consuming M2-3's net-worth
+endpoints). Awaiting owner approval to begin the next slice.
