@@ -613,6 +613,25 @@ Consequences · Alternatives considered.
 - **Alternatives considered:** Big-bang reshape to a unified advisory schema (rejected — data-loss/downtime
   risk, breaks retail); separate advisory database (rejected — cross-product joins, ops cost, splits tenancy).
 
+### ADR-011 — Debt is a detailed ledger parallel to net-worth accounts (M2-5)
+
+- **Status:** Accepted
+- **Context:** M2-3 net worth already computes household **liabilities** from `Account.isLiability` rows. M2-5
+  introduces a richer `Debt` model (type, rate, EMI, outstanding, lifecycle, payments, payoff). Feeding debt
+  outstanding into net worth *and* keeping liability accounts would **double-count**; reshaping net worth to be
+  debt-driven would break M2-3 immutability and backward compatibility.
+- **Decision:** `Debt` is a **parallel, detailed liability ledger**. M2-5 **does not change** how M2-3 net
+  worth is computed (accounts stay the net-worth liability source). Debt gets its **own immutable
+  `DebtSnapshot`** series (create-only, per ADR-004). The **M2-6 Financial Snapshot seam** is the single place
+  that reconciles net-worth accounts, debt, and cashflow into one household financial snapshot — consuming the
+  existing snapshots/summaries, never re-querying or duplicating them.
+- **Consequences:** No double-counting; M2-3/2-4 untouched and backward-compatible; debt history is
+  reproducible on its own timeline; the reconciliation concern is isolated to M2-6. A debt and a liability
+  account may describe the same obligation until M2-6 unifies them — acceptable and documented.
+- **Alternatives considered:** Represent every debt as a liability `Account` (rejected for M2-5 — loses the
+  rate/EMI/lifecycle detail, or bloats `Account`; a future opt-in mapping remains possible); post debt balances
+  directly into net worth (rejected — double-counts, mutates the M2-3 computation, breaks immutability).
+
 ---
 
 _This document is maintained alongside Module 2 development. Update it in the same PR whenever an M2 change
