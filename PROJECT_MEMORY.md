@@ -54,6 +54,24 @@
   `/households/:id/health-score/explanation/{current,latest,:scoreId}` (any in-scope member incl. analyst; 404
   out-of-scope). UI: explanation surfaced on the health-score page (recommendations + potential + confidence).
   This is the grounding contract for the M4 AI Wealth Advisor.
+- **M3-3 What-if Simulation Engine (additive, ADR-013):** design in
+  [`M3_SIMULATION_ENGINE.md`](./docs/architecture/M3_SIMULATION_ENGINE.md). Pure core
+  `simulateFinancialWhatIf(payload, request, opts)` in `@lcos/core/finance/financialSimulation.ts`
+  (`sim-1.0.0`). Pattern (**ADR-013**): build a **transient virtual snapshot** (JSON-clone the immutable
+  payload → apply scenario transforms → `normalize()` re-derives the aggregates the score reads), then **reuse**
+  M3-1 `computeFinancialHealthScore` + M3-2 `explainFinancialHealth`, and **diff** vs baseline. **Never mutates
+  input, never persists, no kernel/schema change** (verified: 0 migrations; kernel, M3-1, M3-2 files unchanged).
+  Scenarios via an **open registry** `DEFAULT_SCENARIO_REGISTRY` (repay_debt, increase_emergency_fund, buy/sell
+  _asset, reallocate, reduce_expenses, increase_savings, increase_sip, retirement_contribution,
+  improve_insurance) — extend by passing `opts.registry` (engine unchanged). Result: metadata, ScenarioSummary
+  (before/after/delta + improved/weakened + narrative), CategoryImpact[] (per-category point deltas +
+  direction), recommendations (from virtual explanation), topRecommendation, **bestSingleAction** (each requested
+  scenario simulated alone → max overall delta). Withdrawals **clamp at 0**; unknown scenario throws (API 400).
+  Service `HouseholdSimulationService` depends only on `HouseholdFinancialSnapshotService` (immutable payload).
+  Routes: `POST /households/:id/simulation` (non-mutating; any in-scope member incl. analyst; 404 out-of-scope;
+  persists nothing) + `GET /households/:id/simulation/scenario-types`. UI: `/app/households/[id]/simulation`
+  (scenario builder + before/after + category impact + best action + recommendations). Reusable foundation for
+  Monte Carlo / Forecasting / AI advisor.
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`
