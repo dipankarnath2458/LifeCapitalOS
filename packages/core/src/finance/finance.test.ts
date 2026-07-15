@@ -5,6 +5,12 @@ import { computeRetirement, financialFreedomNumber } from './retirement.js';
 import { analyzeAllocation, recommendedAllocation } from './assetAllocation.js';
 import { evaluateBudget, summarizeCashflow } from './cashflow.js';
 import { canonicalStringify, upgradePayload } from './financialSnapshot.js';
+import {
+  bandOf,
+  computeFinancialHealthScore,
+  interpolate,
+  DEFAULT_FINANCIAL_HEALTH_MODEL,
+} from './financialHealth.js';
 import { planGoal } from './goals.js';
 import { analyzeLifeInsuranceGap, emergencyFundTarget } from './insurance.js';
 import { fromMinor, money, toMajor } from '../money/money.js';
@@ -178,6 +184,96 @@ describe('financial snapshot contract', () => {
   it('up-converts as identity within the same schema version', () => {
     const payload = { netWorth: { netWorthMinor: 100 } } as never;
     expect(upgradePayload(payload, 1, 1)).toBe(payload);
+  });
+});
+
+describe('financial health score', () => {
+  // A healthy household: positive net worth, low debt, good savings, cash buffer, diversified.
+  const strong = {
+    netWorth: { assetsMinor: 100_000_00, liabilitiesMinor: 20_000_00, netWorthMinor: 80_000_00, solvencyRatio: 0.8 },
+    assets: [
+      { accountId: 'a', name: 'Cash', assetClass: 'cash', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 30_000_00, baseBalanceMinor: 30_000_00 },
+      { accountId: 'b', name: 'Equity', assetClass: 'equity', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 35_000_00, baseBalanceMinor: 35_000_00 },
+      { accountId: 'c', name: 'Debt fund', assetClass: 'debt', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 35_000_00, baseBalanceMinor: 35_000_00 },
+    ],
+    liabilities: [],
+    debt: { totalOutstandingMinor: 10_000_00, totalMonthlyPaymentMinor: 500_00, weightedAvgRatePct: 8, debtCount: 1, byType: [] },
+    cashflowSummary: { period: '2026-03', incomeMinor: 10_000_00, expenseMinor: 5_000_00, netMinor: 5_000_00, savingsRate: 0.5, byCategory: [] },
+    budgetSummary: { period: '2026-03', exists: false, totalBudgetMinor: null, totalSpentMinor: 0, overTotal: false },
+    assetAllocation: [
+      { assetClass: 'cash', baseValueMinor: 30_000_00, pct: 30 },
+      { assetClass: 'equity', baseValueMinor: 35_000_00, pct: 35 },
+      { assetClass: 'debt', baseValueMinor: 35_000_00, pct: 35 },
+    ],
+    currencyExposure: [{ currency: 'INR', baseValueMinor: 100_000_00, pct: 100 }],
+    householdEquity: { netWorthMinor: 80_000_00, totalDebtMinor: 10_000_00, reconciledEquityMinor: 70_000_00 },
+    entityHoldings: [],
+    relationships: { memberCount: 2, entityCount: 1, entityIds: [], accountIds: ['a', 'b', 'c'] },
+  };
+
+  it('interpolates piecewise-linearly and clamps at the ends', () => {
+    const anchors = [{ x: 0, score: 0 }, { x: 10, score: 100 }];
+    expect(interpolate(anchors, 5)).toBe(50);
+    expect(interpolate(anchors, -1)).toBe(0);
+    expect(interpolate(anchors, 99)).toBe(100);
+  });
+
+  it('bands map score ranges correctly', () => {
+    expect(bandOf(30)).toBe('at_risk');
+    expect(bandOf(50)).toBe('needs_attention');
+    expect(bandOf(70)).toBe('fair');
+    expect(bandOf(80)).toBe('good');
+    expect(bandOf(95)).toBe('excellent');
+  });
+
+  it('scores a strong household highly and is fully explainable', () => {
+    const r = computeFinancialHealthScore(strong);
+    expect(r.overall).toBeGreaterThanOrEqual(75);
+    expect(r.band === 'good' || r.band === 'excellent').toBe(true);
+    expect(r.modelVersion).toBe('fhs-1.0.0');
+    // Every category carries a metric, a reason and a suggestion (traceability).
+    expect(r.categories).toHaveLength(5);
+    for (const c of r.categories) {
+      expect(c.reason.length).toBeGreaterThan(0);
+      expect(c.suggestion.length).toBeGreaterThan(0);
+      expect(typeof c.metric.value).toBe('number');
+      expect(c.score).toBeGreaterThanOrEqual(0);
+      expect(c.score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('is deterministic (same payload → identical score)', () => {
+    expect(computeFinancialHealthScore(strong)).toEqual(computeFinancialHealthScore(strong));
+  });
+
+  it('savings sub-score is monotonic (more savings never lowers it)', () => {
+    const low = computeFinancialHealthScore({ ...strong, cashflowSummary: { ...strong.cashflowSummary, savingsRate: 0.05 } });
+    const high = computeFinancialHealthScore({ ...strong, cashflowSummary: { ...strong.cashflowSummary, savingsRate: 0.3 } });
+    const s = (r: ReturnType<typeof computeFinancialHealthScore>) => r.categories.find((c) => c.key === 'savings')!.score;
+    expect(s(high)).toBeGreaterThanOrEqual(s(low));
+  });
+
+  it('penalises negative net worth and high leverage', () => {
+    const weak = computeFinancialHealthScore({
+      ...strong,
+      netWorth: { assetsMinor: 10_000_00, liabilitiesMinor: 30_000_00, netWorthMinor: -20_000_00, solvencyRatio: 0.33 },
+      debt: { totalOutstandingMinor: 9_000_00, totalMonthlyPaymentMinor: 6_000_00, weightedAvgRatePct: 30, debtCount: 2, byType: [] },
+    });
+    expect(weak.categories.find((c) => c.key === 'net_worth')!.score).toBe(0);
+    expect(weak.overall).toBeLessThan(computeFinancialHealthScore(strong).overall);
+  });
+
+  it('handles zero income without throwing (drops DTI, uses debt-to-assets)', () => {
+    const r = computeFinancialHealthScore({
+      ...strong,
+      cashflowSummary: { ...strong.cashflowSummary, incomeMinor: 0, expenseMinor: 0, netMinor: 0, savingsRate: 0 },
+    });
+    expect(r.categories.find((c) => c.key === 'debt_burden')!.metric.name).toBe('debtToAssets');
+    expect(Number.isFinite(r.overall)).toBe(true);
+  });
+
+  it('default model weights sum to 100', () => {
+    expect(DEFAULT_FINANCIAL_HEALTH_MODEL.categories.reduce((s, c) => s + c.weight, 0)).toBe(100);
   });
 });
 

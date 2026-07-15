@@ -23,10 +23,21 @@
   **consume snapshots, not raw tables**; **any kernel/core schema change requires an ADR + architecture review
   first**; backward compatibility (additive-only) must be preserved. Recommended release tag not yet cut
   (awaiting approval).
-- **M3 design (proposed, design-only):** Financial Health Score
-  ([`M3_FINANCIAL_HEALTH_DESIGN.md`](./docs/architecture/M3_FINANCIAL_HEALTH_DESIGN.md)) — reads immutable
-  snapshots only, pure `@lcos/core` scoring, own RLS-locked `FinancialHealthScore` table; `schemaVersion 1`
-  supplies every input (no kernel change). Awaiting review before implementation.
+- **M3-1 Financial Health Score (implemented, first kernel consumer):** design in
+  [`M3_FINANCIAL_HEALTH_DESIGN.md`](./docs/architecture/M3_FINANCIAL_HEALTH_DESIGN.md). Pure core
+  `computeFinancialHealthScore(payload, model)` in `@lcos/core/finance/financialHealth.ts` (model
+  `fhs-1.0.0`): 5 weighted categories (net_worth 25, debt_burden 25, savings 20, liquidity 20, diversification
+  10), each a monotonic piecewise-linear anchor map → explainable sub-score with metric/reason/suggestion;
+  overall bands at_risk/needs_attention/fair/good/excellent. **Deterministic, no IO/clock/random.** NOTE:
+  the kernel's `netWorth.solvencyRatio` is **net worth ÷ assets** (≤1), not assets÷liabilities — anchors set
+  accordingly. Service `HouseholdHealthScoreService` depends **only** on `HouseholdFinancialSnapshotService`
+  (reads immutable `latest()`/`getById()` snapshots — never engine repos), Prisma (own table), audit. Routes
+  household-scoped: `GET /health-score/current` (live preview, not persisted; `{available:false}` if no
+  snapshot), `POST /health-score` (persist, OWNER/ADVISOR/SUPPORT), `GET /health-score/{latest,timeline,:id}`.
+  Own additive **RLS-locked** `FinancialHealthScore` table (references `snapshotId`; **no kernel change** —
+  verified purely additive, `FinancialSnapshot`/engines untouched). Minimal UI
+  `/app/households/[id]/health-score`. Reproducibility asserted (same snapshot ⇒ identical score after
+  mutations). This is the reusable M3+ consumer template (FUTURE_MODULE_CONTRACT compliant).
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`
