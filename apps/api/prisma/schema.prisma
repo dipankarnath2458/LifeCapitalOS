@@ -455,6 +455,34 @@ model FinancialSnapshot {
   @@index([householdId, snapshotVersion])
 }
 
+// Financial Health Score (M3-1). A derived, explainable score computed from an
+// immutable FinancialSnapshot. This is a CONSUMER table — it references a snapshot by
+// id and never mutates the kernel. Create-only in practice (each row is tied to the
+// snapshot + model version it was computed from). RLS lockdown like every M2+ table.
+model FinancialHealthScore {
+  id               String   @id @default(cuid())
+  householdId      String
+  firmId           String
+  // The immutable snapshot this score was computed from (provenance / reproducibility).
+  snapshotId       String
+  schemaVersion    Int
+  scoreModelVersion String
+  overall          Int
+  band             String
+  currency         String   @default("INR")
+  categories       Json
+  drivers          Json
+  computedById     String?
+  computedAt       DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@index([firmId])
+  @@index([snapshotId])
+  @@index([householdId, computedAt])
+}
+
 model Goal {
   id                    String   @id @default(cuid())
   userId                String
@@ -682,6 +710,7 @@ model Household {
   debts         Debt[]
   debtSnapshots DebtSnapshot[]
   financialSnapshots FinancialSnapshot[]
+  healthScores  FinancialHealthScore[]
 
   @@index([firmId])
   @@index([advisorId])
