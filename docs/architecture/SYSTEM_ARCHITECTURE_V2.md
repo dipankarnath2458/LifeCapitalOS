@@ -22,6 +22,12 @@
 | 9 | Extension Guidelines + future-module validation | [`EXTENSION_GUIDELINES.md`](./EXTENSION_GUIDELINES.md) |
 | 10 | ADR — Financial Kernel | [`ADR-FINANCIAL-KERNEL.md`](./ADR-FINANCIAL-KERNEL.md) |
 | — | Architectural review (pre-M3) | this document, §9 |
+| — | New-engineer onboarding (diagrams + mental model) | this document, §10 |
+| — | Future Module Contract (READ allowlist / WRITE prohibitions) | [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md) |
+| — | Explicit per-module extension points | [`EXTENSION_GUIDELINES.md`](./EXTENSION_GUIDELINES.md) §7 |
+
+**Read order for a new senior engineer:** §10 (this doc) → [`FINANCIAL_KERNEL_ARCHITECTURE.md`](./FINANCIAL_KERNEL_ARCHITECTURE.md)
+→ [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md) → [`EXTENSION_GUIDELINES.md`](./EXTENSION_GUIDELINES.md).
 
 ---
 
@@ -379,3 +385,125 @@ flowchart TB
 
 **Verdict:** the architecture is **sound and ready for Module 3 without redesign.** The weaknesses are
 localized, additive to fix, and none block the future-module set (see `EXTENSION_GUIDELINES` validation).
+
+---
+
+## 10. New-engineer onboarding
+
+Read this section first. It is the 15-minute mental model for a senior engineer joining the codebase.
+
+### 10.1 The one idea
+
+> **Engines record facts. The kernel freezes them into an immutable, versioned snapshot. Everything else
+> reads snapshots.** Money is `BigInt` minor units, stored native, converted to the household base currency
+> only when aggregating. Every row is scoped to a household inside a firm.
+
+### 10.2 Where code lives (orientation map)
+
+```mermaid
+flowchart TB
+  subgraph repo["monorepo (pnpm + turbo)"]
+    direction TB
+    subgraph core["packages/core — @lcos/core (PURE, no IO, browser-safe)"]
+      c1["money/ — BigInt minor units, CurrencyCode"]
+      c2["finance/ — fx · networth · cashflow · debt · financialSnapshot (contract)"]
+      note1["ALL math lives here. Add pure functions + tests in finance.test.ts."]
+    end
+    subgraph api["apps/api — NestJS (/api)"]
+      a1["households/ — one controller+service(+dto) per resource"]
+      a2["common/ — FxService · AuditService · CryptoService (global)"]
+      a3["firms/ — FirmContext, roles; households/household-scope.guard.ts"]
+      a4["prisma/ — schema.prisma + migrations (additive + RLS)"]
+      note2["Controllers thin. Services orchestrate + call core. Never math here."]
+    end
+    subgraph web["apps/web — Next.js"]
+      w1["src/app/app/households/[id]/* — pages (presentation only)"]
+      w2["src/ui/* — design system (FROZEN — never edit)"]
+      w3["src/lib/api.ts — apiGet/apiPost (Bearer JWT)"]
+      note3["No business logic / no FX in the browser."]
+    end
+  end
+  core --> api
+  core --> web
+  api -->|HTTP JSON| web
+```
+
+**First files to open, in order:** `packages/core/src/finance/financialSnapshot.ts` (the contract) →
+`apps/api/src/households/household-financial-snapshot.service.ts` (how the kernel composes engines) →
+`apps/api/src/households/household-scope.guard.ts` (tenancy) → `apps/api/prisma/schema.prisma` (data model).
+
+### 10.3 Request lifecycle (read a snapshot)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Advisor (web)
+  participant API as NestJS controller
+  participant G as HouseholdScopeGuard
+  participant S as FinancialSnapshotService
+  participant E as Engines (Accounts/NetWorth/Cashflow/Budget/Debt)
+  participant Core as @lcos/core (FX + summaries)
+  participant DB as Postgres (Prisma)
+
+  U->>API: GET /households/:id/financial-snapshot/current (Bearer JWT)
+  API->>G: canActivate
+  G->>DB: household + membership lookup
+  G-->>API: scope ok (firmContext, household) — else 404
+  API->>S: current(householdId, baseCurrency)
+  S->>E: list accounts / net worth / cashflow / budget / debt
+  E->>DB: scoped findMany
+  E-->>S: engine results (native + base)
+  S->>Core: convertMinor + summaries (compose payload)
+  Core-->>S: payload (base currency)
+  S-->>API: live preview (NOT persisted)
+  API-->>U: JSON { schemaVersion, currency, payload }
+```
+
+For **capture** (`POST`), the same flow adds: checksum over canonical JSON → insert **immutable** row
+(`snapshotVersion = count+1`) → append `AuditLog`. For a **write** to an engine (e.g. `POST /cashflow`), the
+guard additionally enforces `@FirmRoles(OWNER, ADVISOR, SUPPORT)` before the service validates + persists +
+audits.
+
+### 10.4 Read vs write responsibilities (who may touch what)
+
+```mermaid
+flowchart LR
+  subgraph Writers["WRITE (own their data)"]
+    Eng["M2 Engines → Account/Transaction/Budget/Debt/DebtPayment"]
+    Kern["Kernel → FinancialSnapshot (append-only capture)"]
+    Mod["Future module → its OWN tables only"]
+  end
+  subgraph Readers["READ"]
+    Any["Any in-scope member → snapshots + engine live views"]
+    AI["AI / M3+ consumers → snapshots ONLY"]
+  end
+  Eng --> Kern
+  Kern --> Any
+  Kern --> AI
+  Mod -->|reads| Kern
+  Mod -.->|MUST NOT write| Kern
+  Mod -.->|MUST NOT write| Eng
+  linkStyle 4,5 stroke:#c00,stroke-dasharray:5 5
+```
+
+Full normative rules: [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md).
+
+### 10.5 Conventions a new engineer must know (learned the hard way)
+
+- **Never run `prisma format`** — `schema.prisma` isn't canonical-formatted on `main`; it reformats the whole
+  file into a huge unrelated diff. Edit models by hand.
+- **Migrations are additive + RLS-locked.** New table → `ENABLE ROW LEVEL SECURITY` (no policies). New column
+  → nullable. Verify `migrate reset` + `migrate diff` (no drift) locally.
+- **Money is `BigInt` minor units** at rest; serialize to `Number` only at the API boundary; **FX only in the
+  domain layer** via `FxService`.
+- **404-not-403** for out-of-scope households (don't leak existence).
+- **Immutable snapshots**: no update/delete — corrections are new captures.
+- **The `apps/web/src/ui/*` design system is frozen** — compose it, never edit it.
+- **One milestone per PR, draft PRs, never merge without approval, keep `main` deployable** (the engineering
+  workflow).
+
+### 10.6 Local verification (health suite)
+
+`migrate reset` (clean) + `migrate diff` (no drift) → `pnpm build` (3/3) → `pnpm lint` (4/4) →
+`@lcos/core` tests → seed → API e2e. Green baseline at M2 close: 11 migrations, build 3/3, lint 4/4, core
+60/60, e2e 92/92.

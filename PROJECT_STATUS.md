@@ -16,8 +16,11 @@ the [Phase 2 blueprint](./docs/blueprint/). Module 2 follows the
 [Financial Kernel](./docs/architecture/FINANCIAL_KERNEL_ARCHITECTURE.md) ·
 [AI Integration](./docs/architecture/AI_INTEGRATION_ARCHITECTURE.md) ·
 [Extension Guidelines](./docs/architecture/EXTENSION_GUIDELINES.md) ·
+[Future Module Contract](./docs/architecture/FUTURE_MODULE_CONTRACT.md) ·
 [Financial Kernel ADR](./docs/architecture/ADR-FINANCIAL-KERNEL.md). These include the component/domain/data-flow/
-snapshot-lifecycle/module-dependency diagrams, the future-module validation, and the pre-Module-3 review.
+snapshot-lifecycle/module-dependency diagrams, **new-engineer onboarding diagrams**, the future-module
+validation + **explicit per-module extension points**, the **READ/WRITE Future Module Contract**, and the
+pre-Module-3 review.
 
 ## Milestone progress
 

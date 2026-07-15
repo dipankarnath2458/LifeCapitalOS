@@ -1,9 +1,10 @@
 # Life Capital OS V2 — Extension Guidelines for Future Modules
 
 > **Permanent reference** for building Module 3+ on top of the Financial Kernel **without redesign**. Companion
-> to [`FINANCIAL_KERNEL_ARCHITECTURE.md`](./FINANCIAL_KERNEL_ARCHITECTURE.md) and
-> [`M2_FINANCIAL_SNAPSHOT_CONTRACT.md`](./M2_FINANCIAL_SNAPSHOT_CONTRACT.md). Includes the validation of every
-> planned future module against what exists today.
+> to [`FINANCIAL_KERNEL_ARCHITECTURE.md`](./FINANCIAL_KERNEL_ARCHITECTURE.md),
+> [`M2_FINANCIAL_SNAPSHOT_CONTRACT.md`](./M2_FINANCIAL_SNAPSHOT_CONTRACT.md), and the normative
+> [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md) (what a module may READ / must not WRITE). Includes
+> the validation of every planned future module (§4) and **explicit per-module extension points (§7)**.
 
 ## 1. The extension contract (rules every new module follows)
 
@@ -105,3 +106,103 @@ Do these small, additive items before/early in M3 (details in
 - Ship **Financial Health Score** first — it validates the whole kernel contract with minimal surface.
 - Land the **member-demographics** payload addition when Retirement/Insurance start (unblocks two modules at
   once).
+
+## 7. Explicit extension points per named module
+
+Each spec follows the same shape: **Reads** (snapshot fields it consumes), **Owns** (new household-scoped
+tables it adds), **Core** (pure `@lcos/core` functions), **Payload extension** (additive field needed, if
+any), **Route/UI**, **Status**. All follow the [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md):
+read via `FinancialSnapshotService`, write only into own tables, never touch the kernel/engine data.
+
+### Financial Health Score — ✅ supported today (recommended first M3 module)
+- **Reads:** `netWorth.solvencyRatio`, `cashflowSummary.savingsRate`, `debt` (ratio vs `netWorth.assetsMinor`), `assetAllocation` (diversification), `currencyExposure`.
+- **Owns:** `FinancialHealthScore` (householdId, snapshotId, score, subscores, computedAt).
+- **Core:** new `computeFinancialHealthScore(payloadSubset)` — pure function of one snapshot.
+- **Payload extension:** none.
+- **Route/UI:** `GET/POST /households/:id/health-score`; a score card + history page.
+
+### Family Office Dashboard — ✅ supported today
+- **Reads:** whole payload + `timeline()`.
+- **Owns:** none (pure read view) — optionally a `DashboardPreference`.
+- **Core:** none (presentation).
+- **Payload extension:** none.
+- **Route/UI:** reads `latest` + `timeline`; a consolidated dashboard page.
+
+### AI Wealth Advisor — ✅ supported today
+- **Reads:** whole payload + envelope; grounds on a specific `snapshotId` (see [`AI_INTEGRATION_ARCHITECTURE.md`](./AI_INTEGRATION_ARCHITECTURE.md)).
+- **Owns:** `AiConversation` / `AiRecommendation` (householdId, snapshotId, prompt, output).
+- **Core:** none (LLM layer); recommendations are surfaced to humans, applied via normal write paths.
+- **Payload extension:** none. Labels/PII resolved separately through the guarded decrypted boundary.
+- **Route/UI:** `POST /households/:id/ai/*`; grounded chat/insights.
+
+### What-if Scenarios — ✅ supported today
+- **Reads:** any payload as the **base state** (read-only); applies hypothetical deltas in memory.
+- **Owns:** `Scenario` (householdId, baseSnapshotId, deltas, results).
+- **Core:** scenario transforms are pure functions over a payload; reuse `computeNetWorth`/`simulateDebtPayoff` etc.
+- **Payload extension:** none (never mutates the base snapshot).
+- **Route/UI:** `GET/POST /households/:id/scenarios`; scenario builder + compare.
+
+### Risk Analytics — ✅ supported today (deeper risk uses own market data)
+- **Reads:** `currencyExposure`, `assetAllocation`, `debt` (leverage = `debt.totalOutstandingMinor` / `netWorth.assetsMinor`), `householdEquity`.
+- **Owns:** `RiskProfile` + optional `MarketData` (volatility/correlation — the module's own, not the kernel).
+- **Core:** new `analyzeRisk(...)` (concentration, leverage, currency risk).
+- **Payload extension:** none from the kernel; per-asset volatility is module-owned market data.
+- **Route/UI:** `GET /households/:id/risk`; a risk panel.
+
+### Forecasting — ✅ supported today (accuracy improves with scheduled capture)
+- **Reads:** `timeline()` (net worth / debt / savings series) + `latest` as the starting state.
+- **Owns:** `Forecast` (householdId, assumptions, projected series).
+- **Core:** new `projectForecast(series, assumptions)`.
+- **Payload extension:** none. Benefits from **scheduled snapshot capture** (M0 worker, deferred) for denser series.
+- **Route/UI:** `GET/POST /households/:id/forecast`; projection chart.
+
+### Goal Planning — ✅ supported today
+- **Reads:** `netWorth.netWorthMinor`, `cashflowSummary.savingsRate`, `assetAllocation`.
+- **Owns:** a household `Goal` engine (`Goal` rows: target, date, currentAmount, linked member/entity).
+- **Core:** existing `planGoal` (already in `@lcos/core`).
+- **Payload extension:** none (goals are the module's own storage). Optionally expose a `goalsSummary` in a future `schemaVersion` if dashboards want it consolidated.
+- **Route/UI:** `GET/POST /households/:id/goals`; goal tracker.
+
+### Monte Carlo Simulation — ✅ supported today
+- **Reads:** `netWorth`, `assetAllocation` (seed state).
+- **Owns:** `SimulationRun` (householdId, baseSnapshotId, params, distribution results).
+- **Core:** new `runMonteCarlo(seed, params)` — pure; seeds from a snapshot, never mutates it.
+- **Payload extension:** none from the kernel; volatility/return assumptions are module inputs.
+- **Route/UI:** `POST /households/:id/simulations`; probability-of-success view.
+
+### Retirement Planning — 🟡 minor additive extension
+- **Reads:** `netWorth`, `cashflowSummary.savingsRate`, `assetAllocation`, `householdEquity`.
+- **Owns:** `RetirementPlan` (householdId, memberId, targetAge, assumptions, projections).
+- **Core:** existing `computeRetirement` / `financialFreedomNumber`.
+- **Payload extension:** **member ages / DOB.** The payload has `relationships` (counts/ids) but not
+  demographics. Add an additive `members[]` summary (`memberId, age|dateOfBirth, isDependent`) composed from
+  `HouseholdMember` — additive to `schemaVersion 1` (optional field), unblocks Insurance too.
+- **Route/UI:** `GET/POST /households/:id/retirement`.
+
+### Insurance Analysis — 🟡 minor additive extension
+- **Reads:** `cashflowSummary.incomeMinor`, `liabilities`, `debt`, `relationships` (dependents).
+- **Owns:** `InsurancePolicy` (existing coverage) + computed coverage gap.
+- **Core:** existing `analyzeLifeInsuranceGap` / `emergencyFundTarget`.
+- **Payload extension:** **dependent demographics** — same additive `members[]` summary as Retirement.
+- **Route/UI:** `GET/POST /households/:id/insurance`.
+
+### Estate Planning — 🟡 additive extension
+- **Reads:** `entityHoldings`, `householdEquity`, `assets`/`liabilities`, `relationships`.
+- **Owns:** `EstatePlan`, `Beneficiary`, `TrustStructure`, plus a **multi-owner** join
+  (`AssetOwner`/`DebtOwner`: entity/member ↔ asset with share %) — the extension noted in M2-5 §3.
+- **Core:** estate roll-up helpers (pure).
+- **Payload extension:** optionally an `ownership[]` breakdown once multi-owner exists (additive).
+- **Route/UI:** `GET/POST /households/:id/estate`; documents attach via the Vault (M5).
+
+### Tax Planning — 🟡 additive extension
+- **Reads:** `cashflowSummary.byCategory` (income/expense mix), `debt`, `entityHoldings`.
+- **Owns:** `TaxProfile` (regime, entity tax attributes), computed liability/optimizations.
+- **Core:** existing `tax.ts` calculators.
+- **Payload extension:** a **`Debt.deductible` flag** (additive column on M2-5 `Debt`, surfaced additively in
+  `debt.byType` or a new `debt.deductibleInterestMinor`) + entity tax metadata (module-owned).
+- **Route/UI:** `GET/POST /households/:id/tax`.
+
+> Every extension above is **additive** (new tables / optional payload fields / additive columns) and obeys the
+> [`FUTURE_MODULE_CONTRACT.md`](./FUTURE_MODULE_CONTRACT.md). None reshapes an M2 table, breaks `schemaVersion
+> 1`, or reads raw tables to re-aggregate. The recurring **`members[]` demographic** addition unblocks
+> Retirement **and** Insurance in one additive step.
