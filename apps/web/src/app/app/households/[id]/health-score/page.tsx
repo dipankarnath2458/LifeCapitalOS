@@ -55,6 +55,29 @@ interface TimelineRow {
   band: string;
   computedAt: string;
 }
+interface Recommendation {
+  id: string;
+  title: string;
+  description: string;
+  affectedCategory: string;
+  priority: string;
+  priorityRank: number;
+  estimatedScoreImprovement: number;
+  recommendedAction: string;
+  reasonCode: string;
+}
+interface Explanation {
+  summary: string;
+  recommendations: Recommendation[];
+  potentialScoreImprovement: number;
+  potentialOverall: number;
+  confidence: number;
+  reasonCodes: string[];
+}
+interface ExplanationView {
+  available: boolean;
+  explanation?: Explanation;
+}
 
 const BAND_TONE: Record<string, BadgeTone> = {
   at_risk: 'danger',
@@ -83,6 +106,7 @@ export default function HealthScorePage() {
 
   const [household, setHousehold] = useState<Household | null>(null);
   const [score, setScore] = useState<ScoreView | null>(null);
+  const [explanation, setExplanation] = useState<Explanation | null>(null);
   const [timeline, setTimeline] = useState<TimelineRow[] | null>(null);
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -91,6 +115,9 @@ export default function HealthScorePage() {
     void apiGet<ScoreView>(`/households/${hid}/health-score/current`, token)
       .then(setScore)
       .catch(() => setScore({ available: false }));
+    void apiGet<ExplanationView>(`/households/${hid}/health-score/explanation/current`, token)
+      .then((r) => setExplanation(r.available ? (r.explanation ?? null) : null))
+      .catch(() => setExplanation(null));
     void apiGet<TimelineRow[]>(`/households/${hid}/health-score/timeline`, token)
       .then(setTimeline)
       .catch(() => setTimeline([]));
@@ -222,24 +249,58 @@ export default function HealthScorePage() {
             </div>
           </Card>
 
-          {/* Suggestions */}
+          {/* Why this score & recommendations (M3-2 explanation engine) */}
           <Card>
             <CardHeader>
               <div>
-                <CardTitle>Suggestions</CardTitle>
-                <CardDescription>Concrete next steps to improve the score.</CardDescription>
+                <CardTitle>Why this score & recommendations</CardTitle>
+                <CardDescription>
+                  {explanation
+                    ? explanation.summary
+                    : 'Concrete next steps to improve the score.'}
+                </CardDescription>
               </div>
+              {explanation && explanation.potentialScoreImprovement > 0 && (
+                <Badge tone="primary">
+                  +{explanation.potentialScoreImprovement} potential → {explanation.potentialOverall}
+                </Badge>
+              )}
             </CardHeader>
             <div className="px-6 pb-6">
-              <ul className="list-inside list-disc space-y-1 text-sm">
-                {(score.categories ?? [])
-                  .filter((c) => c.score < 90)
-                  .map((c) => (
-                    <li key={c.key}>
-                      <span className="font-medium">{c.label}:</span> {c.suggestion}
+              {explanation && explanation.recommendations.length > 0 ? (
+                <ol className="space-y-3">
+                  {explanation.recommendations.map((r) => (
+                    <li key={r.id} className="rounded-lg border border-border p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={r.priority === 'high' ? 'danger' : r.priority === 'medium' ? 'warning' : 'neutral'}>
+                          {r.priority} priority
+                        </Badge>
+                        <span className="font-medium">{r.title}</span>
+                        <span className="text-xs text-subtle">+{r.estimatedScoreImprovement} pts</span>
+                      </div>
+                      <Text muted className="mt-1 text-sm">
+                        {r.recommendedAction}
+                      </Text>
                     </li>
                   ))}
-              </ul>
+                </ol>
+              ) : (
+                <ul className="list-inside list-disc space-y-1 text-sm">
+                  {(score.categories ?? [])
+                    .filter((c) => c.score < 90)
+                    .map((c) => (
+                      <li key={c.key}>
+                        <span className="font-medium">{c.label}:</span> {c.suggestion}
+                      </li>
+                    ))}
+                </ul>
+              )}
+              {explanation && explanation.confidence < 1 && (
+                <Text muted className="mt-3 text-xs">
+                  Confidence {Math.round(explanation.confidence * 100)}% — some snapshot data is incomplete
+                  ({explanation.reasonCodes.filter((c) => c.startsWith('NO_')).join(', ') || 'partial data'}).
+                </Text>
+              )}
             </div>
           </Card>
         </>

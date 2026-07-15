@@ -11,6 +11,7 @@ import {
   interpolate,
   DEFAULT_FINANCIAL_HEALTH_MODEL,
 } from './financialHealth.js';
+import { explainFinancialHealth } from './financialHealthExplanation.js';
 import { planGoal } from './goals.js';
 import { analyzeLifeInsuranceGap, emergencyFundTarget } from './insurance.js';
 import { fromMinor, money, toMajor } from '../money/money.js';
@@ -274,6 +275,97 @@ describe('financial health score', () => {
 
   it('default model weights sum to 100', () => {
     expect(DEFAULT_FINANCIAL_HEALTH_MODEL.categories.reduce((s, c) => s + c.weight, 0)).toBe(100);
+  });
+
+  describe('explanation engine (M3-2)', () => {
+    // A mixed household: great savings, but thin liquidity and concentration.
+    const mixed = {
+      ...strong,
+      assets: [
+        { accountId: 'a', name: 'Cash', assetClass: 'cash', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 5_000_00, baseBalanceMinor: 5_000_00 },
+        { accountId: 'b', name: 'Equity', assetClass: 'equity', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 95_000_00, baseBalanceMinor: 95_000_00 },
+      ],
+      assetAllocation: [
+        { assetClass: 'cash', baseValueMinor: 5_000_00, pct: 5 },
+        { assetClass: 'equity', baseValueMinor: 95_000_00, pct: 95 },
+      ],
+      cashflowSummary: { period: '2026-03', incomeMinor: 10_000_00, expenseMinor: 5_000_00, netMinor: 5_000_00, savingsRate: 0.5, byCategory: [] },
+    };
+    const scoreOf = (p: typeof strong) => computeFinancialHealthScore(p);
+
+    it('is deterministic (same score → identical explanation)', () => {
+      const s = scoreOf(mixed);
+      expect(explainFinancialHealth(s, mixed)).toEqual(explainFinancialHealth(s, mixed));
+    });
+
+    it('partitions strengths and weaknesses at the 75 threshold', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      for (const w of e.weaknesses) expect(w.score).toBeLessThan(75);
+      for (const st of e.strengths) expect(st.score).toBeGreaterThanOrEqual(75);
+    });
+
+    it('contributed + lost points reconcile to the category weight per 100', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      const totalWeight = e.categoryBreakdown.reduce((s, c) => s + c.weight, 0);
+      for (const c of e.categoryBreakdown) {
+        expect(c.pointsContributed + c.pointsLost).toBeCloseTo((c.weight * 100) / totalWeight, 1);
+      }
+    });
+
+    it('ranks recommendations by estimated improvement (highest first)', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      expect(e.recommendations.length).toBeGreaterThan(0);
+      for (let i = 1; i < e.recommendations.length; i++) {
+        expect(e.recommendations[i - 1]!.estimatedScoreImprovement).toBeGreaterThanOrEqual(
+          e.recommendations[i]!.estimatedScoreImprovement,
+        );
+      }
+      expect(e.recommendations[0]!.priorityRank).toBe(1);
+      expect(e.priorityRanking[0]!.rank).toBe(1);
+    });
+
+    it('every recommendation carries the full required shape', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      for (const r of e.recommendations) {
+        expect(r.title.length).toBeGreaterThan(0);
+        expect(r.description.length).toBeGreaterThan(0);
+        expect(['high', 'medium', 'low']).toContain(r.priority);
+        expect(typeof r.estimatedScoreImprovement).toBe('number');
+        expect(r.financialImpact).toHaveProperty('summary');
+        expect(r.recommendedAction.length).toBeGreaterThan(0);
+        expect(r.reasonCode.length).toBeGreaterThan(0);
+        // recommendations only target weak categories
+        expect(e.weaknesses.map((w) => w.key)).toContain(r.affectedCategory);
+      }
+    });
+
+    it('computes a liquidity cash gap from the snapshot (financial impact)', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      const liq = e.recommendations.find((r) => r.affectedCategory === 'liquidity');
+      expect(liq).toBeDefined();
+      // 6 months × ₹5,000 expense − ₹5,000 cash = ₹25,000.
+      expect(liq!.financialImpact.gapMinor).toBe(6 * 5_000_00 - 5_000_00);
+    });
+
+    it('caps potential improvement so overall never exceeds 100', () => {
+      const e = explainFinancialHealth(scoreOf(mixed), mixed);
+      expect(e.potentialOverall).toBeLessThanOrEqual(100);
+      expect(e.potentialScoreImprovement).toBeLessThanOrEqual(100 - e.overall + 0.05);
+    });
+
+    it('lowers confidence and flags a reason code when income data is missing', () => {
+      const noIncome = { ...mixed, cashflowSummary: { ...mixed.cashflowSummary, incomeMinor: 0, savingsRate: 0 } };
+      const e = explainFinancialHealth(scoreOf(noIncome), noIncome);
+      expect(e.confidence).toBeLessThan(1);
+      expect(e.reasonCodes).toContain('NO_INCOME_DATA');
+    });
+
+    it('produces no recommendations for an all-strong household', () => {
+      const e = explainFinancialHealth(scoreOf(strong), strong);
+      expect(e.weaknesses.length).toBe(0);
+      expect(e.recommendations.length).toBe(0);
+      expect(e.potentialScoreImprovement).toBe(0);
+    });
   });
 });
 
