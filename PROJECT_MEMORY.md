@@ -16,6 +16,17 @@
   [`ADR-FINANCIAL-KERNEL.md`](./docs/architecture/ADR-FINANCIAL-KERNEL.md). `SYSTEM_ARCHITECTURE_V2.md` §10 has
   new-engineer onboarding diagrams. Slice-level ADRs stay in
   [`M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md`](./docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md) (ADR-001…012).
+- **Kernel is FROZEN (governance).** Module 2 released as `v2.0.0-financial-kernel`
+  ([release notes](./docs/releases/RELEASE_v2_FINANCIAL_KERNEL.md)). Binding rules in
+  [`KERNEL_GOVERNANCE.md`](./docs/architecture/KERNEL_GOVERNANCE.md): `FinancialSnapshot` append-only;
+  `schemaVersion 1` field meanings/types/names **immutable** (old snapshots never rewritten); future modules
+  **consume snapshots, not raw tables**; **any kernel/core schema change requires an ADR + architecture review
+  first**; backward compatibility (additive-only) must be preserved. Recommended release tag not yet cut
+  (awaiting approval).
+- **M3 design (proposed, design-only):** Financial Health Score
+  ([`M3_FINANCIAL_HEALTH_DESIGN.md`](./docs/architecture/M3_FINANCIAL_HEALTH_DESIGN.md)) — reads immutable
+  snapshots only, pure `@lcos/core` scoring, own RLS-locked `FinancialHealthScore` table; `schemaVersion 1`
+  supplies every input (no kernel change). Awaiting review before implementation.
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`

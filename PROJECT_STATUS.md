@@ -3,7 +3,8 @@
 > Living snapshot of where the product is. **Updated after every merged PR** per the
 > [AI Engineering Workflow](./docs/AI_ENGINEERING_WORKFLOW.md).
 >
-> **Last updated:** Post-M2 permanent architecture documentation — Module 2 complete; pre-Module-3 review.
+> **Last updated:** Financial Kernel release (`v2.0.0-financial-kernel`) + kernel freeze/governance + M3
+> (Financial Health Score) design — awaiting review before M3 implementation.
 
 ## Current phase
 
@@ -17,10 +18,17 @@ the [Phase 2 blueprint](./docs/blueprint/). Module 2 follows the
 [AI Integration](./docs/architecture/AI_INTEGRATION_ARCHITECTURE.md) ·
 [Extension Guidelines](./docs/architecture/EXTENSION_GUIDELINES.md) ·
 [Future Module Contract](./docs/architecture/FUTURE_MODULE_CONTRACT.md) ·
-[Financial Kernel ADR](./docs/architecture/ADR-FINANCIAL-KERNEL.md). These include the component/domain/data-flow/
+[Financial Kernel ADR](./docs/architecture/ADR-FINANCIAL-KERNEL.md) ·
+[Kernel Governance](./docs/architecture/KERNEL_GOVERNANCE.md). These include the component/domain/data-flow/
 snapshot-lifecycle/module-dependency diagrams, **new-engineer onboarding diagrams**, the future-module
 validation + **explicit per-module extension points**, the **READ/WRITE Future Module Contract**, and the
 pre-Module-3 review.
+
+**Release:** Module 2 is released as **`v2.0.0-financial-kernel`** (recommended tag; not yet cut) —
+[release notes](./docs/releases/RELEASE_v2_FINANCIAL_KERNEL.md). The Financial Kernel is **frozen** under
+[Kernel Governance](./docs/architecture/KERNEL_GOVERNANCE.md) (snapshot append-only, `schemaVersion 1` fields
+immutable, kernel changes require an ADR + review). **M3 design proposed** (design only, awaiting review):
+[Financial Health Score](./docs/architecture/M3_FINANCIAL_HEALTH_DESIGN.md).
 
 ## Milestone progress
 
@@ -28,8 +36,8 @@ pre-Module-3 review.
 | --------- | -------------------------------------------------------------------------------- | -------------------- |
 | M0        | Foundation hardening (Redis/jobs, storage, email, observability, key governance) | ⏳ not started       |
 | **M1**    | **Tenancy & firm shell**                                                         | ✅ complete (#6–#12) |
-| **M2**    | **Household wealth (Family Balance Sheet) + multi-currency**                     | 🔨 in progress       |
-| M3        | Planning, scores & analysis surfacing                                            | ◻️                   |
+| **M2**    | **Household wealth + multi-currency + Financial Kernel**                         | ✅ complete (#14–#21) · released `v2.0.0-financial-kernel` |
+| M3        | Planning, scores & analysis (Financial Health Score first)                       | 📐 design proposed (awaiting review) |
 | M4        | AI agent fleet & orchestration                                                   | ◻️                   |
 | M5        | Document Vault                                                                   | ◻️                   |
 | M6        | Tasks, workflows & notifications                                                 | ◻️                   |
