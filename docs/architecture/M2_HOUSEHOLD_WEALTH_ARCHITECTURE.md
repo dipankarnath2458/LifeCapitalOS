@@ -656,6 +656,27 @@ Consequences · Alternatives considered.
   drift, tight coupling); fold everything into `NetWorthSnapshot` (rejected — overloads M2-3, breaks its
   immutability/shape, no room for cashflow/debt/versioning).
 
+### ADR-013 — Simulation via transient virtual snapshots (M3-3)
+
+- **Status:** Accepted
+- **Context:** What-if simulation (M3-3) and later Monte Carlo / Forecasting need to apply hypothetical
+  decisions to a household's finances and re-score them, **without** touching production data or the immutable
+  kernel. ADR-012 deliberately keeps stored snapshots immutable, so a simulation cannot write one.
+- **Decision:** A simulation builds a **transient, in-memory "virtual snapshot"** — a pure copy of an immutable
+  snapshot payload with scenario transforms applied — then **reuses** M3-1 `computeFinancialHealthScore` and
+  M3-2 `explainFinancialHealth` to score/explain it, and diffs against the baseline. Virtual snapshots are
+  **never persisted**, never assigned an id/checksum, and never confused with stored `FinancialSnapshot`s.
+  Scenarios register in an open **scenario registry**, so new scenario types are added without changing the
+  engine. This is the additive, reusable foundation for What-if, Monte Carlo, and Forecasting.
+- **Consequences:** Simulations are pure, deterministic, and side-effect-free; no schema/kernel change; scoring
+  and explanation are reused, not duplicated. Because the virtual payload is re-derived in-memory, the engine
+  owns a small amount of simulation math (re-deriving the aggregates the score consumes) — kept distinct from
+  kernel composition and covered by tests.
+- **Alternatives considered:** Persisting simulated snapshots (rejected — pollutes the immutable timeline,
+  violates ADR-004/012); re-implementing scoring inside the simulator (rejected — duplication; reuse M3-1/M3-2);
+  computing deltas by ad-hoc per-scenario score math (rejected — not reusable, error-prone vs a single
+  virtual-payload re-score).
+
 ---
 
 _This document is maintained alongside Module 2 development. Update it in the same PR whenever an M2 change
