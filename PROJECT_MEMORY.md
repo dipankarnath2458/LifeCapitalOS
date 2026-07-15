@@ -72,6 +72,24 @@
   persists nothing) + `GET /households/:id/simulation/scenario-types`. UI: `/app/households/[id]/simulation`
   (scenario builder + before/after + category impact + best action + recommendations). Reusable foundation for
   Monte Carlo / Forecasting / AI advisor.
+- **Pre-Module-4 Hardening Sprint (additive, no kernel redesign):** five approved items, all backward-compatible.
+  (1) **AuditLog.firmId write-through** — `AuditService` now writes the indexed `firmId` column
+  (falls back to `metadata.firmId`, so no call-site changes) + a data-only backfill migration. (2) **Baseline
+  observability** in `apps/api/src/common/observability/`: `correlationIdMiddleware` (reuses/echoes
+  `x-request-id`), `LoggingInterceptor` (one structured JSON line per successful request), `AllExceptionsFilter`
+  (structured error logs; **preserves Nest's default response shape** — the typed error envelope is a deferred
+  item), wired in `app.factory.ts`. (3) **`members[]` payload field** — OPTIONAL, additive to `schemaVersion 1`,
+  PII-light (`memberId`, `ageYears` as-of-capture, `isDependent`, `relation` — **no names/DOB/taxIds**), composed
+  in the snapshot service from `HouseholdMember`; documented in the snapshot contract §3. (4) **Kernel guardrail
+  tests** in core: `finance/kernelContract.test.ts` (freezes `schemaVersion 1` top-level + sub-field keys — fails
+  on rename/remove) and `boundaries.test.ts` (scans core source; fails if any non-test file imports
+  `@nestjs`/`@prisma`/node builtins/`apps/*` — enforces core purity). (5) **AI Grounding + PII Redaction
+  Contract** — pure core `buildAiGroundingContext(envelope, payload)` + `containsNoPiiKeys` (`redact-1.0.0`):
+  aggregates + counts + coarse demographics only, drops per-account rows/ids/member ids/names; the ONLY object
+  AI may consume ([`AI_GROUNDING_CONTRACT.md`](./docs/architecture/AI_GROUNDING_CONTRACT.md)). **Verified:**
+  scoring/explanation/simulation core files unchanged; no ADR changes; no renamed exports; no FX provider; finance
+  module not split; deterministic behavior preserved. Health: core 98/98, API e2e 111/111 (17 suites), 13
+  migrations (1 data-only backfill), no drift.
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`

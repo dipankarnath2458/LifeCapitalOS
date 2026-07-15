@@ -26,6 +26,16 @@ function currentMonth(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Whole years old as of now (capture time); null when no date of birth is recorded. */
+function ageFrom(dob: Date | null): number | null {
+  if (!dob) return null;
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const m = now.getUTCMonth() - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && now.getUTCDate() < dob.getUTCDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
 /** SHA-256 hex over the canonical-JSON payload — the tamper-evidence checksum. */
 function checksumOf(payload: FinancialSnapshotPayload): string {
   return createHash('sha256').update(canonicalStringify(payload)).digest('hex');
@@ -74,7 +84,7 @@ export class HouseholdFinancialSnapshotService {
     const toBase = (minor: number, from: string) =>
       convertMinor(minor, from as CurrencyCode, base, this.fx);
 
-    const [accountRows, nw, cf, bud, debtSummary, activeDebts, memberCount, entityCount] =
+    const [accountRows, nw, cf, bud, debtSummary, activeDebts, memberRows, entityCount] =
       await Promise.all([
         this.accounts.list(householdId) as Promise<AccountRow[]>,
         this.netWorth.current(householdId, base),
@@ -82,9 +92,13 @@ export class HouseholdFinancialSnapshotService {
         this.budget.getForMonth(householdId, base, period),
         this.debt.summary(householdId, base),
         this.prisma.debt.findMany({ where: { householdId, status: 'active' } }),
-        this.prisma.householdMember.count({ where: { householdId } }),
+        this.prisma.householdMember.findMany({
+          where: { householdId },
+          select: { id: true, dateOfBirth: true, isDependent: true, relation: true },
+        }),
         this.prisma.entity.count({ where: { householdId } }),
       ]);
+    const memberCount = memberRows.length;
 
     // Assets / liabilities (M2-2 accounts, converted to base).
     const assets = accountRows
@@ -216,6 +230,14 @@ export class HouseholdFinancialSnapshotService {
         entityIds: [...new Set(accountRows.map((a) => a.entityId).filter((e): e is string => !!e))],
         accountIds: accountRows.map((a) => a.id),
       },
+      // Coarse, PII-light demographics (age/dependency/relation only) — additive to
+      // schemaVersion 1; frozen at capture (age is as-of capturedAt).
+      members: memberRows.map((m) => ({
+        memberId: m.id,
+        ageYears: ageFrom(m.dateOfBirth),
+        isDependent: m.isDependent,
+        relation: m.relation,
+      })),
     };
 
     const provenance = {

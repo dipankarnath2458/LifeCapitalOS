@@ -122,9 +122,18 @@ units** in the snapshot `currency`. Composed from the existing engines (source n
   "relationships": {            // structural context (ids only; PII stays out of the payload)
     "memberCount": 0, "entityCount": 0,
     "entityIds": ["..."], "accountIds": ["..."]
-  }
+  },
+  "members": [                  // OPTIONAL (additive, schemaVersion 1) — coarse, PII-light demographics
+    { "memberId": "...", "ageYears": 40, "isDependent": false, "relation": "self" }
+  ]
 }
 ```
+
+> **`members` (additive, `schemaVersion 1`).** Optional array of **PII-light** demographics — `ageYears` (as of
+> `capturedAt`, **not** date of birth), `isDependent`, and `relation` only; **no names, DOB, or taxIds** (ADR-006).
+> Added in the pre-Module-4 hardening to enable Retirement / Insurance / AI-CFO planning without reaching around
+> the kernel. **Absent on snapshots captured before the field existed** — consumers must treat it as optional.
+> Being an *optional additive* field, it keeps `schemaVersion` at 1 (governance G-3).
 
 > **Reconciliation note (ADR-012).** `netWorth.liabilitiesMinor` stays the **M2-3 account-based** figure so net
 > worth is unchanged and backward-compatible. `debt` is the **M2-5 detailed ledger**. `householdEquity`
