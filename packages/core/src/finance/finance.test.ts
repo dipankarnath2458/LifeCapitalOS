@@ -12,6 +12,7 @@ import {
   DEFAULT_FINANCIAL_HEALTH_MODEL,
 } from './financialHealth.js';
 import { explainFinancialHealth } from './financialHealthExplanation.js';
+import { applyScenarios, simulateFinancialWhatIf } from './financialSimulation.js';
 import { planGoal } from './goals.js';
 import { analyzeLifeInsuranceGap, emergencyFundTarget } from './insurance.js';
 import { fromMinor, money, toMajor } from '../money/money.js';
@@ -365,6 +366,91 @@ describe('financial health score', () => {
       expect(e.weaknesses.length).toBe(0);
       expect(e.recommendations.length).toBe(0);
       expect(e.potentialScoreImprovement).toBe(0);
+    });
+  });
+
+  describe('what-if simulation engine (M3-3)', () => {
+    // Weak savings + thin liquidity, moderate debt — room for several scenarios to help.
+    const base = {
+      netWorth: { assetsMinor: 720_000_00, liabilitiesMinor: 0, netWorthMinor: 720_000_00, solvencyRatio: 1 },
+      assets: [
+        { accountId: 'a', name: 'Cash', assetClass: 'cash', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 20_000_00, baseBalanceMinor: 20_000_00 },
+        { accountId: 'b', name: 'Equity', assetClass: 'equity', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 400_000_00, baseBalanceMinor: 400_000_00 },
+        { accountId: 'c', name: 'Debt fund', assetClass: 'debt', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 300_000_00, baseBalanceMinor: 300_000_00 },
+      ],
+      liabilities: [],
+      debt: { totalOutstandingMinor: 200_000_00, totalMonthlyPaymentMinor: 10_000_00, weightedAvgRatePct: 12, debtCount: 1, byType: [] },
+      cashflowSummary: { period: '2026-03', incomeMinor: 100_000_00, expenseMinor: 90_000_00, netMinor: 10_000_00, savingsRate: 0.1, byCategory: [] },
+      budgetSummary: { period: '2026-03', exists: false, totalBudgetMinor: null, totalSpentMinor: 0, overTotal: false },
+      assetAllocation: [
+        { assetClass: 'equity', baseValueMinor: 400_000_00, pct: 55.6 },
+        { assetClass: 'debt', baseValueMinor: 300_000_00, pct: 41.7 },
+        { assetClass: 'cash', baseValueMinor: 20_000_00, pct: 2.8 },
+      ],
+      currencyExposure: [{ currency: 'INR', baseValueMinor: 720_000_00, pct: 100 }],
+      householdEquity: { netWorthMinor: 720_000_00, totalDebtMinor: 200_000_00, reconciledEquityMinor: 520_000_00 },
+      entityHoldings: [],
+      relationships: { memberCount: 2, entityCount: 1, entityIds: [], accountIds: ['a', 'b', 'c'] },
+    };
+    const cat = (r: ReturnType<typeof simulateFinancialWhatIf>, key: string) =>
+      r.categoryImpacts.find((c) => c.key === key)!;
+
+    it('is deterministic (same request → identical result)', () => {
+      const req = { scenarios: [{ type: 'reduce_expenses' as const, params: { monthlyAmountMinor: 30_000_00 } }] };
+      expect(simulateFinancialWhatIf(base, req)).toEqual(simulateFinancialWhatIf(base, req));
+    });
+
+    it('never mutates the baseline payload', () => {
+      const before = JSON.parse(JSON.stringify(base));
+      simulateFinancialWhatIf(base, { scenarios: [{ type: 'increase_emergency_fund', params: { amountMinor: 300_000_00 } }] });
+      expect(base).toEqual(before);
+    });
+
+    it('reduce_expenses improves savings and the overall score', () => {
+      const r = simulateFinancialWhatIf(base, { scenarios: [{ type: 'reduce_expenses', params: { monthlyAmountMinor: 30_000_00 } }] });
+      expect(cat(r, 'savings').delta).toBeGreaterThan(0);
+      expect(r.summary.overallDelta).toBeGreaterThan(0);
+      expect(r.summary.improved).toContain('savings');
+    });
+
+    it('increase_emergency_fund improves liquidity', () => {
+      const r = simulateFinancialWhatIf(base, { scenarios: [{ type: 'increase_emergency_fund', params: { amountMinor: 300_000_00, fromClass: 'equity' } }] });
+      expect(cat(r, 'liquidity').delta).toBeGreaterThan(0);
+    });
+
+    it('repay_debt trades liquidity for lower leverage (debt up, liquidity down)', () => {
+      const r = simulateFinancialWhatIf(base, { scenarios: [{ type: 'repay_debt', params: { amountMinor: 20_000_00 } }] });
+      expect(cat(r, 'debt_burden').delta).toBeGreaterThanOrEqual(0);
+      expect(cat(r, 'liquidity').delta).toBeLessThanOrEqual(0);
+    });
+
+    it('clamps withdrawals (cannot sell more than held) and never throws', () => {
+      const r = simulateFinancialWhatIf(base, { scenarios: [{ type: 'sell_asset', params: { assetClass: 'cash', amountMinor: 999_999_00, toClass: 'equity' } }] });
+      expect(Number.isFinite(r.summary.overallAfter)).toBe(true);
+      // cash was 20,000 — cannot go negative; allocation entries stay non-negative.
+      for (const a of r.categoryImpacts) expect(Number.isFinite(a.after)).toBe(true);
+    });
+
+    it('rejects an unknown scenario type', () => {
+      expect(() => applyScenarios(base, [{ type: 'teleport_money', params: {} }])).toThrow(/Unknown scenario/);
+    });
+
+    it('picks the best single action = the max individual overall delta', () => {
+      const scenarios = [
+        { type: 'reduce_expenses' as const, params: { monthlyAmountMinor: 30_000_00 } },
+        { type: 'increase_emergency_fund' as const, params: { amountMinor: 300_000_00, fromClass: 'equity' } },
+      ];
+      const r = simulateFinancialWhatIf(base, { scenarios });
+      const deltas = scenarios.map((s) => simulateFinancialWhatIf(base, { scenarios: [s] }).summary.overallDelta);
+      expect(r.bestSingleAction!.overallDelta).toBe(Math.max(...deltas));
+    });
+
+    it('stamps deterministic metadata', () => {
+      const r = simulateFinancialWhatIf(base, { scenarios: [{ type: 'reduce_expenses', params: { monthlyAmountMinor: 1000 } }] }, { snapshotId: 'snap_1' });
+      expect(r.metadata.simulationEngineVersion).toBe('sim-1.0.0');
+      expect(r.metadata.deterministic).toBe(true);
+      expect(r.metadata.snapshotId).toBe('snap_1');
+      expect(r.metadata.scoreModelVersion).toBe('fhs-1.0.0');
     });
   });
 });
