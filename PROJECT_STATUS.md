@@ -37,7 +37,7 @@ immutable, kernel changes require an ADR + review). **M3 design proposed** (desi
 | M0        | Foundation hardening (Redis/jobs, storage, email, observability, key governance) | ⏳ not started       |
 | **M1**    | **Tenancy & firm shell**                                                         | ✅ complete (#6–#12) |
 | **M2**    | **Household wealth + multi-currency + Financial Kernel**                         | ✅ complete (#14–#21) · released `v2.0.0-financial-kernel` |
-| M3        | Planning, scores & analysis (Financial Health Score first)                       | 🔨 in progress (M3-1 Financial Health Score) |
+| M3        | Planning, scores & analysis (Financial Health Score first)                       | 🔨 in progress (M3-1 score · M3-2 explanation engine) |
 | M4        | AI agent fleet & orchestration                                                   | ◻️                   |
 | M5        | Document Vault                                                                   | ◻️                   |
 | M6        | Tasks, workflows & notifications                                                 | ◻️                   |

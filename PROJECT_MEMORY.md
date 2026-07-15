@@ -38,6 +38,22 @@
   verified purely additive, `FinancialSnapshot`/engines untouched). Minimal UI
   `/app/households/[id]/health-score`. Reproducibility asserted (same snapshot ⇒ identical score after
   mutations). This is the reusable M3+ consumer template (FUTURE_MODULE_CONTRACT compliant).
+- **M3-2 Explainable Financial Health Engine (additive over M3-1):** design in
+  [`M3-2_HEALTH_EXPLANATION_DESIGN.md`](./docs/architecture/M3-2_HEALTH_EXPLANATION_DESIGN.md). Pure core
+  `explainFinancialHealth(score, payload?)` in `@lcos/core/finance/financialHealthExplanation.ts` — **consumes**
+  an existing `FinancialHealthScore`, **never recomputes a score** (reads `categories[].weight/score` directly,
+  doesn't need the anchors). Returns `HealthExplanation`: summary, categoryBreakdown (pointsContributed/
+  pointsLost = ±score·weight/Σweight), strengths/weaknesses (partition at 75), recommendations (title,
+  description, affectedCategory, priority high/med/low, priorityRank, estimatedScoreImprovement =
+  (90−score)·weight/Σweight, financialImpact {summary, gapMinor from snapshot}, recommendedAction, reasonCode),
+  priorityRanking, potentialScoreImprovement (capped so overall≤100), confidence (data completeness), stable
+  `reasonCodes[]` (AI contract). **Deterministic, no LLM, no persistence, no DB/schema/kernel change** (verified:
+  0 new migrations; schema.prisma, kernel, and M3-1 financialHealth.ts all unchanged). Service
+  `HouseholdHealthExplanationService` depends only on `HouseholdHealthScoreService` (get the score) +
+  `HouseholdFinancialSnapshotService` (immutable payload). Read-only routes under
+  `/households/:id/health-score/explanation/{current,latest,:scoreId}` (any in-scope member incl. analyst; 404
+  out-of-scope). UI: explanation surfaced on the health-score page (recommendations + potential + confidence).
+  This is the grounding contract for the M4 AI Wealth Advisor.
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`
