@@ -23,6 +23,8 @@ import { HouseholdHealthScoreController } from './household-health-score.control
 import { HouseholdHealthScoreService } from './household-health-score.service';
 import { HouseholdHealthExplanationController } from './household-health-explanation.controller';
 import { HouseholdHealthExplanationService } from './household-health-explanation.service';
+import { HouseholdSimulationController } from './household-simulation.controller';
+import { HouseholdSimulationService } from './household-simulation.service';
 
 @Module({
   imports: [FirmsModule],
@@ -38,6 +40,7 @@ import { HouseholdHealthExplanationService } from './household-health-explanatio
     HouseholdFinancialSnapshotController,
     HouseholdHealthScoreController,
     HouseholdHealthExplanationController,
+    HouseholdSimulationController,
   ],
   providers: [
     HouseholdsService,
@@ -51,6 +54,7 @@ import { HouseholdHealthExplanationService } from './household-health-explanatio
     HouseholdFinancialSnapshotService,
     HouseholdHealthScoreService,
     HouseholdHealthExplanationService,
+    HouseholdSimulationService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],

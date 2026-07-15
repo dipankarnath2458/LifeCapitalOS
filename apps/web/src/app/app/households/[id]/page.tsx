@@ -172,6 +172,14 @@ export default function HouseholdDetailPage() {
             >
               Financial health
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<IconChart className="h-4 w-4" />}
+              onClick={() => (window.location.href = `/app/households/${id}/simulation`)}
+            >
+              What-if
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -182,6 +190,7 @@ export default function HouseholdDetailPage() {
             <Badge tone="success">Debt</Badge>
             <Badge tone="success">Financial snapshot</Badge>
             <Badge tone="success">Financial health</Badge>
+            <Badge tone="success">What-if</Badge>
             {UPCOMING_TABS.map((t) => (
               <Badge key={t} variant="outline">
                 {t} · soon
