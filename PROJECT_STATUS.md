@@ -3,13 +3,21 @@
 > Living snapshot of where the product is. **Updated after every merged PR** per the
 > [AI Engineering Workflow](./docs/AI_ENGINEERING_WORKFLOW.md).
 >
-> **Last updated:** M2-6 (Financial Snapshot Contract — the financial kernel) — Module 2 in progress.
+> **Last updated:** Post-M2 permanent architecture documentation — Module 2 complete; pre-Module-3 review.
 
 ## Current phase
 
 **Phase 2 — Family Wealth OS.** Building the multi-tenant advisory product on the merged V2 foundation and
 the [Phase 2 blueprint](./docs/blueprint/). Module 2 follows the
 [M2 architecture reference](./docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md).
+
+**Permanent V2 architecture documentation** (written after M2 shipped, reflects the implementation):
+[System Architecture](./docs/architecture/SYSTEM_ARCHITECTURE_V2.md) ·
+[Financial Kernel](./docs/architecture/FINANCIAL_KERNEL_ARCHITECTURE.md) ·
+[AI Integration](./docs/architecture/AI_INTEGRATION_ARCHITECTURE.md) ·
+[Extension Guidelines](./docs/architecture/EXTENSION_GUIDELINES.md) ·
+[Financial Kernel ADR](./docs/architecture/ADR-FINANCIAL-KERNEL.md). These include the component/domain/data-flow/
+snapshot-lifecycle/module-dependency diagrams, the future-module validation, and the pre-Module-3 review.
 
 ## Milestone progress
 
