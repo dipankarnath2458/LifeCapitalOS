@@ -5,6 +5,17 @@
 
 ## Architecture (as built)
 
+- **Permanent V2 architecture docs** (post-M2, reflect the implementation — read these first for the big
+  picture): [`SYSTEM_ARCHITECTURE_V2.md`](./docs/architecture/SYSTEM_ARCHITECTURE_V2.md) (component/domain/
+  data-flow/module-dependency diagrams + pre-M3 review), [`FINANCIAL_KERNEL_ARCHITECTURE.md`](./docs/architecture/FINANCIAL_KERNEL_ARCHITECTURE.md)
+  (engines + snapshot lifecycle), [`AI_INTEGRATION_ARCHITECTURE.md`](./docs/architecture/AI_INTEGRATION_ARCHITECTURE.md),
+  [`EXTENSION_GUIDELINES.md`](./docs/architecture/EXTENSION_GUIDELINES.md) (future-module validation + explicit
+  per-module extension points), [`FUTURE_MODULE_CONTRACT.md`](./docs/architecture/FUTURE_MODULE_CONTRACT.md)
+  (**normative** READ allowlist / WRITE prohibitions — a future module reads consolidated truth only from
+  snapshots, writes only its own tables, never mutates the kernel/engines),
+  [`ADR-FINANCIAL-KERNEL.md`](./docs/architecture/ADR-FINANCIAL-KERNEL.md). `SYSTEM_ARCHITECTURE_V2.md` §10 has
+  new-engineer onboarding diagrams. Slice-level ADRs stay in
+  [`M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md`](./docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md) (ADR-001…012).
 - **Monorepo** (pnpm + turbo): `apps/api` (NestJS 10 modular monolith, global `/api`), `apps/web`
   (Next.js + Tailwind), `packages/core` (`@lcos/core` pure finance/scoring), `packages/config`.
 - **DB:** Postgres via Prisma. Money = `BigInt` minor units. PII = AES-256-GCM via `CryptoService`
