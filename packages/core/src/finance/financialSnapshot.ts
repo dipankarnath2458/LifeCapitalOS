@@ -80,6 +80,18 @@ export interface FinancialSnapshotPayload {
     entityIds: string[];
     accountIds: string[];
   };
+  /**
+   * Coarse household demographics (M3 hardening) — **optional, additive to schemaVersion
+   * 1**. Deliberately PII-light: `ageYears` (not date of birth), dependency, and relation
+   * only — never names/DOB/taxIds (ADR-006). Enables Retirement / Insurance / AI-CFO
+   * planning without reaching around the kernel. Absent on pre-existing snapshots.
+   */
+  members?: {
+    memberId: string;
+    ageYears: number | null;
+    isDependent: boolean;
+    relation: string;
+  }[];
 }
 
 /**
