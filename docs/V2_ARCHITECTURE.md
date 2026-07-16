@@ -1,355 +1,361 @@
-# Life Capital OS — Version 2 Architecture Document
+# Life Capital OS — V2 Master Architecture
 
-> **Status:** Analysis of the existing (V1) system as the foundation for V2.
-> **Branch:** `v2-foundation`.
-> **Scope:** This document only analyzes and documents. No production code is written or changed here.
-> **Audience:** Engineers planning V2 modules; assumes familiarity with TypeScript, NestJS, Next.js, Prisma.
+> **Status:** Current production architecture after **Modules 1–5** (tenancy foundation → household model →
+> Wealth Health snapshot architecture → Dashboard Foundation → Financial Intelligence Layer). Verified against
+> the codebase at `main` following the merge of PR #28 (M5). This is the **master overview**; the deep
+> per-area references live in [`docs/architecture/`](./architecture/):
+> [`SYSTEM_ARCHITECTURE_V2`](./architecture/SYSTEM_ARCHITECTURE_V2.md),
+> [`FINANCIAL_KERNEL_ARCHITECTURE`](./architecture/FINANCIAL_KERNEL_ARCHITECTURE.md),
+> [`KERNEL_GOVERNANCE`](./architecture/KERNEL_GOVERNANCE.md),
+> [`FUTURE_MODULE_CONTRACT`](./architecture/FUTURE_MODULE_CONTRACT.md),
+> [`EXTENSION_GUIDELINES`](./architecture/EXTENSION_GUIDELINES.md),
+> [`M4_DASHBOARD_FOUNDATION`](./architecture/M4_DASHBOARD_FOUNDATION.md),
+> [`M5_FINANCIAL_INTELLIGENCE_LAYER`](./architecture/M5_FINANCIAL_INTELLIGENCE_LAYER.md).
+>
+> *(Historical note: this file previously held the pre-V2 analysis of the V1 retail system. It has been
+> replaced with the current architecture. The prior V1 analysis is preserved in the git history.)*
 
 ---
 
 ## 0. Executive summary
 
-Life Capital OS is a **pnpm + Turborepo monorepo** in TypeScript end-to-end. A framework-agnostic
-domain core (`@lcos/core`) holds all finance math, scoring, and entitlement logic and is reused by a
-**NestJS REST API** (`apps/api`) and a **Next.js PWA** (`apps/web`, which also contains the admin panel).
-PostgreSQL via Prisma is the system of record; PII is encrypted at the application layer.
+Life Capital OS V2 is a **multi-tenant advisory wealth platform**: advisory **firms** manage **households**
+(families), each holding **accounts, cashflow, budget, debt, and net worth**, consolidated multi-currency into
+a household base currency and frozen as **immutable Financial Snapshots** — the canonical read model. On top of
+that kernel, a **Financial Intelligence Layer** composes derived intelligence once and serves every consumer,
+and a **customer Dashboard** is the first experience after login.
 
-The V1 foundation is **solid and worth keeping**: the domain core is pure and well-tested, auth is
-modern (Argon2 + rotating refresh tokens + RBAC), and the data model is coherent. V2 work should
-**build on the core, harden the edges** (token storage, deploy/runtime duality, doc drift, observability),
-and add new modules through the existing module + entitlement patterns rather than reworking the base.
+**pnpm + Turborepo monorepo**, TypeScript end-to-end, three deployables:
+
+| Package | Stack | Responsibility |
+| --- | --- | --- |
+| `apps/api` | **NestJS 10 + Express**, global `/api` prefix | HTTP API; thin controllers → services → `@lcos/core`; auth, tenancy, persistence. |
+| `apps/web` | **Next.js (App Router) + Tailwind** | Advisor/customer workspace (`/app/**`); reads the API over Bearer JWT; **presentation only**. Design system `apps/web/src/ui/*` is **frozen**. |
+| `packages/core` | **`@lcos/core`** — pure TypeScript, **browser-safe** | All finance math: money (BigInt minor units), FX, net worth, cashflow, budget, debt, scoring, and the derived-intelligence composer. No IO/DOM. |
+
+**Persistence:** PostgreSQL via **Prisma**; **every table has RLS lockdown** (enabled, no policies) so the
+Supabase PostgREST surface is closed. **Migrations are additive** (13 to date). **PII** (household/member/
+entity names, taxIds) is **AES-256-GCM encrypted at rest**. Deploy: **Vercel** (web) + **Railway** (API +
+Postgres).
+
+**Core architectural laws** (enforced across all modules, ADR-001…012):
+
+1. **Household is the aggregate root** — every financial row is scoped by `householdId` (+ `firmId`).
+2. **FX lives only in the domain layer** — store native currency; convert at aggregation (ADR-003, `fx.ts`).
+3. **Financial history is immutable** — snapshots are append-only, never updated/deleted (ADR-004).
+4. **Migrations are additive** — new tables / nullable columns only; retail rows coexist (ADR-010).
+5. **Thin controllers, pure core** — no business math in controllers or the browser.
+6. **One calculation, many consumers** — derived intelligence is composed once (M5) and read everywhere.
 
 ---
 
-## 1. Existing folder structure
+## 1. Module history (1–5) — what shipped
 
-```
-LifeCapitalOS/
-├── apps/
-│   ├── api/                         NestJS REST API (system of record access)
-│   │   ├── api/index.js             Vercel serverless entrypoint (wraps Express)
-│   │   ├── prisma/
-│   │   │   ├── schema.prisma         Data model (source of truth for DB)
-│   │   │   ├── migrations/           3 migrations incl. RLS lockdown
-│   │   │   └── seed.ts               Plans, flags, admin + demo user (ts-node)
-│   │   ├── src/
-│   │   │   ├── app.factory.ts        Builds the Nest app (shared by local + serverless)
-│   │   │   ├── app.module.ts         Root module; wires global guards
-│   │   │   ├── main.ts               Long-running entrypoint (listen 0.0.0.0)
-│   │   │   ├── auth/                  OTP + email/password, JWT strategy, guards, DTOs
-│   │   │   ├── users/                 Profile controller/service
-│   │   │   ├── accounts/              Accounts CRUD
-│   │   │   ├── transactions/          Ledger + cashflow summary (module-in-one-file)
-│   │   │   ├── debts/                 Debt CRUD + payoff plan (module-in-one-file)
-│   │   │   ├── goals/                 Goals CRUD + SIP plan (module-in-one-file)
-│   │   │   ├── family/                Family members
-│   │   │   ├── networth/             Net-worth current/snapshot/timeline
-│   │   │   ├── insights/             Early-warning (module-in-one-file)
-│   │   │   ├── tools/                 Public lead-gen calculators
-│   │   │   ├── ai/                    Wealth Coach + Second Opinion (Anthropic)
-│   │   │   ├── billing/              Plans, entitlements, Razorpay + webhook
-│   │   │   ├── aa/                    Account Aggregator (sandbox) (module-in-one-file)
-│   │   │   ├── admin/                 Admin service/controller (users, plans, flags, audit)
-│   │   │   ├── common/               Crypto, Audit, RolesGuard, decorators, FinancialSnapshot
-│   │   │   ├── config/               Typed configuration + prod secret guard
-│   │   │   ├── prisma/               PrismaService (module)
-│   │   │   └── health/               /health (module-in-one-file)
-│   │   ├── test/                     e2e specs (auth, auth-flows, admin-access, features)
-│   │   ├── railway.json              Railway build/start/healthcheck (deploy config)
-│   │   └── vercel.json               Vercel serverless config for the API
-│   └── web/                          Next.js 14 App Router PWA
-│       ├── src/app/                  Routes: /, /login, /onboarding, /dashboard,
-│       │                             /billing, /admin/* , error boundaries
-│       ├── src/components/           ~24 client components (charts, forms, modals, admin)
-│       ├── src/lib/                  api.ts (fetch client), admin.ts, adminContext.tsx
-│       └── vercel.json               Vercel build config (root dir apps/web)
-├── packages/
-│   ├── core/                        @lcos/core — money, schemas, finance, scoring, entitlements
-│   └── config/                      Shared tsconfig presets
-├── infra/                           docker-compose (Postgres + Redis) for local dev
-├── docs/                            REQUIREMENTS, ARCHITECTURE, SECURITY, DEPLOYMENT (+ this file)
-├── turbo.json, pnpm-workspace.yaml, package.json, .env.example, .github/workflows/ci.yml
+```mermaid
+flowchart LR
+  M1["Module 1<br/>Foundation<br/>(tenancy shell)"] --> M2["Module 2<br/>Household model<br/>(engines + kernel)"]
+  M2 --> M3["Module 3<br/>Wealth Health<br/>snapshot architecture"]
+  M3 --> M4["Module 4<br/>Dashboard<br/>Foundation"]
+  M4 --> M5["Module 5<br/>Financial<br/>Intelligence Layer"]
+  M5 -. enables .-> Next["M6+ score engines · net-worth UX · AI CFO · what-if · launch"]
 ```
 
-**Note (doc drift):** `docs/ARCHITECTURE.md` describes a separate `apps/admin/` React-Admin app and
-Redis/BullMQ workers. **Neither exists in the code today** — admin lives inside `apps/web` under
-`/admin`, and there is no Redis usage or background-job worker. See §8.
+### Module 1 — Foundation (multi-tenancy shell)
+The tenancy backbone the whole platform stands on. Introduced **`Firm`**, **`Membership`** (firm roles
+`OWNER / ADVISOR / SUPPORT / ANALYST`), **`Household`**, **`HouseholdMember`**, and **`Entity`** (legal
+entities within a household). Auth resolves the caller's active firm; **`HouseholdScopeGuard`** gates every
+household route — OWNER/ANALYST read firm-wide, ADVISOR/SUPPORT only their assigned households, out-of-scope →
+**404 (never 403)** so existence never leaks. Writes are gated `@FirmRoles(OWNER, ADVISOR, SUPPORT)`; ANALYST
+is read-only; every mutation is audited. *(Migrations `add_tenancy_firm_household`, `add_user_active_firm`,
+`add_advisory_scoping_columns`.)*
+
+### Module 2 — Household model (financial engines + the kernel)
+The financial substance, as five household-scoped **engines** plus the **Financial Snapshot kernel**:
+
+| Slice | Engine / surface | Owns (write) | Live read |
+| --- | --- | --- | --- |
+| M2-2 | **Accounts** | `Account` (native ccy, entity-owned, `isLiability`) | account list |
+| M2-3 | **Net Worth** | immutable `NetWorthSnapshot` | `/net-worth/current` (assets/liabilities/net worth/solvency, base ccy) |
+| M2-4 | **Cashflow + Budget** | `Transaction`, `Budget`/`BudgetLine` | `/cashflow/summary`+`/timeline`, budget-vs-actual |
+| M2-5 | **Debt & Payoff** | `Debt`, `DebtPayment`, immutable `DebtSnapshot` | `/debts/summary`+`/payoff` (snowball/avalanche) |
+| M2-6 | **Financial Snapshot (kernel)** | immutable `FinancialSnapshot` | `/financial-snapshot/{current,latest,timeline,:id}` |
+| M2-7 | **Balance Sheet UI** | — (web) | `/app/households/[id]/balance-sheet` (+ cashflow, debt pages) |
+
+The kernel **composes the five engines + core FX** into one canonical, versioned, checksummed payload
+(`schemaVersion 1`) and appends an immutable row. It introduces **no aggregation math of its own**.
+**Multi-currency is fully resolved** (`fx.ts`): native at rest, converted to the household base currency at
+aggregation, with the rate-set id (`fxVersion`) frozen into each snapshot for reproducibility.
+
+### Module 3 — Wealth Health snapshot architecture
+The first **consumers** of the kernel — pure functions of one immutable snapshot, each storing results in its
+**own** table (never mutating the kernel):
+
+- **M3-1 Financial Health Score** — `computeFinancialHealthScore(payload)` → 0–100 overall + 5 weighted
+  categories (net worth, debt burden, savings, liquidity, diversification), each explainable. Persisted in
+  **`FinancialHealthScore`** (tied to a `snapshotId`). Routes `/health-score/{current,latest,timeline,:id}`.
+- **M3-2 Health Explanation** — `explainFinancialHealth(score, payload)` → strengths, weaknesses, ranked
+  recommendations with estimated impact. Consumes a score; never re-derives one.
+- **M3-3 What-if Simulation** — `financialSimulation.ts` seeds from a snapshot and applies in-memory deltas;
+  never mutates the base snapshot. Route `/simulation`.
+
+### Module 4 — Dashboard Foundation
+The **first experience after login** at **`/app`**, answering "How financially healthy is my family?" in three
+sections: **Executive Summary** (household selector, family summary, **live Net Worth**, Wealth Health Score),
+**Capital Health** (reusable **`ScoreCard`** cards — the extension seam), **AI Guidance** (AI Family CFO™
+placeholder, live Recent Activity, Quick Actions). Presentation-only; composes the **frozen** `@/ui` design
+system; reads existing APIs. The advisor Book overview relocated to `/app/book`. Components under
+`apps/web/src/components/dashboard/*`.
+
+### Module 5 — Financial Intelligence Layer
+The **single reusable consumer of the kernel** — the source of truth for **derived intelligence** (the kernel
+remains the source of truth for **facts**). A pure `@lcos/core` composer,
+**`computeHouseholdFinancialIntelligence`**, turns one immutable snapshot into the canonical
+**`HouseholdFinancialIntelligence`** object by **composing the existing calculators** (health score +
+explanation, emergency fund, insurance gap, retirement, asset allocation, early warning) — **no new math**.
+Deterministic (no IO/clock/randomness/FX), **PII-light** (ids + coarse demographics; name resolved at the
+decrypted boundary), with `Section<T>` graceful degradation. Exposed read-only at
+**`GET /households/:id/intelligence/current`**; depends only on `HouseholdFinancialSnapshotService` (read) +
+`CryptoService`. **No schema change** — live compute; persistence is a documented follow-up.
 
 ---
 
-## 2. Existing database schema
+## 2. Component diagram (as implemented)
 
-Postgres via Prisma (`apps/api/prisma/schema.prisma`). Monetary amounts are **`BigInt` minor units**
-(paise/cents). PII is encrypted at the app layer before persistence.
+```mermaid
+flowchart TB
+  subgraph Client["apps/web — Next.js (presentation only)"]
+    Dash["Dashboard /app (M4) + households/* pages"]
+    DS["Design system @/ui (frozen)"]
+    APIclient["@/lib/api (Bearer JWT)"]
+    Dash --> DS
+    Dash --> APIclient
+  end
 
-### Models
-| Model | Purpose | Notable fields |
-|---|---|---|
-| `User` | Account root | `email?`, `phone?` (unique), `passwordHash?`, `role`, `status`, `totpSecret?` (enc), verification flags |
-| `Profile` | 1:1 user profile | `fullName` (**enc**), `dateOfBirth?`, `baseCurrency`, income/expenses (BigInt), `riskTolerance`, `dependents`, protection flags (`hasTermCover`, `hasHealthInsurance`, `termLifeCoverMinor`) |
-| `FamilyMember` | Dependents | `name` (**enc**), `relation`, `isDependent` |
-| `Account` | Balance-sheet line | `type`, `assetClass?`, `currency`, `balanceMinor`, `isLiability`, AA linkage (`aaProvider`, `aaAccountRef`) |
-| `Transaction` | Ledger | `accountId`, `type`, `amountMinor`, `category`, `occurredAt` |
-| `Debt` | Liabilities detail | `principalMinor`, `annualInterestRatePct`, `minimumPaymentMinor` |
-| `Goal` | Financial goals | `targetAmountMinor`, `currentAmountMinor`, `targetDate`, `expectedAnnualReturnPct` |
-| `NetWorthSnapshot` | History timeline | assets/liabilities/netWorth minor, `capturedAt` |
-| `Recommendation` | Top actions (persisted) | `scoreKey`, `priority`, `dismissed` |
-| `Plan` | Monetization tiers | `tier` (unique), `priceMinor`, `features` (JSON), `active` |
-| `Subscription` | 1:1 user sub | `planId`, `status`, `provider`, `providerSubscriptionId?`, `currentPeriodEnd?` |
-| `FeatureOverride` | Per-user grants/revokes | unique `(userId, feature)`, `enabled` |
-| `FeatureFlag` | Global remote config | `key` (unique), `enabled`, `payload?` (JSON) |
-| `Consent` | DPDP/AA consent | `purpose`, `granted`, `version` |
-| `RefreshToken` | Rotating sessions | `tokenHash` (unique), `expiresAt`, `revokedAt?` |
-| `OtpCode` | OTP + reset tokens | `channel`, `target`, `codeHash`, `expiresAt`, `consumedAt?`, `attempts` |
-| `AuditLog` | Append-only trail | `actorId?`, `actorRole?`, `action`, `entityType?`, `entityId?`, `metadata?`, `ip?` |
+  subgraph API["apps/api — NestJS modular monolith (/api)"]
+    direction TB
+    Auth["Auth (JWT) + Firm context"]
+    Guard["HouseholdScopeGuard (tenant isolation, 404-not-403)"]
+    subgraph HH["HouseholdsModule"]
+      Eng["Engines: Accounts · NetWorth · Cashflow · Budget · Debt (M2)"]
+      Kern["FinancialSnapshotService — the kernel (M2-6)"]
+      Health["HealthScore · HealthExplanation · Simulation (M3)"]
+      Intel["IntelligenceService — Financial Intelligence Layer (M5)"]
+      Eng --> Kern
+      Kern --> Health
+      Kern --> Intel
+    end
+    Firms["FirmsModule (firms, memberships, roles) — M1"]
+    Common["CommonModule: FxService · AuditService · CryptoService"]
+  end
 
-**Enums:** `Role` (USER, ADVISOR, SUPPORT, ANALYST, ADMIN, SUPERADMIN), `PlanTier` (free, premium,
-family_cfo), `AccountType`, `AssetClass`, `TransactionType`, `DebtType`, `GoalType`, `RiskTolerance`,
-`SubscriptionStatus`.
+  subgraph Core["packages/core — @lcos/core (pure, browser-safe)"]
+    Calc["money · fx · networth · cashflow · debt · retirement · insurance · assetAllocation · tax"]
+    Score["scoring: scores · earlyWarning · recommendations · financialHealth(+Explanation)"]
+    Contract["financialSnapshot (contract) · financialIntelligence (M5 composer)"]
+  end
 
-**Security posture:** migration `enable_rls_lockdown` turns on Row-Level Security with **no policies**
-on every table, so Postgres is reachable only through Prisma's owner role (defeats accidental exposure
-via Supabase/PostgREST). Cascade deletes are defined on user-owned relations; `AuditLog.actor` is an
-optional relation (nulls on user delete).
+  subgraph Data["PostgreSQL (Supabase) — Prisma, RLS lockdown"]
+    Tables["Firm · Membership · Household · HouseholdMember · Entity<br/>Account · Transaction · Budget/Line · Debt · DebtPayment<br/>NetWorthSnapshot · DebtSnapshot · FinancialSnapshot · FinancialHealthScore · AuditLog"]
+  end
 
----
+  APIclient -->|HTTPS Bearer JWT| Auth
+  Auth --> Guard --> HH
+  Firms --> Guard
+  HH --> Common
+  HH --> Core
+  Eng & Kern & Health & Intel --> Data
+```
 
-## 3. Existing APIs
-
-Global prefix `/api`. Every route requires a valid JWT unless marked `@Public()`. Swagger at `/api/docs`.
-
-**Auth (`/api/auth`)** — `POST otp/request`, `POST otp/verify`, `POST register`, `POST login`,
-`POST refresh`, `POST logout`, `POST change-password`, `POST forgot-password`, `POST reset-password`,
-`GET me`. (Public: otp/*, register, login, refresh, forgot/reset.)
-
-**Profile (`/api/users` / profile)** — `GET` profile, `PUT` profile (upsert; encrypts `fullName`).
-
-**Accounts (`/api/accounts`)** — `GET`, `POST`, `PATCH :id`, `DELETE :id` (ownership-checked).
-
-**Transactions (`/api/transactions`)** — `GET`, `GET summary` (cashflow), `POST` (account ownership-checked).
-
-**Debts (`/api/debts`)** — `GET`, `POST`, `GET payoff-plan` (snowball vs avalanche).
-
-**Goals (`/api/goals`)** — `GET` (each enriched with SIP plan), `POST`, `DELETE :id`.
-
-**Family (`/api/family`)** — CRUD for family members.
-
-**Net worth (`/api/net-worth`)** — `GET current`, `POST snapshot`, `GET timeline`.
-
-**Insights (`/api/insights`)** — `GET early-warning` (traffic-light report from real snapshot).
-
-**Tools (`/api/tools`, all Public)** — `POST health-check`, `POST retirement`, `POST asset-allocation`,
-`POST insurance-gap`, `GET wealth-dna/questions`, `POST wealth-dna`. Lead-gen, no login required.
-
-**AI (`/api/ai`)** — `POST coach`, `GET second-opinion`. Gated on `ai_recommendations` entitlement;
-degrades to deterministic output when no `ANTHROPIC_API_KEY`.
-
-**Billing (`/api/billing`)** — `GET plans` (Public), `GET entitlements`, `POST subscribe`,
-`POST cancel`, `POST razorpay/webhook` (Public; HMAC-verified raw body).
-
-**Account Aggregator (`/api/aa`)** — `POST consent/initiate`, `POST sync`, `GET status`.
-Gated on both the `aa.enabled` flag and the `account_aggregation` entitlement.
-
-**Admin (`/api/admin`, RolesGuard)** — `GET users`, `PATCH users/:id/status`, `PATCH users/:id/role`
-(SUPERADMIN), feature-override get/set/clear, `PUT users/:id/subscription`, `GET users/:id/export`
-(DPDP), `DELETE users/:id` (SUPERADMIN erasure), `GET/PUT plans`, `GET/PUT flags`, `GET features`,
-`GET metrics`, `GET audit`.
-
-**Health (`/api/health`, Public)** — liveness + `db` up/down.
+**Notes:** one NestJS modular monolith; all household finance lives in `HouseholdsModule`
+(`apps/api/src/households/`), one `*.controller.ts` + `*.service.ts` per resource. `FxService`,
+`AuditService`, `CryptoService` are global (`CommonModule`). The **kernel composes the engines**; **M3/M5
+consume snapshots** and never re-aggregate raw tables. *(A V1 **retail** stack — `accounts`, `transactions`,
+`debts`, `goals`, `family`, `networth`, `insights`, `ai`, `tools`, keyed by nullable `userId` — coexists
+additively per ADR-010; the firm/household advisory stack above is the V2 platform Modules 1–5 built.)*
 
 ---
 
-## 4. Authentication flow
+## 3. The canonical data flow
 
-**Two credential paths, one token model.**
+> **Household → Snapshot Services → Financial Intelligence Layer → Dashboard → Future Score Engines**
 
-1. **Phone/Email OTP (passwordless):** `otp/request` creates a hashed 6-digit `OtpCode`
-   (5-min TTL, per-target windowed throttle). `otp/verify` checks the hash (max 5 attempts),
-   then **upserts** the user by channel and issues tokens. Dev codes are only echoed when
-   `SANDBOX_RETURN_SECRETS=true` (never in production).
-2. **Email + password:** `register` (Argon2id hash) / `login`. Password rules enforced by DTO
-   (min 8, must contain a digit).
-3. **Password lifecycle:** `change-password` (verifies current, revokes all sessions),
-   `forgot-password` → `reset-password` (hashed reset token, 30-min TTL, revokes sessions).
+```mermaid
+flowchart LR
+  subgraph H["Household (facts)"]
+    A["Accounts · Cashflow · Budget · Debt · Net Worth<br/>(engines record native-currency facts)"]
+  end
+  subgraph S["Snapshot Services (the kernel)"]
+    FS["FinancialSnapshot — composed, FX-consolidated,<br/>immutable, versioned, checksummed (canonical source of truth)"]
+  end
+  subgraph I["Financial Intelligence Layer (M5)"]
+    FIL["computeHouseholdFinancialIntelligence — read-only composition<br/>of the existing calculators → HouseholdFinancialIntelligence"]
+  end
+  subgraph C["Consumers"]
+    D["Dashboard (M4)"]
+    AI["AI Family CFO™ (M8)"]
+    R["Reports"]
+    W["What-if Simulator (M9)"]
+    ADV["Advisor Workspace"]
+    MOB["Future Mobile App"]
+  end
+  subgraph E["Future Score Engines (M6+)"]
+    SE["Wealth Health Score Engine · Risk · Retirement · Insurance …<br/>(each a snapshot consumer, own tables)"]
+  end
 
-**Token model:**
-- **Access token:** JWT `{ sub, role }`, short TTL (15m), `Bearer` header. Validated by
-  `JwtStrategy`, which **re-fetches the user** and rejects non-`active` accounts (role/status always fresh).
-- **Refresh token:** 48-byte random, stored **only as SHA-256 hash**; `refresh` **rotates**
-  (revokes old, issues new pair); `logout` revokes.
+  A -->|capture| FS
+  FS -->|latest / getById / timeline (READ ONLY)| FIL
+  FIL --> D & AI & R & W & ADV & MOB
+  FS -->|READ ONLY| SE
+  SE -->|surfaced through| FIL
+  FIL -. never writes .-> FS
+  linkStyle 10 stroke:#c00,stroke-dasharray:5 5
+```
 
-**Guards (global):** `JwtAuthGuard` (deny-by-default, honors `@Public()`) + `ThrottlerGuard`.
-`RolesGuard` (opt-in via `@Roles()`) enforces admin RBAC. Config guard `assertProductionConfig`
-crashes boot if prod still uses dev secrets.
-
-**Web session:** access + refresh stored in `localStorage` (`lcos_access`, `lcos_refresh`); attached
-as `Authorization` header by `lib/api.ts`. (See §8 — XSS exposure.)
-
----
-
-## 5. Current frontend architecture
-
-- **Next.js 14 App Router**, React 18, Tailwind, Recharts. Shipped as an installable **PWA**
-  (`manifest.webmanifest`). `@lcos/core` is transpiled into the web build for shared types/math.
-- **Client-heavy:** pages are `'use client'` and fetch from the API at runtime via a thin
-  `lib/api.ts` (`apiGet/apiPost/apiPut/apiDelete`) using `NEXT_PUBLIC_API_URL`. No server components
-  hitting the DB, no server actions — the web app is effectively an SPA over the REST API.
-- **Routing:** `/` (landing + public tools), `/login` (email + phone tabs), `/onboarding`,
-  `/dashboard` (balance sheet, charts, early warning, goals, protection, family, AI coach/second
-  opinion), `/billing`, `/admin/*` (users, plans, flags, audit). `error.tsx` + `global-error.tsx`
-  boundaries.
-- **Admin gating:** `/admin/layout.tsx` calls `/auth/me`, redirects non-admins client-side; the API's
-  `RolesGuard` is the real boundary (client is UX only). `lib/admin.ts` centralizes admin fetch + 401/403
-  handling; `adminContext.tsx` shares the role to pages.
-- **Components (~24):** charts (`NetWorthChart`, `AllocationDonut`), forms (`AddAccount`, `Goals`,
-  `Protection`, `Family`, `RetirementCalculator`, `InsuranceGap`), primitives (`Modal`, `Toast`,
-  `Skeleton`, `NumberField`, `Pager`, `Status`), AI (`WealthCoach`, `SecondOpinion`), admin
-  (`AdminShell`, `FeatureOverrides`).
-
----
-
-## 6. Backend architecture
-
-- **NestJS 10 + Express**, modular by domain. Root `AppModule` wires `ConfigModule`, `ThrottlerModule`
-  (in-memory), Prisma, and every feature module. Two global `APP_GUARD`s: JWT then Throttler.
-- **Two entrypoints, one app factory:** `app.factory.ts` builds the app (security headers, CORS,
-  global `ValidationPipe` with whitelist+transform, Swagger). `main.ts` runs a **long-running** server
-  (Railway); `api/index.js` wraps the compiled app as a **Vercel serverless** function. `BigInt.toJSON`
-  is globally patched to serialize as `Number`.
-- **Cross-cutting services (`common/`):**
-  - `CryptoService` — AES-256-GCM field encryption (`iv:tag:ciphertext` hex) + SHA-256 hashing.
-  - `AuditService` — append-only writes to `AuditLog`.
-  - `RolesGuard`, decorators (`@Roles`, `@Public`, `@CurrentUser`).
-  - `FinancialSnapshotService` — **the key aggregation layer**: assembles one `FinancialSnapshot`
-    from profile/accounts/debts/goals and maps it into the core's `ScoreInput` / `EarlyWarningInput`,
-    so scoring, early-warning, and the AI coach all reason from identical real data.
-- **Domain services** are thin: validate DTO → call `@lcos/core` pure function → read/write via Prisma →
-  serialize `BigInt`. Entitlement gating is centralized in `BillingService.assertFeature`.
-- **Persistence:** `PrismaService` deliberately does **not** throw on a failed connect at boot (so
-  serverless health checks still return), logging instead.
-
-**`@lcos/core` (shared, platform-agnostic, no Node/DOM deps):** `money` (integer minor units +
-formatting), `domain/schemas` (Zod), finance calculators (`networth`, `retirement`, `debt`, `goals`,
-`assetAllocation`, `cashflow`, `insurance`, `tax`), scoring (`scores`, `earlyWarning`,
-`recommendations`), `assessment/wealthDna`, and the `entitlements` engine (tier cascade + plan-driven
-features + overrides). Covered by 40+ unit tests.
+1. **Household → Snapshot Services.** Engines record facts (native currency). A capture composes them, converts
+   to the base currency, checksums, and appends an **immutable** `FinancialSnapshot` — the **canonical source
+   of truth**. `/current` is a live preview and is never persisted.
+2. **Snapshot Services → Financial Intelligence Layer.** M5 reads a snapshot **read-only** (`latest` /
+   `getById` / `timeline`) and composes the derived `HouseholdFinancialIntelligence` object. It performs no FX,
+   holds no facts, and never writes the kernel.
+3. **Financial Intelligence Layer → Dashboard.** The Dashboard (and every other consumer) reads that one
+   object — the `ScoreCard` seam binds a card to `intelligence.<section>` with no layout redesign.
+4. **→ Future Score Engines.** New engines (M6+) are **snapshot consumers** writing their own tables; their
+   outputs surface through the same intelligence object, so consumers keep reading one shape.
 
 ---
 
-## 7. Reusable components (assets V2 should lean on)
+## 4. The kernel as canonical source, and the layers above it
 
-- **`@lcos/core`** — the crown jewel. Pure, tested, framework-free. Reuse for API, web, and future
-  mobile. New finance/scoring belongs here, not in services.
-- **`FinancialSnapshotService`** — single source of derived financial truth; any new analytics module
-  should consume it rather than re-querying/re-deriving.
-- **Entitlement engine + `BillingService.assertFeature`** — the one way to gate a feature by tier +
-  per-user override. New premium modules plug in by adding a `FeatureKey` and a gate call.
-- **`CryptoService` / `AuditService`** — reuse for any new PII or any new admin mutation.
-- **`FeatureFlag` model** — global rollout switches already exist; use for staged V2 launches.
-- **Guards + decorators** (`@Public`, `@Roles`, `@CurrentUser`) — consistent auth wiring for new routes.
-- **Web primitives** (`Modal`, `Toast`, `Skeleton`, `NumberField`, `Pager`, chart wrappers) and
-  `lib/api.ts` / `lib/admin.ts` — reuse for new screens.
-- **Public tools pattern** (`tools.controller`) — template for new no-login lead-gen calculators.
+```mermaid
+flowchart TB
+  subgraph Truth["Financial Kernel — the canonical source (frozen, governed)"]
+    K["FinancialSnapshot (append-only, schemaVersion 1, checksum, engine/fx versions)"]
+  end
+  subgraph Derived["Financial Intelligence — read-only composition layer (M5)"]
+    L["HouseholdFinancialIntelligence (derived, PII-light, versioned)"]
+  end
+  subgraph Cons["Consumers — never calculate"]
+    Dash["Dashboard (M4)"]
+    Rest["AI CFO · Reports · What-if · Advisor · Mobile"]
+  end
+  subgraph Seams["Extension seams for future modules"]
+    Sc["ScoreCard (UI drop-in)"]
+    Sec["Section<T> (new intelligence section, additive)"]
+    Own["Own RLS-locked tables (module results)"]
+    Pay["Additive snapshot payload field (ADR-gated)"]
+  end
+  K -->|read only| L --> Dash & Rest
+  Seams -. plug in without kernel change .-> Derived
+```
 
----
-
-## 8. Technical debt
-
-| # | Item | Where | Impact |
-|---|---|---|---|
-| D1 | **Doc drift** — `docs/ARCHITECTURE.md` claims `apps/admin/` (React-Admin) and Redis/BullMQ workers that don't exist | docs vs code | Misleads planning; V2 should reconcile docs to reality |
-| D2 | **Tokens in `localStorage`** (access + refresh) | web `lib/api.ts`, `login` | XSS can exfiltrate sessions; refresh token especially sensitive |
-| D3 | **Dual runtime (serverless + long-running)** maintained in parallel; `BigInt.toJSON` global patch; serverless needs compiled `dist` | `api/index.js`, `app.factory.ts` | Two deploy paths to keep working; precision loss above ~9e15 paise |
-| D4 | **In-memory throttler & no cache/queue layer** despite infra/docs implying Redis/BullMQ | `app.module.ts`, `infra/` | Rate limits don't span instances; heavy compute would run in-request |
-| D5 | **"Module-in-one-file"** pattern (aa, ai split done; transactions/debts/goals/insights/health still inline controller+service+module) | those modules | Harder to test/navigate; inconsistent with the rest |
-| D6 | **`crypto.decrypt` tolerates plaintext** (returns raw on parse failure) | `CryptoService` | A key/rotation error can surface ciphertext-looking junk instead of failing loudly |
-| D7 | **No multi-currency FX** — `Money` assumes same currency; net worth sums mixed-currency balances as if identical | core + `networth.service` | Wrong totals if a user mixes currencies (schema allows it) |
-| D8 | **Thin API unit-test coverage** — strong `@lcos/core` unit tests + a few API e2e, but services themselves largely untested | `apps/api` | Regressions in services can slip through |
-| D9 | **Seed is required for e2e/admin but is a manual/one-off step**; `ts-node` seed at runtime is fragile | `prisma/seed.ts`, CI | Environment-specific breakage (already bit CI once) |
-| D10 | **No structured observability** (no request logging/metrics/tracing/error reporting) | API-wide | Hard to debug production (as seen during deploy) |
-| D11 | **Emergency-fund vs liquidity definitions diverge**; `Recommendation` table modeled but not written by the scoring path | snapshot service, `Recommendation` | Minor correctness/among-metrics inconsistency; near-dead table |
-
----
-
-## 9. Which parts should remain unchanged
-
-- **`@lcos/core`** — money model (integer minor units), finance calculators, scoring, entitlement
-  engine. Stable, pure, tested. **Extend, don't rewrite.**
-- **Prisma data model** for existing domains (User/Profile/Account/Transaction/Debt/Goal/NetWorth…).
-  Coherent and normalized; add tables for new modules rather than reshaping these.
-- **Auth model** — Argon2id, rotating hashed refresh tokens, JWT-with-fresh-user-lookup, global
-  deny-by-default guard, RBAC. Modern and correct.
-- **Security primitives** — field encryption, append-only audit log, RLS lockdown, prod secret guard,
-  raw-body HMAC webhook verification.
-- **Entitlement gating pattern** and the **FinancialSnapshotService** aggregation seam.
-- **Monorepo + Turborepo + pnpm** layout and the shared `config` presets.
+- **Financial Snapshot is the canonical source.** Governance G-1…G-6 freeze it: append-only, `schemaVersion 1`
+  field meanings immutable, additive-only evolution, kernel changes require an ADR + review. Consumers read
+  snapshots; nothing above re-aggregates raw tables. *(See [`KERNEL_GOVERNANCE`](./architecture/KERNEL_GOVERNANCE.md).)*
+- **Financial Intelligence is a read-only composition layer.** It derives, never records. A corrected snapshot
+  simply yields new intelligence; there is no second source of truth.
+- **Dashboard is a consumer.** Presentation-only; it renders sections of the intelligence object and degrades
+  gracefully when a section is `available: false`.
+- **Extension seams for future modules** (all additive, none touching the kernel):
+  - **`ScoreCard`** — the UI drop-in every future score card uses (placeholder → live is a data change).
+  - **`Section<T>`** — a new intelligence section is an optional, additive field on the canonical object.
+  - **Own tables** — a module writes only its own RLS-locked, household-scoped tables (per
+    [`FUTURE_MODULE_CONTRACT`](./architecture/FUTURE_MODULE_CONTRACT.md)).
+  - **Additive payload field** — a genuinely new *consolidated fact* is added to the snapshot through the
+    kernel's ADR-gated process, never invented in a consumer.
 
 ---
 
-## 10. Which parts should be refactored (for V2)
+## 5. Tenancy, security & data model (current)
 
-- **R1 — Session storage (from D2):** move refresh tokens to an `httpOnly`, `Secure`, `SameSite`
-  cookie; keep access tokens in memory. Removes the biggest XSS blast radius before new surfaces ship.
-- **R2 — Consolidate runtime (from D3):** pick **one** primary deploy target (long-running on Railway is
-  already working) and treat serverless as optional; replace the global `BigInt.toJSON` patch with an
-  explicit serialization boundary (a `serialize()` helper already exists in `accounts.service`).
-- **R3 — Introduce a real cache/queue layer (from D4):** add Redis-backed throttling and a job runner
-  (BullMQ) **before** compute-heavy V2 modules (scenario simulator, AA sync, scheduled snapshots), so
-  they don't run in the request path. Update `infra`/docs to match.
-- **R4 — Normalize module structure (from D5):** split the remaining inline modules into
-  `*.controller.ts` / `*.service.ts` / `*.module.ts` for consistency and testability.
-- **R5 — Multi-currency (from D7):** add an FX/base-currency conversion boundary in `@lcos/core` and
-  convert to `baseCurrency` before aggregation. Required if V2 targets NRIs/mixed portfolios.
-- **R6 — Observability (from D10):** add structured request logging, error reporting, and health/metrics
-  before scaling module count — deployment pain in V1 was largely a visibility problem.
-- **R7 — Reconcile docs (from D1)** and make the seed deterministic/idempotent and part of the
-  release process, not a manual step (from D9).
-- **R8 — Test depth (from D8):** add service-level unit tests and expand e2e as new modules land.
+- **Tenancy/authz:** `HouseholdScopeGuard` resolves `/households/:id`, requires an active `Membership`, and
+  intersects with assignment (OWNER/ANALYST firm-wide read; ADVISOR/SUPPORT assigned-only). Out-of-scope →
+  404. Writes `@FirmRoles(OWNER, ADVISOR, SUPPORT)`; ANALYST read-only.
+- **Audit:** append-only `AuditLog` on every mutation (`firmId` now a first-class column —
+  `backfill_auditlog_firmid`).
+- **Encryption:** household/member/entity names + taxIds AES-256-GCM at rest (`CryptoService`).
+- **RLS lockdown:** every table (all 28 models) has RLS enabled with no policies; Prisma's role is the only
+  reach into Postgres.
+- **Prisma models (28):** tenancy (`Firm`, `Membership`, `Household`, `HouseholdMember`, `Entity`); engines
+  (`Account`, `Transaction`, `Budget`, `BudgetLine`, `Debt`, `DebtPayment`, `NetWorthSnapshot`,
+  `DebtSnapshot`); kernel (`FinancialSnapshot`); M3 (`FinancialHealthScore`); retail V1 coexisting
+  (`Profile`, `FamilyMember`, `Goal`, `Recommendation`); platform (`User`, `Plan`, `Subscription`,
+  `FeatureOverride`, `FeatureFlag`, `Consent`, `RefreshToken`, `OtpCode`, `AuditLog`). **13 additive
+  migrations.**
+- **Multi-currency:** supported `INR, USD, EUR, GBP, AED, SGD`; native at rest; converted only in the domain
+  layer via `FxService`/`convertMinor`; consolidated figures in the household base currency; `fxVersion`
+  stamped per snapshot. *(This closes the V1 "no FX" gap.)*
 
 ---
 
-## 11. Risks to resolve BEFORE adding new modules
+## 6. `@lcos/core` (pure, browser-safe) — the shared brain
 
-1. **Encryption key governance (highest).** `FIELD_ENCRYPTION_KEY` is permanent — any rotation makes
-   existing PII unreadable, and `decrypt` silently returns junk (D6). Establish KMS-managed keys, a
-   rotation/re-encryption strategy, and strict-mode decryption **before** encrypting more fields.
-2. **Migrations + RLS discipline.** RLS lockdown means every new table must also be locked down or it's
-   exposed via PostgREST; every schema change must ship a migration and be applied on deploy. Bake this
-   into the module checklist.
-3. **No background-job infrastructure.** V2's likely features (scenario Monte-Carlo, AA auto-sync,
-   scheduled net-worth snapshots, notifications) will overwhelm the request path without R3. Stand up
-   the queue first.
-4. **Money precision & FX (D3/D7).** Confirm the `Number`-serialization ceiling and add FX conversion
-   before any module that sums cross-currency or very large values.
-5. **Auth surface expansion.** New clients (mobile, third-party) will multiply the `localStorage`
-   token risk; do R1 first. Also confirm the OTP passwordless path's intended behavior (an email-OTP
-   login succeeds for a password account) is acceptable as new channels are added.
-6. **Entitlement/flag consistency.** Gating lives in three coordinated places (tier features in the DB,
-   the code-default cascade, per-user overrides). New premium modules must add a `FeatureKey` **and**
-   an `assertFeature` gate, or access control drifts.
-7. **Observability gap (D10).** Adding modules without logging/metrics repeats V1's blind debugging.
-8. **Test + CI coverage (D8/D9).** Thin service tests + a seed-dependent e2e suite mean new modules can
-   regress silently; strengthen the safety net alongside feature work.
-9. **Multi-tenant/white-label ambition.** Flags exist for `whitelabel`/`marketplace` but there is no
-   tenant isolation in the data model — decide early whether V2 needs tenancy, as retrofitting it later
-   is expensive.
+- **money** — BigInt minor units, `CurrencyCode`; **fx** — `convertMinor`, provider (static, swappable).
+- **finance calculators** — `networth`, `cashflow`, `debt`, `retirement`, `insurance` (emergency fund + life
+  cover gap), `assetAllocation`, `tax`, `goals`.
+- **scoring** — `scores`, `earlyWarning`, `recommendations`, `financialHealth` (+ `financialHealthExplanation`).
+- **contracts / composition** — `financialSnapshot` (payload types + canonical serializer + up-converter),
+  **`financialIntelligence`** (the M5 composer), `financialSimulation`, `aiGrounding` (PII-redacted AI
+  grounding context).
+- Covered by **120 unit tests** (Vitest). Everything above the kernel reuses these functions; new finance/
+  scoring belongs here, not in services.
+
+---
+
+## 7. Current Platform Status
+
+**Completed**
+
+- ✅ **Module 1 Complete** — Foundation (multi-tenancy: firms, memberships, households, members, entities; scope guard, roles, audit).
+- ✅ **Module 2 Complete** — Household model (Accounts, Net Worth, Cashflow, Budget, Debt engines + the immutable Financial Snapshot kernel + Balance Sheet UI; multi-currency FX).
+- ✅ **Module 3 Complete** — Wealth Health snapshot architecture (Financial Health Score, Health Explanation, What-if Simulation — snapshot consumers).
+- ✅ **Module 4 Complete** — Dashboard Foundation (`/app` customer dashboard; reusable `ScoreCard` seam; AI CFO placeholder).
+- ✅ **Module 5 Complete** — Financial Intelligence Layer (canonical `HouseholdFinancialIntelligence`; read-only composition of existing calculators; `GET /intelligence/current`).
+
+**Upcoming**
+
+| Module | Focus |
+| --- | --- |
+| **Module 6** | **Wealth Health Score Engine** — dedicated score engines plugging into the intelligence object + `ScoreCard` seam. |
+| **Module 7** | **Family Balance Sheet & Net Worth Experience** — the consolidated net-worth UX. |
+| **Module 8** | **AI Family CFO™** — snapshot-grounded guidance narrating the intelligence object (no calculation). |
+| **Module 9** | **What-if Simulator** — scenarios seeded from a snapshot, re-composed through the intelligence layer. |
+| **Module 10** | **Production Launch** — hardening, observability, release. |
+
+Health baseline at M5 close: lint 4/4, `@lcos/core` 120 tests, API unit suites green (+ e2e in CI's DB job),
+build 3/3, `main` deployable, Vercel preview healthy.
+
+---
+
+## 8. How to extend (the one-paragraph contract for M6+)
+
+A future module **reads consolidated truth only from Financial Snapshots** (via `FinancialSnapshotService`),
+**composes/derives in pure `@lcos/core`**, **writes only into its own additive, RLS-locked, household-scoped
+tables**, and **never mutates the kernel or any engine data**. It surfaces through the **Financial Intelligence
+Layer** (a new `Section<T>`) and the Dashboard (`ScoreCard`) without a redesign. A genuinely new *consolidated
+fact* is added to the snapshot **additively**, ADR-gated. Full rules:
+[`FUTURE_MODULE_CONTRACT`](./architecture/FUTURE_MODULE_CONTRACT.md) ·
+[`EXTENSION_GUIDELINES`](./architecture/EXTENSION_GUIDELINES.md) ·
+[`KERNEL_GOVERNANCE`](./architecture/KERNEL_GOVERNANCE.md).
 
 ---
 
 ## Appendix A — Tech stack (as built)
 
-TypeScript · pnpm + Turborepo · NestJS 10 + Express · Prisma 5 + PostgreSQL 16 · Next.js 14 (App Router,
-PWA) · Tailwind + Recharts · Zod · class-validator · Argon2id · `@anthropic-ai/sdk` (Wealth Coach) ·
-Razorpay (REST + HMAC, no SDK) · India Account Aggregator (abstracted, sandbox) · Jest (e2e) + Vitest
-(core) · Deploy: Vercel (web) + Railway (API + Postgres).
+TypeScript · pnpm + Turborepo · NestJS 10 + Express · Prisma 5 + PostgreSQL · Next.js (App Router) · Tailwind ·
+Zod · class-validator · Argon2id · JWT (access + rotating hashed refresh) · AES-256-GCM field encryption ·
+Jest (API unit + e2e) + Vitest (`@lcos/core`) · Deploy: Vercel (web) + Railway (API + Postgres). AI grounding
+via a PII-redacted context contract (`aiGrounding.ts`) for the forthcoming AI fleet.
 
-## Appendix B — Environment variables (from `.env.example` + config)
+## Appendix B — Key API surface (household-scoped, `/api/households/:id/...`)
 
-`DATABASE_URL`, `PORT`, `NODE_ENV`, `CORS_ORIGINS`, `SANDBOX_RETURN_SECRETS`, `JWT_ACCESS_SECRET`,
-`JWT_REFRESH_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL_DAYS`, `FIELD_ENCRYPTION_KEY`,
-`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `RAZORPAY_*`, `AA_*`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
-`NEXT_PUBLIC_API_URL`. (`REDIS_URL` is present in env/infra but **not used** by any code today.)
+`net-worth/{current,snapshot,timeline}` · `accounts` · `cashflow{,/summary,/timeline}` · `budget` ·
+`debts{,/summary,/payoff,/:id/payments,/snapshot,/timeline}` ·
+`financial-snapshot/{current,latest,timeline,:id}` (the kernel) ·
+`health-score/{current,latest,timeline,:id}` · `health-explanation` · `simulation` ·
+**`intelligence/current`** (M5) · `members` · `entities`. Firm-level: `/api/firms/*`, `/api/households`. All
+gated by `HouseholdScopeGuard`; writes role-gated; every mutation audited.
 
 ---
 
-*This document is analysis only; no application code was modified in producing it.*
+*This document describes the current implementation; it is documentation only — no application code, schema, or
+ADR was changed in producing it.*
