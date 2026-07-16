@@ -7,6 +7,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { assertProductionConfig } from './config/configuration';
+import { buildCorsOptions } from './config/cors';
 import { correlationIdMiddleware } from './common/observability/correlation-id.middleware';
 import { LoggingInterceptor } from './common/observability/logging.interceptor';
 import { AllExceptionsFilter } from './common/observability/all-exceptions.filter';
@@ -62,7 +63,14 @@ export async function createApp(expressInstance?: Express): Promise<INestApplica
   // Baseline observability: correlation id first, then structured request + error logs.
   app.use(correlationIdMiddleware);
   app.use(securityHeaders);
-  app.enableCors({ origin: config.get<string[]>('corsOrigins'), credentials: true });
+  // CORS: explicit production allowlist (CORS_ORIGINS) plus, optionally, this project's
+  // scoped Vercel preview origins (CORS_PREVIEW_ORIGIN_REGEX). Never `*` with credentials.
+  app.enableCors(
+    buildCorsOptions(
+      config.get<string[]>('corsOrigins') ?? [],
+      config.get<RegExp | null>('corsPreviewOriginRegex') ?? null,
+    ),
+  );
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
