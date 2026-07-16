@@ -5,7 +5,7 @@ import { apiGet, apiPost } from '@/lib/api';
 import { AppContext, type AppContextValue, type FirmSummary } from '@/lib/appContext';
 import { DashboardLayout, Select, EmptyState } from '@/ui';
 import type { NavSection } from '@/ui';
-import { IconHome, IconUsers } from '@/ui/icons';
+import { IconHome, IconUsers, IconChart } from '@/ui/icons';
 
 interface FirmsMe {
   activeFirmId: string | null;
@@ -16,7 +16,8 @@ const NAV: NavSection[] = [
   {
     title: 'Overview',
     items: [
-      { label: 'Book overview', href: '/app', icon: <IconHome className="h-5 w-5" /> },
+      { label: 'Dashboard', href: '/app', icon: <IconHome className="h-5 w-5" /> },
+      { label: 'Book overview', href: '/app/book', icon: <IconChart className="h-5 w-5" /> },
       { label: 'Households', href: '/app/households', icon: <IconUsers className="h-5 w-5" /> },
     ],
   },
