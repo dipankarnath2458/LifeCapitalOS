@@ -104,7 +104,8 @@ export default function OnboardingPage() {
         );
       }
       localStorage.setItem('lcos_onboarded', '1');
-      window.location.href = '/dashboard';
+      // V2 activation (M5.5): land in the V2 app shell.
+      window.location.href = '/app';
     } catch {
       setErr('Could not save your goal. You can add it later from the dashboard.');
     } finally {
@@ -114,7 +115,8 @@ export default function OnboardingPage() {
 
   function skip() {
     localStorage.setItem('lcos_onboarded', '1');
-    window.location.href = '/dashboard';
+    // V2 activation (M5.5): land in the V2 app shell.
+    window.location.href = '/app';
   }
 
   return (
