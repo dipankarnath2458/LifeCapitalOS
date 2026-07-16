@@ -25,6 +25,8 @@ import { HouseholdHealthExplanationController } from './household-health-explana
 import { HouseholdHealthExplanationService } from './household-health-explanation.service';
 import { HouseholdSimulationController } from './household-simulation.controller';
 import { HouseholdSimulationService } from './household-simulation.service';
+import { HouseholdIntelligenceController } from './household-intelligence.controller';
+import { HouseholdIntelligenceService } from './household-intelligence.service';
 
 @Module({
   imports: [FirmsModule],
@@ -41,6 +43,7 @@ import { HouseholdSimulationService } from './household-simulation.service';
     HouseholdHealthScoreController,
     HouseholdHealthExplanationController,
     HouseholdSimulationController,
+    HouseholdIntelligenceController,
   ],
   providers: [
     HouseholdsService,
@@ -55,6 +58,7 @@ import { HouseholdSimulationService } from './household-simulation.service';
     HouseholdHealthScoreService,
     HouseholdHealthExplanationService,
     HouseholdSimulationService,
+    HouseholdIntelligenceService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],
