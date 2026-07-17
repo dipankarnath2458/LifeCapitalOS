@@ -46,17 +46,23 @@ export function isOriginAllowed(
 }
 
 /**
- * Build the NestJS `enableCors` options from the resolved config. Uses the callback form so
- * each request's Origin is validated against the allowlist + preview regex. Never reflects
- * an untrusted origin, and never throws (a disallowed origin resolves to `false`, i.e. the
- * response simply carries no CORS headers).
+ * Build the NestJS `enableCors` options from the resolved config.
+ *
+ * IMPORTANT — the origin is an **array** of allowed strings plus (optionally) the preview
+ * RegExp, NOT a callback function. The `cors` package treats a callback that resolves to
+ * `false` (a disallowed origin) by calling `next()` **without terminating the OPTIONS
+ * preflight** — so the preflight falls through to routing and returns **404** (there is no
+ * `OPTIONS` route handler). An array origin is always truthy, so `cors` always short-circuits
+ * the preflight with a 204, attaching `Access-Control-Allow-Origin` only when the request
+ * origin matches one of the strings or the RegExp. This is what makes `OPTIONS /api/auth/login`
+ * return a proper preflight for allowed origins and a clean 204-without-headers (never 404)
+ * for others. `cors` natively supports mixed string/RegExp arrays.
  */
 export function buildCorsOptions(
   allowlist: readonly string[],
   previewRegex: RegExp | null,
 ): CorsOptions {
-  return {
-    origin: (origin, callback) => callback(null, isOriginAllowed(origin ?? undefined, allowlist, previewRegex)),
-    credentials: true,
-  };
+  const origin: (string | RegExp)[] = [...allowlist];
+  if (previewRegex !== null) origin.push(previewRegex);
+  return { origin, credentials: true };
 }
