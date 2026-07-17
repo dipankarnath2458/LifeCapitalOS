@@ -1,3 +1,6 @@
+import { Controller, INestApplication, Module, Post } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import request from 'supertest';
 import { isOriginAllowed, parsePreviewOriginRegex, buildCorsOptions } from './cors';
 
 /**
@@ -94,14 +97,78 @@ describe('parsePreviewOriginRegex', () => {
 });
 
 describe('buildCorsOptions', () => {
-  it('resolves the origin callback to true/false without throwing', () => {
+  it('returns an ARRAY origin (not a callback) so cors always terminates OPTIONS preflights', () => {
     const opts = buildCorsOptions(ALLOWLIST, PREVIEW_REGEX);
-    const origin = opts.origin as (o: string | undefined, cb: (e: Error | null, ok?: boolean) => void) => void;
-
-    const results: Array<boolean | undefined> = [];
-    origin('https://lifecapitalos.com', (_e, ok) => results.push(ok));
-    origin('https://evil.com', (_e, ok) => results.push(ok));
-    expect(results).toEqual([true, false]);
+    // The regression: a function origin makes cors call next() for disallowed origins,
+    // so the OPTIONS preflight falls through to routing and 404s. An array never does.
+    expect(Array.isArray(opts.origin)).toBe(true);
+    const origin = opts.origin as Array<string | RegExp>;
+    expect(origin).toContain('https://lifecapitalos.com');
+    expect(origin).toContain('https://www.lifecapitalos.com');
+    expect(origin.some((o) => o instanceof RegExp)).toBe(true);
     expect(opts.credentials).toBe(true);
+  });
+
+  it('omits the preview regex when none is configured', () => {
+    const opts = buildCorsOptions(ALLOWLIST, null);
+    const origin = opts.origin as Array<string | RegExp>;
+    expect(origin.some((o) => o instanceof RegExp)).toBe(false);
+    expect(origin).toEqual([...ALLOWLIST]);
+  });
+});
+
+/**
+ * Integration guard: the ACTUAL preflight behaviour through NestJS `enableCors` + the real
+ * `cors` package. Locks in the fix for the Safari "Preflight … Status code: 404" bug — every
+ * OPTIONS must resolve to 204 (with ACAO for allowed origins, without for others), NEVER 404.
+ */
+describe('OPTIONS preflight (NestJS enableCors integration)', () => {
+  @Controller()
+  class LoginStubController {
+    @Post('api/auth/login')
+    login() {
+      return { ok: true };
+    }
+  }
+  @Module({ controllers: [LoginStubController] })
+  class StubModule {}
+
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    app = await NestFactory.create(StubModule, { logger: false });
+    app.enableCors(buildCorsOptions(ALLOWLIST, PREVIEW_REGEX));
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  const preflight = (origin: string) =>
+    request(app.getHttpServer())
+      .options('/api/auth/login')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type');
+
+  it('answers an allowed production origin with 204 + ACAO', async () => {
+    const res = await preflight('https://lifecapitalos.com');
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('https://lifecapitalos.com');
+    expect(res.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('answers a Vercel preview origin with 204 + ACAO (the actual fix)', async () => {
+    const origin = 'https://life-capital-os-web-git-cla-748423-dipankarfin58-8320s-projects.vercel.app';
+    const res = await preflight(origin);
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe(origin);
+  });
+
+  it('answers a DISALLOWED origin with 204 and NO ACAO — never 404', async () => {
+    const res = await preflight('https://evil.com');
+    expect(res.status).toBe(204); // regression check: was 404 with the function-origin form
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
