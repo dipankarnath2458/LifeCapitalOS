@@ -39,6 +39,16 @@ describe('isOriginAllowed', () => {
         PREVIEW_REGEX,
       ),
     ).toBe(true);
+    // The exact deployment-URL origin reported failing in Safari (no `web`, short hash).
+    // The canonical regex MUST cover this shape — a narrower regex (requiring `-web-`)
+    // would not, which is the environment-variable pitfall this asserts against.
+    expect(
+      isOriginAllowed(
+        'https://life-capital-os-46bjcy84a-dipankarfin58-8320s-projects.vercel.app',
+        ALLOWLIST,
+        PREVIEW_REGEX,
+      ),
+    ).toBe(true);
   });
 
   it('allows requests with no Origin (server-to-server / health checks)', () => {
@@ -159,8 +169,16 @@ describe('OPTIONS preflight (NestJS enableCors integration)', () => {
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
-  it('answers a Vercel preview origin with 204 + ACAO (the actual fix)', async () => {
+  it('answers a Vercel preview origin (branch-alias form) with 204 + ACAO', async () => {
     const origin = 'https://life-capital-os-web-git-cla-748423-dipankarfin58-8320s-projects.vercel.app';
+    const res = await preflight(origin);
+    expect(res.status).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe(origin);
+  });
+
+  it('answers a Vercel preview origin (deployment-URL form, the reported failure) with 204 + ACAO', async () => {
+    // Exact origin from the Safari report: no `web`, short deploy hash.
+    const origin = 'https://life-capital-os-46bjcy84a-dipankarfin58-8320s-projects.vercel.app';
     const res = await preflight(origin);
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBe(origin);
