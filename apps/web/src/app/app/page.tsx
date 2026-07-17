@@ -13,6 +13,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  type BadgeTone,
 } from '@/ui';
 import { IconChart, IconWallet, IconTarget, IconShield, IconAlert } from '@/ui/icons';
 import { HouseholdSelector } from '@/components/dashboard/HouseholdSelector';
@@ -33,6 +34,31 @@ interface ScoreRow {
   computedAt: string;
 }
 
+type Light = 'green' | 'yellow' | 'red';
+
+/**
+ * Minimal view of the M5 `GET /households/:id/intelligence/current` response — only the
+ * fields the dashboard reads. The Financial Intelligence Layer composes these from the
+ * immutable snapshot; the dashboard is a read-only consumer (never recomputes).
+ */
+interface Intelligence {
+  available: boolean;
+  wealthHealth?: { available: boolean; data?: { overall: number; band: string; category: string } };
+  emergencyFund?: { available: boolean; data?: { monthsCovered: number; status: Light } };
+  assetAllocation?: {
+    available: boolean;
+    data?: { topConcentration: { assetClass: string; pct: number } | null; concentrationRisk: Light };
+  };
+  retirement?: { available: boolean; data?: { readinessPct: number; onTrack: boolean } };
+  insurance?: { available: boolean; data?: { adequate: boolean; status: Light } };
+  risk?: { available: boolean; data?: { overall: Light; redCount: number; yellowCount: number } };
+}
+
+const lightTone = (l: Light): BadgeTone => (l === 'green' ? 'success' : l === 'yellow' ? 'warning' : 'danger');
+const lightWord = (l: Light): string => (l === 'green' ? 'Healthy' : l === 'yellow' ? 'Watch' : 'Action');
+const bandToneOf = (b: string): BadgeTone =>
+  b === 'excellent' || b === 'good' ? 'success' : b === 'fair' || b === 'needs_attention' ? 'warning' : 'danger';
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-xs font-semibold uppercase tracking-wide text-subtle">{children}</div>
@@ -48,6 +74,7 @@ export default function DashboardPage() {
   const [entityCount, setEntityCount] = useState<number | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [intel, setIntel] = useState<Intelligence | null>(null);
   const [loadingFamily, setLoadingFamily] = useState(false);
 
   useEffect(() => {
@@ -58,6 +85,7 @@ export default function DashboardPage() {
     setEntityCount(null);
     setLastUpdated(null);
     setActivity([]);
+    setIntel(null);
 
     const id = selectedId;
     Promise.allSettled([
@@ -66,10 +94,12 @@ export default function DashboardPage() {
       apiGet<unknown[]>(`/households/${id}/entities`, token),
       apiGet<SnapshotRow[]>(`/households/${id}/financial-snapshot/timeline`, token),
       apiGet<ScoreRow[]>(`/households/${id}/health-score/timeline`, token),
-    ]).then(([nw, members, entities, snaps, scores]) => {
+      apiGet<Intelligence>(`/households/${id}/intelligence/current`, token),
+    ]).then(([nw, members, entities, snaps, scores, intelligence]) => {
       if (nw.status === 'fulfilled') setNetWorth(nw.value);
       if (members.status === 'fulfilled') setMemberCount(members.value.length);
       if (entities.status === 'fulfilled') setEntityCount(entities.value.length);
+      if (intelligence.status === 'fulfilled') setIntel(intelligence.value);
 
       const snapRows = snaps.status === 'fulfilled' ? snaps.value : [];
       const scoreRows = scores.status === 'fulfilled' ? scores.value : [];
@@ -136,6 +166,16 @@ export default function DashboardPage() {
       }
     : null;
 
+  // Live Financial Intelligence (M5): each section is used only when the endpoint returned
+  // an object AND that section is available; otherwise the card falls back to its placeholder.
+  const iOk = intel?.available === true;
+  const wh = iOk && intel?.wealthHealth?.available ? intel.wealthHealth.data ?? null : null;
+  const ef = iOk && intel?.emergencyFund?.available ? intel.emergencyFund.data ?? null : null;
+  const alloc = iOk && intel?.assetAllocation?.available ? intel.assetAllocation.data ?? null : null;
+  const ret = iOk && intel?.retirement?.available ? intel.retirement.data ?? null : null;
+  const ins = iOk && intel?.insurance?.available ? intel.insurance.data ?? null : null;
+  const risk = iOk && intel?.risk?.available ? intel.risk.data ?? null : null;
+
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       {/* Header */}
@@ -155,23 +195,42 @@ export default function DashboardPage() {
         {familySummary && <FamilySummaryCard summary={familySummary} />}
         <div className="grid gap-4 sm:grid-cols-3">
           <NetWorthCard netWorth={loadingFamily ? null : netWorth} />
-          <ScoreCard
-            title="Wealth Health Score™"
-            icon={<IconChart className="h-4 w-4" />}
-            unit="/ 100"
-            description="Your family's overall financial health score arrives with the scoring engine."
-          />
+          {wh ? (
+            <ScoreCard
+              title="Wealth Health Score™"
+              icon={<IconChart className="h-4 w-4" />}
+              status="live"
+              value={wh.overall}
+              unit="/ 100"
+              band={wh.category}
+              bandTone={bandToneOf(wh.band)}
+              hint="Composed by the Financial Intelligence Layer from your latest snapshot."
+            />
+          ) : (
+            <ScoreCard
+              title="Wealth Health Score™"
+              icon={<IconChart className="h-4 w-4" />}
+              unit="/ 100"
+              description="Capture a Financial Snapshot to see your family's overall health score."
+            />
+          )}
           <Card>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">Financial health category</span>
-                <Badge tone="neutral" variant="outline">
-                  Coming soon
-                </Badge>
+                {wh ? (
+                  <Badge tone={bandToneOf(wh.band)}>{wh.category}</Badge>
+                ) : (
+                  <Badge tone="neutral" variant="outline">
+                    Coming soon
+                  </Badge>
+                )}
               </div>
-              <div className="text-2xl font-semibold text-subtle/40">Pending</div>
+              <div className={`text-2xl font-semibold ${wh ? 'text-foreground' : 'text-subtle/40'}`}>
+                {wh ? wh.category : 'Pending'}
+              </div>
               <Text muted className="text-xs">
-                Excellent · Good · Fair · Needs attention · At risk — assigned by the scoring engine.
+                Excellent · Good · Fair · Needs attention · At risk — assigned from your snapshot.
               </Text>
             </CardContent>
           </Card>
@@ -182,14 +241,83 @@ export default function DashboardPage() {
       <section className="space-y-3">
         <SectionLabel>Capital health</SectionLabel>
         <Text muted className="text-sm">
-          Dedicated scores plug into these cards as each engine ships — no layout change.
+          Live insights composed by the Financial Intelligence Layer; dedicated 0–100 scores plug
+          into these same cards as each engine ships — no layout change.
         </Text>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <ScoreCard title="Asset Allocation" icon={<IconChart className="h-4 w-4" />} />
-          <ScoreCard title="Risk Score" icon={<IconAlert className="h-4 w-4" />} />
-          <ScoreCard title="Emergency Fund" icon={<IconWallet className="h-4 w-4" />} />
-          <ScoreCard title="Retirement" icon={<IconTarget className="h-4 w-4" />} />
-          <ScoreCard title="Insurance" icon={<IconShield className="h-4 w-4" />} />
+          {alloc && alloc.topConcentration ? (
+            <ScoreCard
+              title="Asset Allocation"
+              icon={<IconChart className="h-4 w-4" />}
+              status="live"
+              value={`${Math.round(alloc.topConcentration.pct)}%`}
+              unit={alloc.topConcentration.assetClass}
+              band={alloc.concentrationRisk === 'green' ? 'Diversified' : 'Concentrated'}
+              bandTone={lightTone(alloc.concentrationRisk)}
+              hint="Largest single asset-class weight."
+            />
+          ) : (
+            <ScoreCard title="Asset Allocation" icon={<IconChart className="h-4 w-4" />} />
+          )}
+
+          {risk ? (
+            <ScoreCard
+              title="Risk Score"
+              icon={<IconAlert className="h-4 w-4" />}
+              status="live"
+              value={risk.redCount + risk.yellowCount}
+              unit="alerts"
+              band={lightWord(risk.overall)}
+              bandTone={lightTone(risk.overall)}
+              hint={`${risk.redCount} red · ${risk.yellowCount} amber early-warning signals.`}
+            />
+          ) : (
+            <ScoreCard title="Risk Score" icon={<IconAlert className="h-4 w-4" />} />
+          )}
+
+          {ef ? (
+            <ScoreCard
+              title="Emergency Fund"
+              icon={<IconWallet className="h-4 w-4" />}
+              status="live"
+              value={ef.monthsCovered}
+              unit="months"
+              band={lightWord(ef.status)}
+              bandTone={lightTone(ef.status)}
+              hint="Cash cover vs a 6-month target."
+            />
+          ) : (
+            <ScoreCard title="Emergency Fund" icon={<IconWallet className="h-4 w-4" />} />
+          )}
+
+          {ret ? (
+            <ScoreCard
+              title="Retirement"
+              icon={<IconTarget className="h-4 w-4" />}
+              status="live"
+              value={ret.readinessPct}
+              unit="% ready"
+              band={ret.onTrack ? 'On track' : 'Gap'}
+              bandTone={ret.onTrack ? 'success' : 'warning'}
+              hint="Projected corpus vs the amount required."
+            />
+          ) : (
+            <ScoreCard title="Retirement" icon={<IconTarget className="h-4 w-4" />} />
+          )}
+
+          {ins ? (
+            <ScoreCard
+              title="Insurance"
+              icon={<IconShield className="h-4 w-4" />}
+              status="live"
+              value={ins.adequate ? 'Adequate' : 'Gap'}
+              band={lightWord(ins.status)}
+              bandTone={lightTone(ins.status)}
+              hint="Life cover vs recommended protection."
+            />
+          ) : (
+            <ScoreCard title="Insurance" icon={<IconShield className="h-4 w-4" />} />
+          )}
         </div>
       </section>
 

@@ -14,7 +14,8 @@ interface TokenPair {
 function persistAndGo(tokens: TokenPair) {
   localStorage.setItem('lcos_access', tokens.accessToken);
   localStorage.setItem('lcos_refresh', tokens.refreshToken);
-  window.location.href = '/dashboard';
+  // V2 activation (M5.5): the authenticated experience is the V2 app shell at /app.
+  window.location.href = '/app';
 }
 
 /**
