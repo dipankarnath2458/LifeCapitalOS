@@ -1,3 +1,5 @@
+import { parsePreviewOriginRegex } from './cors';
+
 export interface AppConfig {
   port: number;
   nodeEnv: string;
@@ -9,6 +11,11 @@ export interface AppConfig {
    */
   returnDevSecrets: boolean;
   corsOrigins: string[];
+  /**
+   * Optional, tightly-scoped regex allowing this project's Vercel **preview** origins
+   * (which change per deploy and can't be in `corsOrigins`). Null when unset. See cors.ts.
+   */
+  corsPreviewOriginRegex: RegExp | null;
   jwt: {
     accessSecret: string;
     refreshSecret: string;
@@ -47,7 +54,11 @@ export default (): AppConfig => {
     nodeEnv,
     // Opt-in only, and never in production.
     returnDevSecrets: process.env.SANDBOX_RETURN_SECRETS === 'true' && nodeEnv !== 'production',
-    corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000').split(','),
+    corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0),
+    corsPreviewOriginRegex: parsePreviewOriginRegex(process.env.CORS_PREVIEW_ORIGIN_REGEX),
     jwt: {
       accessSecret: process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET,
       refreshSecret: process.env.JWT_REFRESH_SECRET ?? DEV_REFRESH_SECRET,
