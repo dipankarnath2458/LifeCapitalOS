@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { AppContext, type AppContextValue, type FirmSummary } from '@/lib/appContext';
-import { DashboardLayout, Select, EmptyState } from '@/ui';
+import { DashboardLayout, Select, EmptyState, ThemeProvider, ThemeScript } from '@/ui';
 import type { NavSection } from '@/ui';
 import { IconHome, IconUsers, IconChart } from '@/ui/icons';
 
@@ -124,11 +124,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </div>
   );
 
+  // ThemeProvider is required: DashboardLayout renders TopNav → ThemeToggle → useTheme(),
+  // which throws ("useTheme must be used within a <ThemeProvider>") without it — that error
+  // took the whole /app route down. ThemeScript sets the theme before hydration to avoid a
+  // light/dark flash (same pattern as the design-system route).
   return (
-    <AppContext.Provider value={ctx}>
-      <DashboardLayout sections={NAV} brand={brand} sidebarFooter={footer} title="Advisor workspace">
-        {children}
-      </DashboardLayout>
-    </AppContext.Provider>
+    <ThemeProvider>
+      <ThemeScript />
+      <AppContext.Provider value={ctx}>
+        <DashboardLayout sections={NAV} brand={brand} sidebarFooter={footer} title="Advisor workspace">
+          {children}
+        </DashboardLayout>
+      </AppContext.Provider>
+    </ThemeProvider>
   );
 }

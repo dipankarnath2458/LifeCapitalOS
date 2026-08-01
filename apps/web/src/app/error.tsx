@@ -15,8 +15,10 @@ export default function Error({ reset }: { error: Error & { digest?: string }; r
         >
           Try again
         </button>
-        <a href="/dashboard" className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:border-brand">
-          Go to dashboard
+        {/* /dashboard now 307s to /app, so linking there just bounces back into a failing
+            /app render. Offer the home page as a genuine escape hatch instead. */}
+        <a href="/" className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:border-brand">
+          Go to home
         </a>
       </div>
     </main>
