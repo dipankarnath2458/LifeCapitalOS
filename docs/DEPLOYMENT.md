@@ -73,6 +73,10 @@ deploy: pnpm --filter @lcos/api exec prisma migrate deploy   // migrations run o
 
 - A **Postgres service with a persistent volume (`postgres-volume`)** lives in the same
   Railway project and is referenced by the API's `DATABASE_URL`.
+- The connection uses Railway's **private network** host (`postgres.railway.internal:5432`),
+  so the database is **not reachable from the public internet**. Consequence: one-off admin
+  and data tasks must be run from **inside** the project — the service's **Console** tab —
+  not from a laptop or an external SQL client (unless a TCP proxy is deliberately enabled).
 - **Schema** is managed by Prisma migrations in `apps/api/prisma/migrations` (13 to date),
   applied automatically by the deploy command. Every table carries **RLS lockdown**
   (RLS enabled, no policies), so only the application's DB role can read/write.
@@ -177,7 +181,7 @@ Order when standing up a new environment:
 | `apps/api/vercel.json` + `apps/api/api/index.js` | **Legacy** — from when the API ran as a Vercel serverless function. Unused now that the API is on Railway; safe to remove in a dedicated PR. |
 | `REDIS_URL` variable | Set in Railway but **no code uses Redis**. Rate limiting is in-memory (per-instance). |
 | `apps/admin` | Never existed; admin UI lives at `/admin` inside `apps/web`. |
-| Supabase | The earlier doc referenced a Supabase project. The live topology shows Railway Postgres; confirm `DATABASE_URL` before decommissioning any Supabase project. |
+| Supabase | **Confirmed not in use.** `DATABASE_URL` points at `postgres.railway.internal` (the in-project Railway Postgres). Any remaining Supabase project is legacy and can be decommissioned. |
 | Password reset | `POST /auth/forgot-password` creates a token but **no email/SMS provider is configured**, so users cannot self-serve a reset in production. |
 | Firm onboarding | New sign-ups have no firm and hit "No firm yet"; only an ADMIN/SUPERADMIN can create firms (`POST /api/firms`). |
 
