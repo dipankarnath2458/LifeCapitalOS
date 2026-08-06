@@ -2,9 +2,6 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-// Production applies this inside app.factory.ts, which Test.createTestingModule bypasses.
-// Without it /auth/me 500s on the BigInt columns in Profile.
-import '../src/common/bigint-json';
 
 /**
  * End-to-end cover for self-serve password reset and email verification.

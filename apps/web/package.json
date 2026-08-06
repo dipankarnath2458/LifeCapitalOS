@@ -9,7 +9,9 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@lcos/core": "workspace:*",
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "@lcos/config": "workspace:*",
+    "@playwright/test": "1.56.1",
     "@types/node": "^22.5.5",
     "@types/react": "^18.3.8",
     "@types/react-dom": "^18.3.0",
