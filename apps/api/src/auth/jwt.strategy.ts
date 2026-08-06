@@ -20,6 +20,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: config.get<string>('jwt.accessSecret')!,
+      // Pin the algorithm. Without this the verifier accepts whatever the token's header
+      // claims, which is the shape of every JWT algorithm-confusion attack.
+      algorithms: ['HS256'],
     });
   }
 

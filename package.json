@@ -2,7 +2,7 @@
   "name": "life-capital-os",
   "version": "0.1.0",
   "private": true,
-  "description": "Life Capital OS — India's AI-powered Wealth Health & Family CFO platform (monorepo)",
+  "description": "Life Capital OS \u2014 India's AI-powered Wealth Health & Family CFO platform (monorepo)",
   "packageManager": "pnpm@10.18.2",
   "engines": {
     "node": ">=20"
@@ -18,7 +18,8 @@
     "db:seed": "pnpm --filter @lcos/api prisma:seed",
     "db:generate": "pnpm --filter @lcos/api prisma:generate",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
-    "infra:down": "docker compose -f infra/docker-compose.yml down"
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "verify:deployment": "node scripts/verify-deployment.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

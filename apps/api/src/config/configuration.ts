@@ -39,6 +39,15 @@ export interface AppConfig {
     model: string;
     enabled: boolean;
   };
+  /**
+   * How many reverse-proxy hops to trust for client-IP resolution. The API runs behind
+   * Railway's edge, so without this Express reports the PROXY's address as `req.ip` —
+   * which silently breaks two things: the rate limiter buckets every client in the world
+   * together, and the audit trail records the proxy instead of the actor.
+   */
+  trustProxyHops: number;
+  /** Whether to mount Swagger at /api/docs. Off by default in production. */
+  swaggerEnabled: boolean;
   email: {
     /**
      * `resend` when an API key is present, otherwise `console` (logs instead of sending).
@@ -58,10 +67,11 @@ export const DEV_ACCESS_SECRET = 'dev-access-secret-change-me';
 export const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-me';
 export const DEV_ENCRYPTION_KEY =
   '0000000000000000000000000000000000000000000000000000000000000000';
+export const DEV_CORS_ORIGIN = 'http://localhost:3000';
 
 export default (): AppConfig => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
-  const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+  const corsOrigins = (process.env.CORS_ORIGINS ?? DEV_CORS_ORIGIN)
     .split(',')
     .map((o) => o.trim())
     .filter((o) => o.length > 0);
@@ -97,6 +107,13 @@ export default (): AppConfig => {
       // The coach is enabled only when an API key is present.
       enabled: Boolean(process.env.ANTHROPIC_API_KEY),
     },
+    // 1 hop = Railway's (or Vercel's) edge. Set to 0 only when the process is exposed
+    // directly to clients, since a trusted hop lets that hop set X-Forwarded-For.
+    trustProxyHops: parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10),
+    // Opt-in in production; on by default anywhere else so local dev keeps the docs.
+    swaggerEnabled:
+      process.env.SWAGGER_ENABLED === 'true' ||
+      (nodeEnv !== 'production' && process.env.SWAGGER_ENABLED !== 'false'),
     email: {
       provider: process.env.RESEND_API_KEY ? 'resend' : 'console',
       apiKey: process.env.RESEND_API_KEY ?? '',
@@ -116,16 +133,24 @@ export function assertProductionConfig(config: {
   nodeEnv: string;
   jwt: { accessSecret: string; refreshSecret: string };
   encryptionKey: string;
+  corsOrigins?: string[];
 }): void {
   if (config.nodeEnv !== 'production') return;
   const problems: string[] = [];
   if (config.jwt.accessSecret === DEV_ACCESS_SECRET) problems.push('JWT_ACCESS_SECRET');
   if (config.jwt.refreshSecret === DEV_REFRESH_SECRET) problems.push('JWT_REFRESH_SECRET');
   if (config.encryptionKey === DEV_ENCRYPTION_KEY) problems.push('FIELD_ENCRYPTION_KEY');
+  // CORS_ORIGINS falls back to the localhost dev default rather than to empty, so an unset
+  // variable produces an API that boots healthily and then rejects every real browser —
+  // which is exactly how this deployment lost logins twice. Fail loudly at boot instead.
+  const origins = config.corsOrigins ?? [];
+  if (origins.length === 0 || origins.every((o) => o === DEV_CORS_ORIGIN)) {
+    problems.push('CORS_ORIGINS');
+  }
   if (problems.length > 0) {
     throw new Error(
-      `Refusing to start in production with default dev secrets: ${problems.join(', ')}. ` +
-        'Set strong values for these environment variables.',
+      `Refusing to start in production with default dev configuration: ${problems.join(', ')}. ` +
+        'Set real values for these environment variables.',
     );
   }
 }

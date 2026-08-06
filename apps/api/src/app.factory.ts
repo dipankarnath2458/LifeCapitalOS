@@ -55,7 +55,18 @@ export async function createApp(expressInstance?: Express): Promise<INestApplica
       refreshSecret: config.get<string>('jwt.refreshSecret') ?? '',
     },
     encryptionKey: config.get<string>('encryptionKey') ?? '',
+    corsOrigins: config.get<string[]>('corsOrigins') ?? [],
   });
+
+  // Behind Railway's (or Vercel's) edge, Express reports the PROXY's address as `req.ip`
+  // unless it is told how many hops to trust. Two things silently depended on that being
+  // right: the rate limiter, which buckets by `req.ip` and so was throttling every client
+  // in the world against ONE shared allowance, and the audit trail, which recorded the
+  // proxy instead of the actor for every firm/household mutation.
+  const trustProxyHops = config.get<number>('trustProxyHops') ?? 1;
+  if (trustProxyHops > 0) {
+    app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
+  }
 
   app.setGlobalPrefix('api');
   // Baseline observability: correlation id first, then structured request + error logs.
@@ -75,14 +86,20 @@ export async function createApp(expressInstance?: Express): Promise<INestApplica
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Life Capital OS API')
-    .setDescription('Wealth Health & Family CFO platform API')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger publishes a complete, unauthenticated map of every endpoint and schema. That
+  // is a useful ops tool (docs/DEPLOYMENT.md §7 uses it) and a free reconnaissance gift to
+  // anyone else, so it is OFF by default in production and must be opted into deliberately
+  // with SWAGGER_ENABLED=true. Everywhere else it stays on.
+  if (config.get<boolean>('swaggerEnabled')) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Life Capital OS API')
+      .setDescription('Wealth Health & Family CFO platform API')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   return app;
 }

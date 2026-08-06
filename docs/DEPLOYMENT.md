@@ -62,6 +62,8 @@ deploy: pnpm --filter @lcos/api exec prisma migrate deploy   // migrations run o
 | **`RESEND_API_KEY`** | enables real email sending. **Unset ⇒ emails are logged, not sent** (§4a) |
 | **`EMAIL_FROM`** | From header, e.g. `Life Capital OS <no-reply@lifecapitalos.com>` |
 | **`APP_URL`** | public web origin used to build links in emails; defaults to the first `CORS_ORIGINS` entry |
+| **`TRUST_PROXY_HOPS`** | reverse-proxy hops to trust for client IP (default `1` = Railway's edge). `0` only if the process is exposed directly |
+| **`SWAGGER_ENABLED`** | `true` to publish `/api/docs`. **Off by default in production** — see §7 |
 | `SANDBOX_RETURN_SECRETS` | **must be `false`/unset in production** — when true, OTP codes and password-reset tokens are returned in API responses |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_SANDBOX` | billing |
 | `AA_PROVIDER`, `AA_API_KEY`, `AA_SANDBOX` | Account Aggregator |
@@ -201,7 +203,8 @@ Order when standing up a new environment:
 | Task | How |
 | --- | --- |
 | Check API health | `GET https://lifecapitalos-api-production.up.railway.app/api/health` |
-| Browse the API | `…/api/docs` (Swagger UI — can also execute authenticated calls) |
+| Browse the API | `…/api/docs` — **disabled in production by default.** Set `SWAGGER_ENABLED=true`, redeploy, use it, then unset and redeploy again. It publishes a complete unauthenticated map of every endpoint. |
+| Verify a deployment | `node scripts/verify-deployment.mjs --api <api-origin> --web <web-origin>` — health, security headers, CORS preflights, and whether the web bundle was built against the right API |
 | Apply a schema change | merge to `main`; migrations run on deploy |
 | Inspect data | Railway → **Postgres** service → **Data**/query tab |
 | Roll back the web app | Vercel → Deployments → **Instant Rollback** |
@@ -228,7 +231,9 @@ Order when standing up a new environment:
 - [ ] `NODE_ENV=production` on Railway, and **`SANDBOX_RETURN_SECRETS` is not `true`**.
 - [ ] `SEED_ADMIN_PASSWORD` is strong and **rotated after first login** (never a code default).
 - [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `FIELD_ENCRYPTION_KEY` are unique 32-byte random values — and `FIELD_ENCRYPTION_KEY` is **backed up** (losing it makes encrypted PII unreadable).
-- [ ] `CORS_ORIGINS` lists the real web origins; preview regex is scoped and anchored.
+- [ ] `CORS_ORIGINS` lists the real web origins; preview regex is scoped and anchored. **The API now refuses to boot in production if this is unset or still the localhost default.**
+- [ ] `SWAGGER_ENABLED` is unset in production.
+- [ ] `scripts/verify-deployment.mjs` passes against production.
 - [ ] `NEXT_PUBLIC_API_URL` set for **Production and Preview** on Vercel.
 - [ ] **Database backups enabled** on the Railway Postgres service.
 - [ ] **Billing/credits monitored** — the Railway plan's credit balance gates the API *and* the database; if it lapses, the whole backend goes offline.
