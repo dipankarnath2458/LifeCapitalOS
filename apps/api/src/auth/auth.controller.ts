@@ -10,8 +10,10 @@ import {
   LoginDto,
   RefreshDto,
   RegisterDto,
+  RequestEmailVerificationDto,
   RequestOtpDto,
   ResetPasswordDto,
+  VerifyEmailDto,
   VerifyOtpDto,
 } from './dto';
 
@@ -77,6 +79,20 @@ export class AuthController {
     return this.auth.resetPassword(dto.email, dto.token, dto.newPassword);
   }
 
+  /** Re-send the verification email. Public and always `{ sent: true }` — see the service. */
+  @Public()
+  @Post('verify-email/request')
+  requestEmailVerification(@Body() dto: RequestEmailVerificationDto) {
+    return this.auth.requestEmailVerification(dto.email);
+  }
+
+  /** Consume the link from the verification email. Public: the token is the credential. */
+  @Public()
+  @Post('verify-email')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.auth.verifyEmail(dto.email, dto.token);
+  }
+
   @Get('me')
   async me(@CurrentUser() user: AuthUser) {
     const record = await this.prisma.user.findUnique({
@@ -88,6 +104,8 @@ export class AuthController {
       email: record?.email,
       phone: record?.phone,
       role: record?.role,
+      // Additive: lets the UI prompt for confirmation. Nothing gates on it yet.
+      emailVerified: record?.emailVerified ?? false,
       profile: record?.profile
         ? { ...record.profile, fullName: this.crypto.decrypt(record.profile.fullName) }
         : null,

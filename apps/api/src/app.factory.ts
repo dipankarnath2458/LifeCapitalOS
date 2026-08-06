@@ -11,11 +11,9 @@ import { buildCorsOptions } from './config/cors';
 import { correlationIdMiddleware } from './common/observability/correlation-id.middleware';
 import { LoggingInterceptor } from './common/observability/logging.interceptor';
 import { AllExceptionsFilter } from './common/observability/all-exceptions.filter';
+// Side-effect import: makes BigInt (money in minor units) JSON-serializable.
+import './common/bigint-json';
 
-// Make BigInt serializable in JSON responses.
-(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function () {
-  return Number(this);
-};
 
 /**
  * Minimal security headers, equivalent to the helmet defaults we relied on.

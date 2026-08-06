@@ -98,6 +98,22 @@ export class ResetPasswordDto {
   newPassword!: string;
 }
 
+export class RequestEmailVerificationDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+}
+
+export class VerifyEmailDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty({ description: 'Token from the verification email.' })
+  @IsString()
+  token!: string;
+}
+
 export class UpdateProfileDto {
   @ApiProperty({ required: false })
   @IsOptional()

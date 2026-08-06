@@ -116,6 +116,14 @@ function EmailAuth() {
       >
         {busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Sign in'}
       </button>
+      {mode === 'signin' && (
+        <a
+          href="/forgot-password"
+          className="mt-4 block text-center text-sm text-slate-500 hover:text-brand"
+        >
+          Forgot your password?
+        </a>
+      )}
       <button
         onClick={() => {
           setMode(mode === 'signup' ? 'signin' : 'signup');
