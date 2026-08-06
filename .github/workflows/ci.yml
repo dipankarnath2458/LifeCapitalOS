@@ -59,6 +59,11 @@ jobs:
       - name: Unit tests (web)
         run: pnpm --filter @lcos/web test
 
+      # These exist under apps/api/src/**/*.spec.ts (CORS policy, financial snapshot,
+      # email templates) but were never run by CI until now.
+      - name: Unit tests (api)
+        run: pnpm --filter @lcos/api test
+
       - name: Apply migrations
         run: pnpm --filter @lcos/api exec prisma migrate deploy
 

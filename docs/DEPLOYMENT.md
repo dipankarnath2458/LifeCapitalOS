@@ -59,6 +59,9 @@ deploy: pnpm --filter @lcos/api exec prisma migrate deploy   // migrations run o
 | **`CORS_ORIGINS`** | comma-separated **exact** allowed browser origins (production web) |
 | **`CORS_PREVIEW_ORIGIN_REGEX`** | optional anchored regex allowing this project's Vercel **preview** origins (§5) |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | credentials the seed script uses for the SUPERADMIN account |
+| **`RESEND_API_KEY`** | enables real email sending. **Unset ⇒ emails are logged, not sent** (§4a) |
+| **`EMAIL_FROM`** | From header, e.g. `Life Capital OS <no-reply@lifecapitalos.com>` |
+| **`APP_URL`** | public web origin used to build links in emails; defaults to the first `CORS_ORIGINS` entry |
 | `SANDBOX_RETURN_SECRETS` | **must be `false`/unset in production** — when true, OTP codes and password-reset tokens are returned in API responses |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_SANDBOX` | billing |
 | `AA_PROVIDER`, `AA_API_KEY`, `AA_SANDBOX` | Account Aggregator |
@@ -115,6 +118,39 @@ It is **idempotent** (upserts) and creates: 3 plans, 5 feature flags, a **SUPERA
 > `NEXT_PUBLIC_*` is **inlined at build time**. Changing it requires a **redeploy**, not just a
 > restart. Set it for **all environments** (Production *and* Preview), or previews will fall back
 > to the code default `http://localhost:4000/api` and fail to reach the API.
+
+---
+
+## 4a. Email (password reset & verification)
+
+Outbound email goes through a transport chosen at boot from the environment
+(`apps/api/src/email/`). Two exist today:
+
+| `RESEND_API_KEY` | Transport | Behaviour |
+| --- | --- | --- |
+| set | `resend` | real delivery via the Resend REST API |
+| unset | `console` | the message is **written to the Railway log instead of being sent** |
+
+The API logs which one it picked at boot, and logs an **error** (not a warning) if it falls
+back to `console` in production — a deploy in that state has users who cannot reset their
+password.
+
+**To turn on real email:**
+
+1. Create a Resend account and add `lifecapitalos.com` as a domain, then add the DNS records
+   Resend shows you (SPF/DKIM) at the registrar. Skipping this still works for testing —
+   leave `EMAIL_FROM` unset and it sends from Resend's shared `onboarding@resend.dev`, which
+   only delivers to your own address.
+2. Create an API key and set it on the Railway service as `RESEND_API_KEY`.
+3. Set `EMAIL_FROM="Life Capital OS <no-reply@lifecapitalos.com>"` and
+   `APP_URL="https://lifecapitalos.com"`.
+4. Redeploy the Railway service and confirm the boot log says `Email transport: resend`.
+
+Free tier is 3,000 emails/month (100/day), which is well beyond current volume.
+
+**Swapping provider** (SES, Postmark, …) is one new file implementing `EmailTransport` plus
+one branch in `email.module.ts`. No caller changes — nothing outside `src/email/` knows
+which provider is in use.
 
 ---
 
@@ -182,7 +218,7 @@ Order when standing up a new environment:
 | `REDIS_URL` variable | Set in Railway but **no code uses Redis**. Rate limiting is in-memory (per-instance). |
 | `apps/admin` | Never existed; admin UI lives at `/admin` inside `apps/web`. |
 | Supabase | **Confirmed not in use.** `DATABASE_URL` points at `postgres.railway.internal` (the in-project Railway Postgres). Any remaining Supabase project is legacy and can be decommissioned. |
-| Password reset | `POST /auth/forgot-password` creates a token but **no email/SMS provider is configured**, so users cannot self-serve a reset in production. |
+| Password reset | **Works** as of the Phase 0 email milestone — but only once `RESEND_API_KEY` is set (§4a). Until then the reset link is written to the Railway log instead of being emailed. |
 | Firm onboarding | New sign-ups have no firm and hit "No firm yet"; only an ADMIN/SUPERADMIN can create firms (`POST /api/firms`). |
 
 ---
@@ -196,4 +232,6 @@ Order when standing up a new environment:
 - [ ] `NEXT_PUBLIC_API_URL` set for **Production and Preview** on Vercel.
 - [ ] **Database backups enabled** on the Railway Postgres service.
 - [ ] **Billing/credits monitored** — the Railway plan's credit balance gates the API *and* the database; if it lapses, the whole backend goes offline.
+- [ ] **`RESEND_API_KEY` set** and the boot log says `Email transport: resend` — otherwise password-reset emails go to the log, not to users.
+- [ ] `EMAIL_FROM` uses a domain verified in Resend, and `APP_URL` is the real web origin.
 - [ ] Real Razorpay + Account Aggregator keys set; `RAZORPAY_SANDBOX=false`.

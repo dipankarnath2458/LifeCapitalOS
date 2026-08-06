@@ -39,6 +39,18 @@ export interface AppConfig {
     model: string;
     enabled: boolean;
   };
+  email: {
+    /**
+     * `resend` when an API key is present, otherwise `console` (logs instead of sending).
+     * Derived, not read directly, so a deploy cannot claim a provider it has no key for.
+     */
+    provider: 'resend' | 'console';
+    apiKey: string;
+    /** RFC-5322 From header, e.g. `Life Capital OS <no-reply@lifecapitalos.com>`. */
+    from: string;
+    /** Public web origin used to build links in emails (no trailing slash needed). */
+    appUrl: string;
+  };
 }
 
 // Dev defaults that must never be used in production. Boot fails fast if they are.
@@ -49,15 +61,16 @@ export const DEV_ENCRYPTION_KEY =
 
 export default (): AppConfig => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
+  const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
   return {
     port: parseInt(process.env.PORT ?? '4000', 10),
     nodeEnv,
     // Opt-in only, and never in production.
     returnDevSecrets: process.env.SANDBOX_RETURN_SECRETS === 'true' && nodeEnv !== 'production',
-    corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
-      .split(',')
-      .map((o) => o.trim())
-      .filter((o) => o.length > 0),
+    corsOrigins,
     corsPreviewOriginRegex: parsePreviewOriginRegex(process.env.CORS_PREVIEW_ORIGIN_REGEX),
     jwt: {
       accessSecret: process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET,
@@ -83,6 +96,14 @@ export default (): AppConfig => {
       model: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
       // The coach is enabled only when an API key is present.
       enabled: Boolean(process.env.ANTHROPIC_API_KEY),
+    },
+    email: {
+      provider: process.env.RESEND_API_KEY ? 'resend' : 'console',
+      apiKey: process.env.RESEND_API_KEY ?? '',
+      from: process.env.EMAIL_FROM ?? 'Life Capital OS <onboarding@resend.dev>',
+      // Falls back to the first allowed browser origin, which is the web app by definition,
+      // so links are right in every environment that has CORS configured correctly.
+      appUrl: process.env.APP_URL ?? corsOrigins[0] ?? 'http://localhost:3000',
     },
   };
 };

@@ -11,6 +11,7 @@ import { randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { AuditService } from '../common/audit.service';
+import { EmailService } from '../email/email.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -20,6 +21,7 @@ export interface TokenPair {
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const RESET_TTL_MS = 30 * 60 * 1000;
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 // Per-target send throttle to prevent SMS/email bombing and unbounded row growth.
 const SEND_WINDOW_MS = 15 * 60 * 1000;
 const MAX_SENDS_PER_WINDOW = 3;
@@ -32,6 +34,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
 
   // ---- OTP (primary for India phone-first onboarding) ----
@@ -122,6 +125,9 @@ export class AuthService {
       },
     });
     await this.audit.log({ actorId: user.id, action: 'user.register', entityType: 'User', entityId: user.id });
+    // Verification is sent but not enforced — nothing gates on `emailVerified` yet, so a
+    // provider outage must not stop anyone signing up.
+    await this.requestEmailVerification(email).catch(() => undefined);
     return this.issueTokens(user.id, user.role);
   }
 
@@ -199,13 +205,75 @@ export class AuthService {
         expiresAt: new Date(Date.now() + RESET_TTL_MS),
       },
     });
+    // Best-effort delivery. The response is identical whether or not the account exists and
+    // whether or not the provider is up — otherwise this endpoint becomes an account-existence
+    // oracle, and a provider outage becomes a 500 on a password reset.
+    const delivery = await this.email.sendPasswordReset(email, token, '30 minutes');
+
     await this.audit.log({
       actorId: user.id,
       action: 'user.password_reset_requested',
       entityType: 'User',
       entityId: user.id,
+      metadata: { delivered: delivery.delivered, transport: this.email.transportName },
     });
     return this.config.get<boolean>('returnDevSecrets') ? { sent: true, devToken: token } : { sent: true };
+  }
+
+  // ---- Email verification ----
+
+  /**
+   * Issues a verification token and emails it. Safe to call repeatedly (throttled per
+   * target like every other one-time secret). Returns `{ sent: true }` unconditionally so
+   * it cannot be used to probe which addresses are registered or already verified.
+   */
+  async requestEmailVerification(email: string): Promise<{ sent: true; devToken?: string }> {
+    await this.assertSendAllowed('email_verify', email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || user.emailVerified) return { sent: true };
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.otpCode.create({
+      data: {
+        userId: user.id,
+        channel: 'email_verify',
+        target: email,
+        codeHash: this.crypto.hash(token),
+        expiresAt: new Date(Date.now() + VERIFY_TTL_MS),
+      },
+    });
+    await this.email.sendEmailVerification(email, token, '24 hours');
+    return this.config.get<boolean>('returnDevSecrets') ? { sent: true, devToken: token } : { sent: true };
+  }
+
+  /** Consumes a verification token and marks the address verified. */
+  async verifyEmail(email: string, token: string): Promise<{ ok: true }> {
+    const record = await this.prisma.otpCode.findFirst({
+      where: { target: email, channel: 'email_verify', consumedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!record) throw new BadRequestException('Verification link is invalid or has expired');
+    if (record.attempts >= MAX_OTP_ATTEMPTS) throw new BadRequestException('Too many attempts');
+
+    if (record.codeHash !== this.crypto.hash(token)) {
+      await this.prisma.otpCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } });
+      throw new UnauthorizedException('Invalid verification token');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw new BadRequestException('Account not found');
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } }),
+      this.prisma.otpCode.update({ where: { id: record.id }, data: { consumedAt: new Date() } }),
+    ]);
+    await this.audit.log({
+      actorId: user.id,
+      action: 'user.email_verified',
+      entityType: 'User',
+      entityId: user.id,
+    });
+    return { ok: true };
   }
 
   /** Complete a password reset with the token from forgotPassword. */
