@@ -56,6 +56,9 @@ jobs:
       - name: Unit tests (core)
         run: pnpm --filter @lcos/core test
 
+      - name: Unit tests (web)
+        run: pnpm --filter @lcos/web test
+
       - name: Apply migrations
         run: pnpm --filter @lcos/api exec prisma migrate deploy
 

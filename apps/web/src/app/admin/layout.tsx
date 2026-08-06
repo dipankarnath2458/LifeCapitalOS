@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
+import { getAccessToken } from '@/lib/session';
 import { isAdminRole } from '@/lib/admin';
 import { AdminRoleContext } from '@/lib/adminContext';
 import { AdminShell } from '@/components/AdminShell';
@@ -20,7 +21,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
-    const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
+    const t = getAccessToken();
     if (!t) {
       window.location.href = '/login';
       return;

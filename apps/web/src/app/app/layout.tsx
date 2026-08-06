@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
+import { getAccessToken, signOut } from '@/lib/session';
 import { AppContext, type AppContextValue, type FirmSummary } from '@/lib/appContext';
 import { DashboardLayout, Select, EmptyState, ThemeProvider, ThemeScript } from '@/ui';
 import type { NavSection } from '@/ui';
@@ -23,12 +24,6 @@ const NAV: NavSection[] = [
   },
 ];
 
-function logout(): void {
-  localStorage.removeItem('lcos_access');
-  localStorage.removeItem('lcos_refresh');
-  window.location.href = '/login';
-}
-
 /**
  * Advisor workspace shell. Resolves the active firm from the caller's memberships,
  * gates the section to firm members, and provides firm context to the pages below.
@@ -39,7 +34,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [ctx, setCtx] = useState<AppContextValue | null>(null);
 
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
+    const token = getAccessToken();
     if (!token) {
       window.location.href = '/login';
       return;
@@ -69,7 +64,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function switchFirm(id: string): Promise<void> {
-    const token = localStorage.getItem('lcos_access');
+    const token = getAccessToken();
     if (!token) return;
     await apiPost(`/firms/${id}/switch`, {}, token).catch(() => undefined);
     window.location.reload();
@@ -87,7 +82,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <EmptyState
           title="No firm yet"
           description="Your account isn't a member of any firm. Ask a firm owner or a platform admin to invite you."
-          action={{ label: 'Sign out', onClick: logout }}
+          action={{ label: 'Sign out', onClick: () => void signOut() }}
         />
       </div>
     );
@@ -117,7 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       )}
       <div className="flex items-center justify-between px-1">
         <span className="truncate text-xs text-subtle">{ctx.firm.firmRole}</span>
-        <button type="button" onClick={logout} className="text-xs text-subtle hover:text-foreground">
+        <button type="button" onClick={() => void signOut()} className="text-xs text-subtle hover:text-foreground">
           Sign out
         </button>
       </div>
