@@ -21,7 +21,7 @@
 | **Medium** | `CORS_ORIGINS` silently defaulted to localhost in production | **Fixed** (boot fails) |
 | **Medium** | Per-attempt login diagnostics logged account existence and password length | **Fixed** in #41 |
 | Low | JWT verification did not pin the signing algorithm | **Fixed** |
-| **Medium** | No per-account lockout on repeated failed logins | **Open — recommended** |
+| **Medium** | No per-account lockout on repeated failed logins | **Fixed** |
 | **Medium** | `next@14.2.35` carries unpatched advisories; fixes are in 15.x | **Open — decision needed** |
 | Low | Rate limiting is in-memory, so it resets on deploy and is per-instance | Open — accepted for now |
 | Low | Password policy is 8 characters + one digit | Open — recommended |
@@ -119,17 +119,23 @@ what `issueTokens` signs.
 
 ## 4. Open findings and recommendations
 
-### 4.1 No per-account lockout on failed logins — **Medium, recommended next**
+### 4.1 Per-account lockout on failed logins — **Fixed**
 
-The global limit is 120 requests/min/IP (now correctly per-client). One-time codes have a
-tight per-target throttle (3 per 15 min), but **`/auth/login` has no per-account control**, so
-a distributed attempt against a single known address is not slowed by anything account-scoped.
+The global limit is 120 requests/min/IP (now correctly per-client) and one-time codes have a
+tight per-target throttle, but `/auth/login` had **no account-scoped control**, so a
+distributed attempt against a single known address was slowed by nothing.
 
-**Recommendation:** track consecutive failures per account and apply an increasing delay or
-short lock, with the counter cleared on success. Deliberately *not* bundled into this PR: it
-needs a schema field and its own tests, and a per-IP throttle tight enough to matter would
-break the e2e suites, which run ~50 auth calls from one address in under a minute. Making
-that trade quietly would be the wrong call.
+**Fix:** five failures lock an address for fifteen minutes (`LoginAttempt` table), capping an
+attacker at roughly 480 guesses per address per day. Failures older than an hour are
+forgiven, and a successful sign-in clears the counter, so an ordinary person mistyping their
+password never meets the limit.
+
+The design point worth preserving on any future change: **the counter is keyed on the
+submitted address, not on a user id.** An address that does not exist locks exactly like one
+that does, so the lock message cannot be used to discover which addresses are registered —
+the same enumeration resistance the rest of the auth surface maintains. There is an e2e test
+asserting precisely that, and another asserting the lock rejects the *correct* password while
+in force (otherwise the lock is theatre).
 
 ### 4.2 `next@14.2.35` — **Medium, needs a decision**
 

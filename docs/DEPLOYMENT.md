@@ -82,7 +82,7 @@ deploy: pnpm --filter @lcos/api exec prisma migrate deploy   // migrations run o
   so the database is **not reachable from the public internet**. Consequence: one-off admin
   and data tasks must be run from **inside** the project — the service's **Console** tab —
   not from a laptop or an external SQL client (unless a TCP proxy is deliberately enabled).
-- **Schema** is managed by Prisma migrations in `apps/api/prisma/migrations` (13 to date),
+- **Schema** is managed by Prisma migrations in `apps/api/prisma/migrations` (14 to date),
   applied automatically by the deploy command. Every table carries **RLS lockdown**
   (RLS enabled, no policies), so only the application's DB role can read/write.
 - **Money** is stored as `BigInt` minor units; **PII** (household/member/entity names, taxIds)
