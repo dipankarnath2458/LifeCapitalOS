@@ -30,6 +30,10 @@ jobs:
       FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
       # e2e auth flows assert the dev OTP/reset token is echoed back; opt in for CI only.
       SANDBOX_RETURN_SECRETS: 'true'
+      # NEXT_PUBLIC_* is inlined at BUILD time, so the browser smoke tests only reach the
+      # API if the `Build` step below already baked in the port Playwright serves it on.
+      # This affects the CI build only — Vercel builds production separately.
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4100/api
 
     steps:
       - uses: actions/checkout@v4
@@ -74,3 +78,23 @@ jobs:
 
       - name: API e2e tests
         run: pnpm --filter @lcos/api test:e2e
+
+      # Browser smoke tests. These catch the class of defect nothing above can see: a page
+      # that compiles, passes every unit test, and still throws on render. Playwright boots
+      # the built API and a production Next build against the same Postgres.
+      - name: Install Playwright browser
+        run: pnpm --filter @lcos/web exec playwright install --with-deps chromium
+
+      - name: Browser smoke tests
+        run: pnpm --filter @lcos/web test:e2e
+        env:
+          JWT_ACCESS_SECRET: ci-access-secret-not-a-real-key
+          JWT_REFRESH_SECRET: ci-refresh-secret-not-a-real-key
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

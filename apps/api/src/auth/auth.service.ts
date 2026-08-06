@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -132,30 +131,15 @@ export class AuthService {
   }
 
   async login(email: string, password: string): Promise<TokenPair> {
-    // TEMPORARY diagnostic logging — remove after production auth diagnosis.
-    // Logs only non-sensitive signals: never the password, hash, token, or any secret.
-    const diag = new Logger('AuthService.login');
+    // The per-attempt diagnostic logging that lived here was marked TEMPORARY, for the
+    // production auth diagnosis that is now closed. It wrote account existence, account
+    // status and the submitted password's length on every login attempt — turning the log
+    // into an account-enumeration oracle for anyone who could read it. Failed logins are
+    // still visible through the request log and the audit trail.
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user?.passwordHash) {
-      diag.warn(
-        `[login-diagnostic] userFound=${!!user} status=${user?.status ?? 'not-found'} ` +
-          `hasPasswordHash=${!!user?.passwordHash} submittedPasswordLength=${password?.length ?? 0} ` +
-          `argon2Verify=n/a`,
-      );
-      throw new UnauthorizedException('Invalid credentials');
-    }
-    if (user.status !== 'active') {
-      diag.warn(
-        `[login-diagnostic] userFound=true status=${user.status} hasPasswordHash=true ` +
-          `submittedPasswordLength=${password?.length ?? 0} argon2Verify=skipped-inactive`,
-      );
-      throw new UnauthorizedException('Account is not active');
-    }
+    if (!user?.passwordHash) throw new UnauthorizedException('Invalid credentials');
+    if (user.status !== 'active') throw new UnauthorizedException('Account is not active');
     const ok = await argon2.verify(user.passwordHash, password);
-    diag.warn(
-      `[login-diagnostic] userFound=true status=${user.status} hasPasswordHash=true ` +
-        `submittedPasswordLength=${password?.length ?? 0} argon2Verify=${ok}`,
-    );
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     return this.issueTokens(user.id, user.role);

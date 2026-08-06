@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // src only — `e2e/` is Playwright's, and its specs must not be collected here.
     include: ['src/**/*.spec.ts'],
   },
 });
