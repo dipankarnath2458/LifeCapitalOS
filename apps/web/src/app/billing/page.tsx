@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
+import { getAccessToken } from '@/lib/session';
 import { useToast } from '@/components/Toast';
 
 interface Plan {
@@ -37,7 +38,7 @@ export default function BillingPage() {
   const toast = useToast();
 
   useEffect(() => {
-    const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
+    const t = getAccessToken();
     if (!t) {
       window.location.href = '/login';
       return;

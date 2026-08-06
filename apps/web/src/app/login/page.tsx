@@ -2,18 +2,13 @@
 
 import { useState } from 'react';
 import { apiPost } from '@/lib/api';
+import { setTokens, type TokenPair } from '@/lib/session';
 
 type Tab = 'email' | 'phone';
 type EmailMode = 'signin' | 'signup';
 
-interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-}
-
 function persistAndGo(tokens: TokenPair) {
-  localStorage.setItem('lcos_access', tokens.accessToken);
-  localStorage.setItem('lcos_refresh', tokens.refreshToken);
+  setTokens(tokens);
   // V2 activation (M5.5): the authenticated experience is the V2 app shell at /app.
   window.location.href = '/app';
 }

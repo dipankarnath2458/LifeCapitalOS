@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiPost, apiPut } from '@/lib/api';
+import { getAccessToken } from '@/lib/session';
 
 const RISK = ['conservative', 'moderate', 'aggressive'] as const;
 
@@ -26,7 +27,7 @@ export default function OnboardingPage() {
   const [goalYears, setGoalYears] = useState('20');
 
   useEffect(() => {
-    const t = typeof window !== 'undefined' ? localStorage.getItem('lcos_access') : null;
+    const t = getAccessToken();
     if (!t) {
       window.location.href = '/login';
       return;

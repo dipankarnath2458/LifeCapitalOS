@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { signOut } from '@/lib/session';
 
 const NAV = [
   { href: '/admin', label: 'Overview' },
@@ -10,12 +11,6 @@ const NAV = [
   { href: '/admin/flags', label: 'Feature Flags' },
   { href: '/admin/audit', label: 'Audit Log' },
 ];
-
-function signOut() {
-  localStorage.removeItem('lcos_access');
-  localStorage.removeItem('lcos_refresh');
-  window.location.href = '/login';
-}
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
