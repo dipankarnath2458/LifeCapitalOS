@@ -227,14 +227,23 @@ if (EMAIL_DOMAIN) {
     }
   }
 
-  const apex = await lookupTxt(EMAIL_DOMAIN);
-  if (apex.state === 'error') {
-    warn('SPF record', `lookup failed (${apex.code}) — inconclusive, not a failure`);
+  // SPF authorises the domain in the ENVELOPE sender (Return-Path), which is not
+  // necessarily the domain in the From header. Resend's standard setup sends with a
+  // Return-Path under `send.<domain>` and publishes SPF there, leaving the apex without
+  // one — a correct, working configuration. Checking only the apex reported such a domain
+  // as broken while its mail was delivering perfectly. Check both.
+  const spfHosts = [EMAIL_DOMAIN, `send.${EMAIL_DOMAIN}`];
+  const spfResults = await Promise.all(spfHosts.map(lookupTxt));
+  const spfIndex = spfResults.findIndex(
+    (r) => r.state === 'ok' && r.records.some((rec) => rec.toLowerCase().startsWith('v=spf1')),
+  );
+  if (spfIndex >= 0) {
+    const record = spfResults[spfIndex].records.find((r) => r.toLowerCase().startsWith('v=spf1'));
+    pass('SPF record', `${spfHosts[spfIndex]} — ${record.slice(0, 70)}`);
+  } else if (spfResults.every((r) => r.state === 'absent' || r.state === 'ok')) {
+    fail('SPF record', `absent at ${spfHosts.join(' and ')} — no domain is authorised to send`);
   } else {
-    const spf = apex.records.find((r) => r.toLowerCase().startsWith('v=spf1'));
-    if (!spf) fail('SPF record', 'absent — receivers cannot confirm who may send for this domain');
-    else if (/include:/.test(spf)) pass('SPF record', spf.slice(0, 90));
-    else warn('SPF record present but authorises no external sender', spf.slice(0, 90));
+    warn('SPF record', 'lookup failed — inconclusive, not a failure');
   }
 
   // Resend publishes DKIM at resend._domainkey.<domain>, or under send.<domain>.
