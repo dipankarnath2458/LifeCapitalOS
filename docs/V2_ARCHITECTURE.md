@@ -10,7 +10,8 @@
 > [`FUTURE_MODULE_CONTRACT`](./architecture/FUTURE_MODULE_CONTRACT.md),
 > [`EXTENSION_GUIDELINES`](./architecture/EXTENSION_GUIDELINES.md),
 > [`M4_DASHBOARD_FOUNDATION`](./architecture/M4_DASHBOARD_FOUNDATION.md),
-> [`M5_FINANCIAL_INTELLIGENCE_LAYER`](./architecture/M5_FINANCIAL_INTELLIGENCE_LAYER.md).
+> [`M5_FINANCIAL_INTELLIGENCE_LAYER`](./architecture/M5_FINANCIAL_INTELLIGENCE_LAYER.md),
+> [`M5-5_CONSUMER_ACTIVATION`](./architecture/M5-5_CONSUMER_ACTIVATION.md).
 >
 > *(Historical note: this file previously held the pre-V2 analysis of the V1 retail system. It has been
 > replaced with the current architecture. The prior V1 analysis is preserved in the git history.)*
@@ -172,6 +173,14 @@ flowchart TB
 consume snapshots** and never re-aggregate raw tables. *(A V1 **retail** stack — `accounts`, `transactions`,
 `debts`, `goals`, `family`, `networth`, `insights`, `ai`, `tools`, keyed by nullable `userId` — coexists
 additively per ADR-010; the firm/household advisory stack above is the V2 platform Modules 1–5 built.)*
+
+> **ADR-010's duality is partial — read this before building on the retail path.** `Account`,
+> `Transaction`, `Debt`, `Budget` and `NetWorthSnapshot` are genuinely dual-keyed. **`FinancialSnapshot`,
+> `Entity` and `FinancialHealthScore` are not** — their `householdId` and `firmId` are NOT NULL. Because
+> M3 and M5 consume snapshots and nothing else, a user on the retail (`userId`) path can hold accounts but
+> can have **no snapshot, no health score and no AI insights**. M5.5 resolves this by provisioning a
+> personal firm and household per consumer rather than by relaxing the frozen snapshot contract — see
+> [`M5-5_CONSUMER_ACTIVATION`](./architecture/M5-5_CONSUMER_ACTIVATION.md).
 
 ---
 
