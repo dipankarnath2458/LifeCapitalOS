@@ -137,7 +137,7 @@ fail when provisioning is removed, and no other test does.
 | --- | --- | --- |
 | PR-1 | Consumer household provisioning (API) | Merged (#48) |
 | PR-2 | Consumer onboarding flow (web) | In review |
-| PR-3 | Wealth Health Check wizard | Planned |
+| PR-3 | Wealth Health Check wizard | In review — see [`M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE`](../M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE.md) |
 | PR-4 | Consumer financial dashboard | Planned |
 | PR-5 | AI insights via the Financial Intelligence Layer | Planned |
 
