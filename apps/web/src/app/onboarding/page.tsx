@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiPost, apiPut } from '@/lib/api';
 import { getAccessToken } from '@/lib/session';
+import { resolvePostLoginDestination } from '@/lib/postLoginDestination';
 
 const RISK = ['conservative', 'moderate', 'aggressive'] as const;
 
@@ -105,8 +106,8 @@ export default function OnboardingPage() {
         );
       }
       localStorage.setItem('lcos_onboarded', '1');
-      // V2 activation (M5.5): land in the V2 app shell.
-      window.location.href = '/app';
+      // Advisors land in the workspace, consumers on the retail dashboard.
+      window.location.href = token ? await resolvePostLoginDestination(token) : '/dashboard';
     } catch {
       setErr('Could not save your goal. You can add it later from the dashboard.');
     } finally {
@@ -116,8 +117,10 @@ export default function OnboardingPage() {
 
   function skip() {
     localStorage.setItem('lcos_onboarded', '1');
-    // V2 activation (M5.5): land in the V2 app shell.
-    window.location.href = '/app';
+    // Advisors land in the workspace, consumers on the retail dashboard.
+    void (async () => {
+      window.location.href = token ? await resolvePostLoginDestination(token) : '/dashboard';
+    })();
   }
 
   return (

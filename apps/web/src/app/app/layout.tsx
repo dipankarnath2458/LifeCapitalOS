@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { getAccessToken, signOut } from '@/lib/session';
 import { AppContext, type AppContextValue, type FirmSummary } from '@/lib/appContext';
+import { CONSUMER_HOME } from '@/lib/postLoginDestination';
 import { DashboardLayout, Select, EmptyState, ThemeProvider, ThemeScript } from '@/ui';
 import type { NavSection } from '@/ui';
 import { IconHome, IconUsers, IconChart } from '@/ui/icons';
@@ -42,7 +43,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     apiGet<FirmsMe>('/firms/me', token)
       .then(async (me) => {
         if (!me.firms || me.firms.length === 0) {
-          setState('no-firm');
+          // A firm-less user cannot use this section at all — `Household.firmId` is NOT
+          // NULL, so they can never have a household here. Send them to the retail
+          // dashboard rather than showing an empty state they cannot act on.
+          window.location.href = CONSUMER_HOME;
           return;
         }
         const active = me.firms.find((f) => f.id === me.activeFirmId) ?? me.firms[0];

@@ -3,14 +3,16 @@
 import { useState } from 'react';
 import { apiPost } from '@/lib/api';
 import { setTokens, type TokenPair } from '@/lib/session';
+import { resolvePostLoginDestination } from '@/lib/postLoginDestination';
 
 type Tab = 'email' | 'phone';
 type EmailMode = 'signin' | 'signup';
 
-function persistAndGo(tokens: TokenPair) {
+async function persistAndGo(tokens: TokenPair) {
   setTokens(tokens);
-  // V2 activation (M5.5): the authenticated experience is the V2 app shell at /app.
-  window.location.href = '/app';
+  // Advisors (firm members) get the workspace; everyone else gets the retail dashboard.
+  // Deciding here rather than at /app means consumers never see a page they cannot use.
+  window.location.href = await resolvePostLoginDestination(tokens.accessToken);
 }
 
 /**
@@ -67,7 +69,7 @@ function EmailAuth() {
         mode === 'signup'
           ? await apiPost<TokenPair>('/auth/register', { email, password, fullName })
           : await apiPost<TokenPair>('/auth/login', { email, password });
-      persistAndGo(tokens);
+      await persistAndGo(tokens);
     } catch {
       setMessage(
         mode === 'signup'
@@ -166,7 +168,7 @@ function PhoneAuth() {
         target,
         code,
       });
-      persistAndGo(tokens);
+      await persistAndGo(tokens);
     } catch {
       setMessage('Invalid or expired code.');
     }
