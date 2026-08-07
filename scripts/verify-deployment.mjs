@@ -50,10 +50,25 @@ async function get(url, init = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    return await fetch(url, { ...init, signal: controller.signal, redirect: 'manual' });
+    // Default `manual` is deliberate for CORS preflights, where a redirect must not be
+    // silently followed. Page checks pass redirect:'follow' — see `page()`.
+    return await fetch(url, { redirect: 'manual', ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Fetches a page the way a browser would — following redirects.
+ *
+ * The first version treated any non-2xx as a failure, so a perfectly healthy apex →
+ * www 308 was reported as "the web app is down". A verification tool that cries wolf is
+ * worse than no tool, so redirects are followed and the final URL is reported instead.
+ */
+async function page(url) {
+  const res = await get(url, { redirect: 'follow' });
+  const landed = res.url && res.url.replace(/\/$/, '') !== url.replace(/\/$/, '') ? res.url : null;
+  return { res, landed };
 }
 
 console.log(`Verifying deployment\n  API: ${API}\n  WEB: ${WEB}`);
@@ -153,17 +168,15 @@ try {
 /* ------------------------------------------------------------- web app */
 section('Web app');
 try {
-  const res = await get(`${WEB}/`);
-  if (res.ok) pass('GET / on the web app', `HTTP ${res.status}`);
-  else fail('GET / on the web app', `HTTP ${res.status}`);
-
-  const login = await get(`${WEB}/login`);
-  if (login.ok) pass('GET /login');
-  else fail('GET /login', `HTTP ${login.status}`);
-
-  const forgot = await get(`${WEB}/forgot-password`);
-  if (forgot.ok) pass('GET /forgot-password (account recovery reachable)');
-  else fail('GET /forgot-password', `HTTP ${forgot.status}`);
+  for (const [path, label] of [
+    ['/', 'GET / on the web app'],
+    ['/login', 'GET /login'],
+    ['/forgot-password', 'GET /forgot-password (account recovery reachable)'],
+  ]) {
+    const { res, landed } = await page(`${WEB}${path}`);
+    if (res.ok) pass(label, landed ? `HTTP ${res.status} (redirected to ${landed})` : `HTTP ${res.status}`);
+    else fail(label, `HTTP ${res.status}${landed ? ` after redirect to ${landed}` : ''}`);
+  }
 } catch (err) {
   fail('web app', err.message);
 }
@@ -174,11 +187,11 @@ section('Web bundle points at the right API');
 // redeploy silently leaves the old value baked into the bundle — which is how a preview
 // ended up calling http://localhost:4000. Read it back out of the shipped JavaScript.
 try {
-  const html = await (await get(`${WEB}/login`)).text();
+  const html = await (await get(`${WEB}/login`, { redirect: 'follow' })).text();
   const chunks = [...html.matchAll(/\/_next\/static\/chunks\/[^"']+?\.js/g)].map((m) => m[0]);
   let found = null;
   for (const chunk of [...new Set(chunks)].slice(0, 25)) {
-    const js = await (await get(`${WEB}${chunk}`)).text();
+    const js = await (await get(`${WEB}${chunk}`, { redirect: 'follow' })).text();
     const hit = js.match(/https?:\/\/[a-zA-Z0-9.\-:]+\/api(?=["'`])/);
     if (hit) {
       found = hit[0];
@@ -240,10 +253,12 @@ if (EMAIL_DOMAIN) {
   else if (dmarc.state === 'absent') warn('DMARC record', 'absent — recommended, not required for delivery');
   else warn('DMARC record', 'lookup failed — inconclusive');
 
-  const mx = await resolveMx(EMAIL_DOMAIN).catch(() => null);
-  if (mx === null) warn('MX records', 'lookup failed — inconclusive');
-  else if (mx.length) pass('MX records', `${mx.length} found`);
-  else warn('MX records', 'none — outbound sending still works; inbound mail does not');
+  const mx = await resolveMx(EMAIL_DOMAIN)
+    .then((r) => ({ state: 'ok', records: r }))
+    .catch((err) => ({ state: ABSENT.has(err.code) ? 'absent' : 'error', code: err.code, records: [] }));
+  if (mx.state === 'ok' && mx.records.length) pass('MX records', `${mx.records.length} found`);
+  else if (mx.state === 'absent') warn('MX records', 'none — outbound sending still works; inbound mail does not');
+  else warn('MX records', `lookup failed (${mx.code}) — inconclusive`);
 }
 
 /* ------------------------------------------------------------------ done */
