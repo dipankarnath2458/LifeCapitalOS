@@ -25,6 +25,8 @@ function arg(name, fallback = null) {
 const API = (arg('api') ?? process.env.VERIFY_API_URL ?? '').replace(/\/+$/, '');
 const WEB = (arg('web') ?? process.env.VERIFY_WEB_URL ?? '').replace(/\/+$/, '');
 const EXPECT_PROD = arg('env', 'production') === 'production';
+// Optional: the domain email is sent FROM. When given, the sending DNS records are checked.
+const EMAIL_DOMAIN = arg('email-domain') ?? process.env.VERIFY_EMAIL_DOMAIN ?? '';
 
 if (!API || !WEB) {
   console.error('Usage: node scripts/verify-deployment.mjs --api <api-origin> --web <web-origin>');
@@ -188,6 +190,60 @@ try {
   else fail('bundle calls the WRONG API', `baked in: ${found} — redeploy the web app`);
 } catch (err) {
   warn('bundle inspection', err.message);
+}
+
+/* -------------------------------------------------- email sending DNS */
+// Only the DNS half of email readiness is checkable from outside: whether the domain is
+// authorised to send. Whether Railway actually holds RESEND_API_KEY can only be read from
+// the service's boot log — no endpoint exposes it, and none should.
+if (EMAIL_DOMAIN) {
+  section(`Email sending DNS for ${EMAIL_DOMAIN}`);
+  const { resolveTxt, resolveMx } = await import('node:dns/promises');
+
+  // A lookup that FAILED and a record that is ABSENT are different things, and conflating
+  // them is worse than not checking: a flaky resolver would report the domain as broken and
+  // send someone editing DNS that is actually fine. Only NODATA/NOTFOUND mean "absent";
+  // anything else (timeout, SERVFAIL) is inconclusive and warns instead.
+  const ABSENT = new Set(['ENODATA', 'ENOTFOUND']);
+  async function lookupTxt(host) {
+    try {
+      return { state: 'ok', records: (await resolveTxt(host)).map((chunks) => chunks.join('')) };
+    } catch (err) {
+      if (ABSENT.has(err.code)) return { state: 'absent', records: [] };
+      return { state: 'error', code: err.code, records: [] };
+    }
+  }
+
+  const apex = await lookupTxt(EMAIL_DOMAIN);
+  if (apex.state === 'error') {
+    warn('SPF record', `lookup failed (${apex.code}) — inconclusive, not a failure`);
+  } else {
+    const spf = apex.records.find((r) => r.toLowerCase().startsWith('v=spf1'));
+    if (!spf) fail('SPF record', 'absent — receivers cannot confirm who may send for this domain');
+    else if (/include:/.test(spf)) pass('SPF record', spf.slice(0, 90));
+    else warn('SPF record present but authorises no external sender', spf.slice(0, 90));
+  }
+
+  // Resend publishes DKIM at resend._domainkey.<domain>, or under send.<domain>.
+  const dkimHosts = [`resend._domainkey.${EMAIL_DOMAIN}`, `send.${EMAIL_DOMAIN}`];
+  const dkimResults = await Promise.all(dkimHosts.map(lookupTxt));
+  const dkimFound = dkimResults.findIndex((r) => r.state === 'ok' && r.records.length > 0);
+  if (dkimFound >= 0) pass('DKIM record', dkimHosts[dkimFound]);
+  else if (dkimResults.every((r) => r.state === 'absent')) {
+    fail('DKIM record', 'absent — mail will be unsigned and is likely to be spam-filtered');
+  } else {
+    warn('DKIM record', 'lookup failed — inconclusive, not a failure');
+  }
+
+  const dmarc = await lookupTxt(`_dmarc.${EMAIL_DOMAIN}`);
+  if (dmarc.state === 'ok' && dmarc.records.length) pass('DMARC record');
+  else if (dmarc.state === 'absent') warn('DMARC record', 'absent — recommended, not required for delivery');
+  else warn('DMARC record', 'lookup failed — inconclusive');
+
+  const mx = await resolveMx(EMAIL_DOMAIN).catch(() => null);
+  if (mx === null) warn('MX records', 'lookup failed — inconclusive');
+  else if (mx.length) pass('MX records', `${mx.length} found`);
+  else warn('MX records', 'none — outbound sending still works; inbound mail does not');
 }
 
 /* ------------------------------------------------------------------ done */
