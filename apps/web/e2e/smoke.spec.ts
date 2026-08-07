@@ -23,13 +23,29 @@ const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@lifecapitalos.dev';
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Admin@12345';
 const PASSWORD = 'SmokeTest1pass';
 
-/** Signs in through the real form and waits for the app shell. */
+/**
+ * Signs in through the real form and waits for wherever the user belongs.
+ *
+ * The destination is now membership-dependent — advisors land on /app, consumers on
+ * /dashboard — so this waits for either rather than assuming the workspace.
+ */
 async function signIn(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
   await page.fill('input[type=email]', email);
   await page.fill('input[type=password]', password);
   await page.click('button:has-text("Sign in")');
-  await page.waitForURL('**/app');
+  await page.waitForURL(/\/(app|dashboard|onboarding)$/);
+}
+
+/**
+ * Marks onboarding as done before the page loads.
+ *
+ * The retail dashboard nudges a user with no accounts into /onboarding, which is correct
+ * first-run behaviour but means a freshly-registered account never settles on /dashboard.
+ * Tests that need a RETURNING consumer set this first.
+ */
+async function asReturningConsumer(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem('lcos_onboarded', '1'));
 }
 
 /** Registers a fresh account straight through the API. Belongs to no firm by construction. */
@@ -76,8 +92,10 @@ test.describe('authentication', () => {
   test('sign in reaches the authenticated shell and stores a session', async ({ page }) => {
     await signIn(page, email, PASSWORD);
 
-    // The shell must RENDER. A crash here is the exact failure mode that took /app down.
-    await expect(page.getByText(/No firm yet/)).toBeVisible();
+    // The regression this guards: a firm-less user must NOT be sent to the Advisor
+    // Workspace, and must never see the "No firm yet" dead end.
+    await expect(page).not.toHaveURL(/\/app$/);
+    await expect(page.getByText(/No firm yet/)).toHaveCount(0);
 
     const session = await page.evaluate(() => ({
       access: localStorage.getItem('lcos_access'),
@@ -87,14 +105,23 @@ test.describe('authentication', () => {
     expect(session.refresh).toBeTruthy();
   });
 
+  test('a returning consumer lands on the retail dashboard', async ({ page }) => {
+    await asReturningConsumer(page);
+    await signIn(page, email, PASSWORD);
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole('heading', { name: /Family Balance Sheet/i })).toBeVisible();
+  });
+
   test('the session survives a reload', async ({ page }) => {
+    await asReturningConsumer(page);
     await signIn(page, email, PASSWORD);
     await page.reload();
-    await expect(page).toHaveURL(/\/app$/);
-    await expect(page.getByText(/No firm yet/)).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole('heading', { name: /Family Balance Sheet/i })).toBeVisible();
   });
 
   test('sign out clears the session and returns to login', async ({ page }) => {
+    await asReturningConsumer(page);
     await signIn(page, email, PASSWORD);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await page.waitForURL('**/login');
@@ -131,6 +158,18 @@ test.describe('account recovery', () => {
   test('an invalid verification link offers a way to get a new one', async ({ page }) => {
     await page.goto(`/verify-email?email=${encodeURIComponent(ADMIN_EMAIL)}&token=${'0'.repeat(64)}`);
     await expect(page.getByText(/Link has expired/i)).toBeVisible();
+  });
+});
+
+test.describe('consumer cannot reach the advisor workspace', () => {
+  test('a firm-less user typing /app is redirected to the retail dashboard', async ({ page, request }) => {
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/app');
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByText(/No firm yet/)).toHaveCount(0);
   });
 });
 
@@ -191,8 +230,8 @@ test.describe('new user registration', () => {
     await page.fill('input[type=password]', PASSWORD);
     await page.click('button:has-text("Create account")');
 
-    await page.waitForURL('**/app');
-    // A brand-new account belongs to no firm — the empty state must render, not crash.
-    await expect(page.getByText(/No firm yet/i)).toBeVisible();
+    // A brand-new account belongs to no firm, so it is a consumer.
+    await page.waitForURL(/\/(dashboard|onboarding)$/);
+    await expect(page.getByText(/No firm yet/i)).toHaveCount(0);
   });
 });
