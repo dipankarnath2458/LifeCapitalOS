@@ -1,0 +1,55 @@
+name: Verify Production
+
+# Manual, on-demand production verification.
+#
+# Exists because the checks that matter cannot be run from a laptop-less workflow: the
+# founder has no terminal, and the assistant's sandbox cannot reach the Railway host. A
+# GitHub runner can reach both, so this turns production verification into two clicks in
+# the Actions tab — and makes it repeatable before every release rather than a one-off.
+#
+# Read-only. It sends no request that creates data, changes state, or sends email.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API origin (no trailing slash)'
+        required: true
+        default: 'https://lifecapitalos-api-production.up.railway.app'
+      web_url:
+        description: 'Web origin (no trailing slash)'
+        required: true
+        default: 'https://lifecapitalos.com'
+      email_domain:
+        description: 'Domain email is sent FROM (checks SPF/DKIM/DMARC). Blank to skip.'
+        required: false
+        default: 'lifecapitalos.com'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify production
+        run: |
+          node scripts/verify-deployment.mjs \
+            --api "${{ inputs.api_url }}" \
+            --web "${{ inputs.web_url }}" \
+            --email-domain "${{ inputs.email_domain }}" \
+            --env production
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Production verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API: \`${{ inputs.api_url }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web: \`${{ inputs.web_url }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Email domain: \`${{ inputs.email_domain }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: **${{ job.status }}**. Full output is in the *Verify production* step." >> "$GITHUB_STEP_SUMMARY"
