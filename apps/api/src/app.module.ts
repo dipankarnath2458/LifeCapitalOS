@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { AuthModule } from './auth/auth.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 import { EmailModule } from './email/email.module';
 import { FirmsModule } from './firms/firms.module';
 import { HouseholdsModule } from './households/households.module';
@@ -33,6 +34,7 @@ import { HealthModule } from './health/health.module';
     CommonModule,
     EmailModule,
     AuthModule,
+    OnboardingModule,
     FirmsModule,
     HouseholdsModule,
     UsersModule,
