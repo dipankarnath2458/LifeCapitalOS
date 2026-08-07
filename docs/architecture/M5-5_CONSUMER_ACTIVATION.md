@@ -108,12 +108,35 @@ advisor may legitimately hold memberships in several firms, so `Membership.userI
 > deserialize — it throws before the lock is ever taken. Use `$executeRaw`, which does not deserialize
 > columns. The failure was loud in tests but would have been a 500 on every signup in production.
 
+## 4a. The onboarding flow (PR-2)
+
+Provisioning existed after PR-1 but nothing called it. The onboarding wizard wrote a
+profile, an account and a goal — all on the retail (`userId`) path — and created no
+household. A consumer could complete every step and still be unable to get a health score
+or an AI insight: **onboarding looked complete and left the account unusable.**
+
+The wizard now provisions the household in **step 1**, before anything else, because it is
+the container the rest of the product needs. The user is asked for a family name, not for a
+tenancy decision — and **the word "firm" never appears in the UI**.
+
+Skipping provisions it too. Skipping is the most common path through any wizard, and a
+skipped consumer without a household would land on a dashboard that can never compute
+anything for them. That call is best-effort: a failure there must not trap anyone in
+onboarding.
+
+`apps/web/src/lib/household.ts` is the single web-side entry point (`getOnboardingStatus`,
+`ensureHousehold`) so later consumer surfaces do not each re-derive this.
+
+Two smoke tests assert the **outcome** — a household exists afterwards — rather than that
+the wizard advanced, because nothing on screen distinguishes the two. Both were confirmed to
+fail when provisioning is removed, and no other test does.
+
 ## 5. Scope and sequencing
 
 | PR | Scope | State |
 | --- | --- | --- |
-| PR-1 | Consumer household provisioning (API) | This document |
-| PR-2 | Consumer onboarding flow (web) | Planned |
+| PR-1 | Consumer household provisioning (API) | Merged (#48) |
+| PR-2 | Consumer onboarding flow (web) | In review |
 | PR-3 | Wealth Health Check wizard | Planned |
 | PR-4 | Consumer financial dashboard | Planned |
 | PR-5 | AI insights via the Financial Intelligence Layer | Planned |
