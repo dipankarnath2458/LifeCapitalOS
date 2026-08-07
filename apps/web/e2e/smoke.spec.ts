@@ -282,6 +282,49 @@ test.describe('consumer onboarding', () => {
   });
 });
 
+test.describe('wealth health check', () => {
+  /**
+   * The consumer's first real output from the platform.
+   *
+   * Asserts the SCORE REFLECTS THE FIGURES ENTERED, not merely that a number rendered.
+   * Two silent failures make that distinction the whole point: writing accounts to the
+   * retail path instead of the household path, or collecting income without creating
+   * transactions, both produce a plausible-looking score computed on nothing.
+   *
+   * The figures below describe a healthy family — 20L of assets, 5L of debt, saving half
+   * their income — so a score computed on an empty snapshot would land far below this
+   * threshold. See docs/M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE.md.
+   */
+  test('produces a score computed from the figures entered', async ({ page, request }) => {
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page);
+    await signIn(page, consumer, PASSWORD);
+    await page.goto('/wealth-health');
+
+    await page.getByLabel('Cash & savings (₹)').fill('600000');
+    await page.getByLabel('Investments (₹)').fill('1400000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await page.getByLabel('Outstanding loan balance (₹)').fill('500000');
+    await page.getByLabel('Monthly payment (₹)').fill('15000');
+    await page.getByLabel('Interest rate (% a year)').fill('9');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await page.getByLabel('Monthly income (₹)').fill('200000');
+    await page.getByLabel('Monthly expenses (₹)').fill('100000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    const overall = Number((await page.getByTestId('overall-score').innerText()).split('/')[0]);
+    expect(overall).toBeGreaterThan(50);
+
+    // The per-category explanations come from the scoring model. If cashflow never
+    // reached the snapshot this reads "No income recorded for this period".
+    await expect(page.getByText(/No income recorded/i)).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Savings' })).toBeVisible();
+  });
+});
+
 test.describe('new user registration', () => {
   test('a new account can be created through the form and lands signed in', async ({ page }) => {
     const email = `smoke_signup_${Date.now()}@example.com`;

@@ -29,7 +29,7 @@ import {
   Card,
   CardContent,
   Field,
-  Input,
+  LabeledInput,
   Select,
   ErrorState,
   Heading,
@@ -207,7 +207,10 @@ export default function OnboardingPage() {
           aria-valuemax={TOTAL}
           aria-label="Onboarding progress"
         >
-          <div className="h-full bg-brand transition-all" style={{ width: `${(step / TOTAL) * 100}%` }} />
+          <div
+            className="h-full bg-brand transition-all"
+            style={{ width: `${(step / TOTAL) * 100}%` }}
+          />
         </div>
 
         {err && <ErrorState title="Something went wrong" description={err} className="mb-4" />}
@@ -223,14 +226,14 @@ export default function OnboardingPage() {
                   Your finances are organised around your family, so everything you add — accounts,
                   goals, and later your Wealth Health Check — stays in one place.
                 </Text>
-                <Field label="Family name" hint="You can change this later.">
-                  <Input
-                    value={familyName}
-                    onChange={(e) => setFamilyName(e.target.value)}
-                    placeholder="The Sharmas"
-                    maxLength={120}
-                  />
-                </Field>
+                <LabeledInput
+                  label="Family name"
+                  hint="You can change this later."
+                  value={familyName}
+                  onChange={(e) => setFamilyName(e.target.value)}
+                  placeholder="The Sharmas"
+                  maxLength={120}
+                />
                 <Button onClick={() => void createHousehold()} disabled={busy} className="w-full">
                   {busy ? 'Setting up…' : 'Continue'}
                 </Button>
@@ -242,20 +245,40 @@ export default function OnboardingPage() {
                 <Heading level={2} className="text-base">
                   About you
                 </Heading>
-                <Field label="Full name">
-                  <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
-                </Field>
-                <Field label="Date of birth" hint="Used for age-based scoring.">
-                  <Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
-                </Field>
-                <Field label="Annual income (₹)">
-                  <Input type="number" value={income} onChange={(e) => setIncome(e.target.value)} />
-                </Field>
-                <Field label="Monthly expenses (₹)">
-                  <Input type="number" value={expenses} onChange={(e) => setExpenses(e.target.value)} />
-                </Field>
-                <Field label="Risk tolerance">
-                  <Select value={risk} onChange={(e) => setRisk(e.target.value as Risk)}>
+                <LabeledInput
+                  label="Full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+                <LabeledInput
+                  label="Date of birth"
+                  hint="Used for age-based scoring."
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                />
+                <LabeledInput
+                  label="Annual income (₹)"
+                  type="number"
+                  value={income}
+                  onChange={(e) => setIncome(e.target.value)}
+                />
+                <LabeledInput
+                  label="Monthly expenses (₹)"
+                  type="number"
+                  value={expenses}
+                  onChange={(e) => setExpenses(e.target.value)}
+                />
+                {/* htmlFor/id wired explicitly: Field does not associate a label with its
+                    control on its own, and an unlabelled select is unreachable by name to a
+                    screen reader. LabeledInput does this for inputs; there is no Select
+                    equivalent in the design system. */}
+                <Field label="Risk tolerance" htmlFor="risk-tolerance">
+                  <Select
+                    id="risk-tolerance"
+                    value={risk}
+                    onChange={(e) => setRisk(e.target.value as Risk)}
+                  >
                     {RISK.map((r) => (
                       <option key={r} value={r}>
                         {r.charAt(0).toUpperCase() + r.slice(1)}
@@ -277,16 +300,17 @@ export default function OnboardingPage() {
                 <Text muted className="block text-sm">
                   Start your balance sheet with a bank or savings balance.
                 </Text>
-                <Field label="Account name">
-                  <Input value={acctName} onChange={(e) => setAcctName(e.target.value)} />
-                </Field>
-                <Field label="Current balance (₹)">
-                  <Input
-                    type="number"
-                    value={acctBalance}
-                    onChange={(e) => setAcctBalance(e.target.value)}
-                  />
-                </Field>
+                <LabeledInput
+                  label="Account name"
+                  value={acctName}
+                  onChange={(e) => setAcctName(e.target.value)}
+                />
+                <LabeledInput
+                  label="Current balance (₹)"
+                  type="number"
+                  value={acctBalance}
+                  onChange={(e) => setAcctBalance(e.target.value)}
+                />
                 <Button onClick={() => void saveAccount()} disabled={busy} className="w-full">
                   {busy ? 'Saving…' : 'Continue'}
                 </Button>
@@ -301,19 +325,23 @@ export default function OnboardingPage() {
                 <Text muted className="block text-sm">
                   We&apos;ll show the monthly SIP it needs.
                 </Text>
-                <Field label="Goal name">
-                  <Input value={goalName} onChange={(e) => setGoalName(e.target.value)} />
-                </Field>
-                <Field label="Target amount (₹)">
-                  <Input
-                    type="number"
-                    value={goalTarget}
-                    onChange={(e) => setGoalTarget(e.target.value)}
-                  />
-                </Field>
-                <Field label="Years to goal">
-                  <Input type="number" value={goalYears} onChange={(e) => setGoalYears(e.target.value)} />
-                </Field>
+                <LabeledInput
+                  label="Goal name"
+                  value={goalName}
+                  onChange={(e) => setGoalName(e.target.value)}
+                />
+                <LabeledInput
+                  label="Target amount (₹)"
+                  type="number"
+                  value={goalTarget}
+                  onChange={(e) => setGoalTarget(e.target.value)}
+                />
+                <LabeledInput
+                  label="Years to goal"
+                  type="number"
+                  value={goalYears}
+                  onChange={(e) => setGoalYears(e.target.value)}
+                />
                 <Button onClick={() => void finish()} disabled={busy} className="w-full">
                   {busy ? 'Finishing…' : 'Go to my dashboard'}
                 </Button>
