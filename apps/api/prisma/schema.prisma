@@ -631,6 +631,25 @@ model RefreshToken {
   @@index([userId])
 }
 
+// Failed-login counter, keyed by the SUBMITTED email rather than by a user id.
+//
+// Keying on the submission (not the account) is deliberate: an address that does not exist
+// is counted and locked exactly like one that does, so the lock response cannot be used to
+// discover which addresses are registered. That property is why this is a table of its own
+// rather than two columns on User.
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  /// Lower-cased submitted email.
+  target      String    @unique
+  failures    Int       @default(0)
+  /// Set once the failure threshold is crossed; null when not locked.
+  lockedUntil DateTime?
+  lastFailureAt DateTime @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+}
+
 model OtpCode {
   id        String   @id @default(cuid())
   userId    String?

@@ -24,6 +24,14 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 // Per-target send throttle to prevent SMS/email bombing and unbounded row growth.
 const SEND_WINDOW_MS = 15 * 60 * 1000;
 const MAX_SENDS_PER_WINDOW = 3;
+// Failed-login lockout. Generous enough that an ordinary person mistyping a password never
+// meets it, tight enough that online guessing is not viable: 5 tries then a 15-minute wait,
+// which caps an attacker at ~480 guesses per address per day.
+const MAX_LOGIN_FAILURES = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+// Failures older than this are forgiven, so a typo today plus a typo next week is not
+// treated as an attack.
+const LOGIN_FAILURE_WINDOW_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -131,18 +139,81 @@ export class AuthService {
   }
 
   async login(email: string, password: string): Promise<TokenPair> {
-    // The per-attempt diagnostic logging that lived here was marked TEMPORARY, for the
-    // production auth diagnosis that is now closed. It wrote account existence, account
-    // status and the submitted password's length on every login attempt — turning the log
-    // into an account-enumeration oracle for anyone who could read it. Failed logins are
-    // still visible through the request log and the audit trail.
+    // Checked before anything else, and keyed on the SUBMITTED address rather than on a
+    // user id — an address that does not exist locks exactly like one that does, so the
+    // lock response cannot be used to discover which addresses are registered.
+    await this.assertNotLockedOut(email);
+
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user?.passwordHash) throw new UnauthorizedException('Invalid credentials');
+    if (!user?.passwordHash) {
+      await this.recordLoginFailure(email);
+      throw new UnauthorizedException('Invalid credentials');
+    }
     if (user.status !== 'active') throw new UnauthorizedException('Account is not active');
+
     const ok = await argon2.verify(user.passwordHash, password);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    if (!ok) {
+      await this.recordLoginFailure(email);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    await this.clearLoginFailures(email);
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     return this.issueTokens(user.id, user.role);
+  }
+
+  /** Addresses are compared case-insensitively so `A@b.com` cannot dodge the counter. */
+  private static loginKey(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  /**
+   * Throws while a lock is in force. The message names the wait deliberately: an attacker
+   * hammering an address already knows it is being hammered, and a locked-out real person
+   * needs to know why they cannot get in.
+   */
+  private async assertNotLockedOut(email: string): Promise<void> {
+    const record = await this.prisma.loginAttempt.findUnique({
+      where: { target: AuthService.loginKey(email) },
+    });
+    if (!record?.lockedUntil) return;
+    const remainingMs = record.lockedUntil.getTime() - Date.now();
+    if (remainingMs <= 0) return;
+    const minutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+    throw new UnauthorizedException(
+      `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, ` +
+        'or reset your password.',
+    );
+  }
+
+  private async recordLoginFailure(email: string): Promise<void> {
+    const target = AuthService.loginKey(email);
+    const now = new Date();
+    const existing = await this.prisma.loginAttempt.findUnique({ where: { target } });
+
+    // A stale run of failures is forgiven rather than carried forward forever, and an
+    // expired lock resets the count so the next mistake does not re-lock immediately.
+    const stale =
+      !existing ||
+      now.getTime() - existing.lastFailureAt.getTime() > LOGIN_FAILURE_WINDOW_MS ||
+      (existing.lockedUntil !== null && existing.lockedUntil.getTime() <= now.getTime());
+
+    const failures = stale ? 1 : existing.failures + 1;
+    const lockedUntil = failures >= MAX_LOGIN_FAILURES ? new Date(now.getTime() + LOGIN_LOCK_MS) : null;
+
+    await this.prisma.loginAttempt.upsert({
+      where: { target },
+      create: { target, failures, lockedUntil, lastFailureAt: now },
+      update: { failures, lockedUntil, lastFailureAt: now },
+    });
+  }
+
+  private async clearLoginFailures(email: string): Promise<void> {
+    const target = AuthService.loginKey(email);
+    await this.prisma.loginAttempt
+      .delete({ where: { target } })
+      // Nothing to clear is the normal case; never let bookkeeping fail a valid sign-in.
+      .catch(() => undefined);
   }
 
   // ---- Password management ----
