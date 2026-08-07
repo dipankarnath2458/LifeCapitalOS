@@ -90,6 +90,11 @@ test.describe('authentication', () => {
   });
 
   test('sign in reaches the authenticated shell and stores a session', async ({ page }) => {
+    // As a RETURNING consumer: a first-run account is redirected on to /onboarding, and
+    // reading localStorage mid-navigation destroys the execution context. This test is
+    // about the session being stored, not about first-run routing — which the consumer
+    // onboarding tests below cover directly.
+    await asReturningConsumer(page);
     await signIn(page, email, PASSWORD);
 
     // The regression this guards: a firm-less user must NOT be sent to the Advisor
@@ -216,6 +221,64 @@ test.describe('advisor workspace', () => {
     await expect(page.getByRole('link', { name: 'Households' }).first()).toBeVisible();
     await expect(page.getByText('Advisor workspace').first()).toBeVisible();
     await expect(page.getByText(/No firm yet/)).toHaveCount(0);
+  });
+});
+
+test.describe('consumer onboarding', () => {
+  /**
+   * The regression this guards is the one M5.5 PR-1/PR-2 exist to fix.
+   *
+   * Onboarding used to write a profile, an account and a goal — all on the retail
+   * (`userId`) path — and never create a household. `FinancialSnapshot` and
+   * `FinancialHealthScore` are household-only, so a consumer could complete every step and
+   * still be unable to get a Wealth Health Check, a health score, or any AI insight.
+   * Onboarding looked complete and left the account unusable.
+   *
+   * So this asserts the outcome (a household exists), not the appearance (the wizard
+   * advanced). Nothing on screen would have shown the difference.
+   */
+  test('the first step provisions a household', async ({ page, request }) => {
+    // No navigation of our own: a first-run consumer is routed to /onboarding by the
+    // dashboard, and racing that redirect with a goto() aborts it. Arriving the way a real
+    // user does also means this covers the first-run route itself.
+    const consumer = await createAccount(request);
+    await signIn(page, consumer, PASSWORD);
+    await page.waitForURL(/\/onboarding$/);
+
+    await expect(page.getByRole('heading', { name: /Who are we planning for/i })).toBeVisible();
+    await page.fill('input[placeholder="The Sharmas"]', 'Playwright Family');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    // Advancing to step 2 is the UI signal; the household is the actual deliverable.
+    await expect(page.getByRole('heading', { name: 'About you' })).toBeVisible();
+
+    const status = await page.evaluate(async (base) => {
+      const res = await fetch(`${base}/onboarding/status`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('lcos_access')}` },
+      });
+      return res.json();
+    }, API_URL);
+    expect(status.hasHousehold).toBe(true);
+    expect(status.householdId).toBeTruthy();
+  });
+
+  test('skipping still leaves a usable account rather than a dead end', async ({ page, request }) => {
+    // Skipping is the most common path through any wizard. A skipped consumer with no
+    // household would reach a dashboard that can never compute anything for them.
+    const consumer = await createAccount(request);
+    await signIn(page, consumer, PASSWORD);
+    await page.waitForURL(/\/onboarding$/);
+
+    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await page.waitForURL(/\/(dashboard|app)$/);
+
+    const status = await page.evaluate(async (base) => {
+      const res = await fetch(`${base}/onboarding/status`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('lcos_access')}` },
+      });
+      return res.json();
+    }, API_URL);
+    expect(status.hasHousehold).toBe(true);
   });
 });
 
