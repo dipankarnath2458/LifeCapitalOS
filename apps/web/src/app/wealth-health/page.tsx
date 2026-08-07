@@ -13,7 +13,6 @@
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
 import { runWealthHealthCheck, type HealthScoreResult } from '@/lib/wealthHealth';
-import { CONSUMER_HOME } from '@/lib/postLoginDestination';
 import {
   Badge,
   Button,
@@ -135,7 +134,10 @@ export default function WealthHealthPage() {
             ))}
           </div>
           <div className="mt-8 flex gap-3">
-            <Button onClick={() => (window.location.href = CONSUMER_HOME)}>
+            {/* The Household Dashboard (M5.6) is where this score lives from now on. It
+                reads the same snapshot this check just captured, so the number here and
+                the number there cannot disagree. */}
+            <Button onClick={() => (window.location.href = '/household')}>
               Go to my dashboard
             </Button>
             <Button

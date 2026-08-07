@@ -325,6 +325,81 @@ test.describe('wealth health check', () => {
   });
 });
 
+test.describe('household dashboard', () => {
+  /**
+   * M5.6 — the canonical consumer of the V2 Financial Intelligence Layer.
+   *
+   * Asserts the page shows the family's ACTUAL position. The failure this guards is a
+   * dashboard that renders confidently from an empty or stale snapshot: ₹0 net worth and
+   * an unknown net worth are indistinguishable once drawn, and only one of them is true.
+   *
+   * See docs/M5_6_HOUSEHOLD_DASHBOARD_ARCHITECTURE.md.
+   */
+  test('shows the figures from the snapshot the check captured', async ({ page, request }) => {
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page);
+    await signIn(page, consumer, PASSWORD);
+
+    // Complete a check so a snapshot exists — the dashboard reads, it never captures.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('150000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // ₹20,00,000 of assets and no debt. A dashboard reading an empty snapshot would show
+    // ₹0 here, which is the whole point of asserting the value rather than the render.
+    await expect(page.getByTestId('net-worth')).toContainText('20,00,000');
+    const score = Number((await page.getByTestId('overall-score').innerText()).split('/')[0]);
+    expect(score).toBeGreaterThan(0);
+
+    // Provenance is shown, so any number here can be traced back to its snapshot.
+    await expect(page.getByText(/Based on your snapshot/i)).toBeVisible();
+  });
+
+  test('invites a consumer with no data to run the check, rather than showing zeros', async ({
+    page,
+    request,
+  }) => {
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page);
+    await signIn(page, consumer, PASSWORD);
+
+    // Provision the household WITHOUT capturing a snapshot. This is the realistic state:
+    // since onboarding provisions a household for everyone, every real consumer arrives
+    // here with a household and no snapshot. Testing only the no-household case would
+    // exercise a branch almost nobody hits — confirmed by sabotaging the no-snapshot
+    // branch and watching this test still pass.
+    await page.evaluate(async (base) => {
+      await fetch(`${base}/onboarding/household`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('lcos_access')}`,
+        },
+        body: '{}',
+      });
+    }, API_URL);
+
+    await page.goto('/household');
+
+    await expect(page.getByText(/Let's build your financial picture/i)).toBeVisible();
+    // The distinction that matters: no fabricated figures anywhere on the empty state.
+    await expect(page.getByTestId('net-worth')).toHaveCount(0);
+    await expect(page.getByTestId('overall-score')).toHaveCount(0);
+
+    await page.getByRole('button', { name: /Start my Wealth Health Check/i }).click();
+    await expect(page).toHaveURL(/\/wealth-health$/);
+  });
+});
+
 test.describe('new user registration', () => {
   test('a new account can be created through the form and lands signed in', async ({ page }) => {
     const email = `smoke_signup_${Date.now()}@example.com`;
