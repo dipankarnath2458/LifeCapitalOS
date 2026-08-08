@@ -34,9 +34,8 @@ import {
   ErrorState,
   Heading,
   Text,
-  ThemeProvider,
-  ThemeScript,
 } from '@/ui';
+import { ThemedPage } from '@/components/ThemedPage';
 
 const RISK = ['conservative', 'moderate', 'aggressive'] as const;
 type Risk = (typeof RISK)[number];
@@ -184,8 +183,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <ThemeProvider>
-      <ThemeScript />
+    <ThemedPage>
       <main className="mx-auto max-w-lg px-6 py-12">
         <div className="mb-2 flex items-start justify-between gap-4">
           <Heading level={1} className="text-2xl">
@@ -350,6 +348,6 @@ export default function OnboardingPage() {
           </CardContent>
         </Card>
       </main>
-    </ThemeProvider>
+    </ThemedPage>
   );
 }

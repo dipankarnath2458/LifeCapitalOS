@@ -32,7 +32,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           setRole(me.role ?? null);
           setState('allowed');
         } else {
-          window.location.href = '/dashboard';
+          window.location.href = '/household';
         }
       })
       .catch(() => {

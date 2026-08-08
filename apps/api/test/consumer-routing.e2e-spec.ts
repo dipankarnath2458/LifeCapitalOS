@@ -48,6 +48,46 @@ describe('Consumer routing signal (e2e)', () => {
   const status = (token: string) =>
     http().get('/api/onboarding/status').set('Authorization', `Bearer ${token}`);
 
+  async function adminToken(): Promise<string> {
+    const res = await http()
+      .post('/api/auth/login')
+      .send({ email: 'admin@lifecapitalos.dev', password: 'Admin@12345' });
+    return res.body.accessToken as string;
+  }
+
+  /**
+   * A FRESH user who is a genuine advisory-firm member.
+   *
+   * Deliberately not the seeded admin: that account is shared across suites, so whether it
+   * owns a household depends on what ran before. These tests assert on ownership, so they
+   * provision their own advisor rather than inheriting one.
+   */
+  async function newAdvisor(prefix: string) {
+    const advisor = await newUser(prefix);
+    const admin = await adminToken();
+    const adminMe = await http().get('/api/auth/me').set('Authorization', `Bearer ${admin}`);
+
+    const firm = await http()
+      .post('/api/firms')
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ name: `Advisory ${prefix} ${Date.now()}`, ownerUserId: adminMe.body.id });
+    expect(firm.status).toBe(201);
+
+    const invite = await http()
+      .post(`/api/firms/${firm.body.id}/invitations`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ email: advisor.email, firmRole: 'ADVISOR' });
+    expect([200, 201]).toContain(invite.status);
+
+    const accept = await http()
+      .post(`/api/firms/${firm.body.id}/accept`)
+      .set('Authorization', `Bearer ${advisor.token}`)
+      .send({});
+    expect([200, 201]).toContain(accept.status);
+
+    return { ...advisor, firmId: firm.body.id as string, admin };
+  }
+
   it('a brand-new user owns no household — the intended fallback', async () => {
     const { token } = await newUser('route_new');
     const res = await status(token);
@@ -77,36 +117,24 @@ describe('Consumer routing signal (e2e)', () => {
   it('an advisory firm member does NOT own their client households', async () => {
     // An advisor is a household's advisorId, never one of its members — so they keep the
     // Advisor Workspace. This is the half of the fix that must not regress.
-    const admin = await http()
-      .post('/api/auth/login')
-      .send({ email: 'admin@lifecapitalos.dev', password: 'Admin@12345' });
-    const adminToken = admin.body.accessToken as string;
-    const me = await http().get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`);
-
-    const firm = await http()
-      .post('/api/firms')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: `Routing Advisory ${Date.now()}`, ownerUserId: me.body.id });
-    expect(firm.status).toBe(201);
+    const advisor = await newAdvisor('route_advisor');
 
     await http()
-      .post(`/api/firms/${firm.body.id}/switch`)
-      .set('Authorization', `Bearer ${adminToken}`)
+      .post(`/api/firms/${advisor.firmId}/switch`)
+      .set('Authorization', `Bearer ${advisor.token}`)
       .send({});
     const client = await http()
       .post('/api/households')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${advisor.token}`)
       .send({ name: 'Client Family', baseCurrency: 'INR' });
     expect(client.status).toBe(201);
 
-    // The point of the test: the client household exists, but the advisor does not OWN it,
-    // so routing keeps them on the Advisor Workspace.
     const owns = await prisma.householdMember.findFirst({
-      where: { householdId: client.body.id, userId: me.body.id },
+      where: { householdId: client.body.id, userId: advisor.userId },
     });
     expect(owns).toBeNull();
 
-    const res = await status(adminToken);
+    const res = await status(advisor.token);
     expect(res.body.hasOwnHousehold).toBe(false);
   });
 
@@ -159,6 +187,42 @@ describe('Consumer routing signal (e2e)', () => {
     const members = await prisma.householdMember.findMany({ where: { householdId } });
     expect(members).toHaveLength(1);
     expect(members[0].relation).toBe('spouse');
+  });
+
+  it('stays idempotent when the caller already belongs to a household-less firm', async () => {
+    // A user can belong to a firm that has no households yet — a seeded admin, or an
+    // advisor whose firm has no clients. Resolving the workspace from only their FIRST
+    // membership made them look workspace-less, and since provisioning reads that as
+    // "create one", every call minted another firm. Measured before the fix: three calls,
+    // three new firms, each reporting provisioned: true.
+    const advisor = await newAdvisor('route_emptyfirm');
+
+    const first = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${advisor.token}`)
+      .send({});
+    expect(first.status).toBe(201);
+
+    const afterFirst = await http()
+      .get('/api/firms/me')
+      .set('Authorization', `Bearer ${advisor.token}`);
+    const firmCount = afterFirst.body.firms.length;
+
+    for (let i = 0; i < 2; i += 1) {
+      const again = await http()
+        .post('/api/onboarding/household')
+        .set('Authorization', `Bearer ${advisor.token}`)
+        .send({});
+      expect(again.body.provisioned).toBe(false);
+      expect(again.body.householdId).toBe(first.body.householdId);
+    }
+
+    const atEnd = await http().get('/api/firms/me').set('Authorization', `Bearer ${advisor.token}`);
+    expect(atEnd.body.firms).toHaveLength(firmCount);
+
+    const st = await status(advisor.token);
+    expect(st.body.hasHousehold).toBe(true);
+    expect(st.body.householdId).toBeTruthy();
   });
 
   it('requires authentication', async () => {

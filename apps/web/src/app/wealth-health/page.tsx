@@ -23,9 +23,8 @@ import {
   Heading,
   Spinner,
   Text,
-  ThemeProvider,
-  ThemeScript,
 } from '@/ui';
+import { ThemedPage } from '@/components/ThemedPage';
 const STEPS = ['What you own', 'What you owe', 'Money in, money out'] as const;
 const TOTAL = STEPS.length;
 /** Bands come from the scoring model; this maps them to the design system's tones only. */
@@ -85,8 +84,7 @@ export default function WealthHealthPage() {
   }
   if (result) {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <main className="mx-auto max-w-2xl px-6 py-12">
           <Heading level={1} className="mb-1 text-2xl">
             Your Wealth Health
@@ -151,12 +149,11 @@ export default function WealthHealthPage() {
             </Button>
           </div>
         </main>
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
   return (
-    <ThemeProvider>
-      <ThemeScript />
+    <ThemedPage>
       <main className="mx-auto max-w-lg px-6 py-12">
         <Heading level={1} className="mb-1 text-2xl">
           Wealth Health Check
@@ -291,6 +288,6 @@ export default function WealthHealthPage() {
           </CardContent>
         </Card>
       </main>
-    </ThemeProvider>
+    </ThemedPage>
   );
 }

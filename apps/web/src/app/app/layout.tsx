@@ -40,12 +40,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       window.location.href = '/login';
       return;
     }
-    apiGet<FirmsMe>('/firms/me', token)
-      .then(async (me) => {
+    Promise.all([
+      apiGet<FirmsMe>('/firms/me', token),
+      apiGet<{ hasOwnHousehold?: boolean }>('/onboarding/status', token).catch(() => null),
+    ])
+      .then(async ([me, own]) => {
+        // A consumer belongs to a household as themselves. Since onboarding gives every
+        // consumer a personal firm, `firms.length > 0` is true for them too — so gating on
+        // firm membership alone let a consumer who typed /app land in the Advisor
+        // Workspace. Own-household membership is what actually distinguishes them.
+        if (own?.hasOwnHousehold) {
+          window.location.href = CONSUMER_HOME;
+          return;
+        }
         if (!me.firms || me.firms.length === 0) {
           // A firm-less user cannot use this section at all — `Household.firmId` is NOT
-          // NULL, so they can never have a household here. Send them to the retail
-          // dashboard rather than showing an empty state they cannot act on.
+          // NULL, so they can never have a household here. Send them to the consumer
+          // home rather than showing an empty state they cannot act on.
           window.location.href = CONSUMER_HOME;
           return;
         }

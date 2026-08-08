@@ -25,7 +25,7 @@ async function handle<T>(res: Response): Promise<T> {
       throw new Error('Unauthorized');
     }
     if (res.status === 403) {
-      window.location.href = '/dashboard';
+      window.location.href = '/household';
       throw new Error('Forbidden');
     }
   }

@@ -20,7 +20,9 @@
  */
 
 import { useEffect, useState } from 'react';
+import { apiGet } from '@/lib/api';
 import { getAccessToken, signOut } from '@/lib/session';
+import { isAdminRole } from '@/lib/admin';
 import {
   formatMoney,
   loadDashboard,
@@ -39,9 +41,8 @@ import {
   Heading,
   LoadingState,
   Text,
-  ThemeProvider,
-  ThemeScript,
 } from '@/ui';
+import { ThemedPage } from '@/components/ThemedPage';
 
 /**
  * Renders a section, or the engine's reason for it being unavailable.
@@ -85,8 +86,88 @@ function Figure({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The consumer shell: header, primary actions, and the preserved-capability nav.
+ *
+ * Rendered in EVERY state, not only when intelligence loads. A consumer who has onboarded
+ * but not yet run their Wealth Health Check would otherwise land on a bare call-to-action
+ * with no way to sign out, reach Plans or Admin, or reach Goals / Family / Protection /
+ * the AI coach — capability lost silently, which is the exact failure this migration is
+ * meant to avoid.
+ */
+function ConsumerShell({
+  isAdmin,
+  title,
+  subtitle,
+  children,
+}: {
+  isAdmin: boolean;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <main className="mx-auto max-w-4xl px-6 py-10">
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Heading level={1} className="text-2xl">
+            {title}
+          </Heading>
+          {subtitle && (
+            <Text muted className="mt-1 block text-sm">
+              {subtitle}
+            </Text>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/wealth-health')}>
+            Update my figures
+          </Button>
+          {/* Plans and Admin were reachable ONLY from the V1 dashboard. Consumers no longer
+              land there, so without these links /billing and /admin would still work by URL
+              but be unreachable by navigation — a silent loss. */}
+          <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/billing')}>
+            Plans
+          </Button>
+          {isAdmin && (
+            <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/admin')}>
+              Admin
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+            Sign out
+          </Button>
+        </div>
+      </header>
+
+      {/* Capabilities V2 has not rebuilt yet, hosted on temporary surfaces that reuse the
+          preserved V1 components. Linked here so nothing is silently lost while V2 is
+          primary. Each is replaced by the module named on its own page. */}
+      <nav aria-label="More of your finances" className="mb-6 flex flex-wrap gap-2">
+        {[
+          { href: '/household/goals', label: 'Goals' },
+          { href: '/household/family', label: 'Family' },
+          { href: '/household/protection', label: 'Protection' },
+          { href: '/household/coach', label: 'AI coach' },
+        ].map((l) => (
+          <a
+            key={l.href}
+            href={l.href}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+          >
+            {l.label}
+          </a>
+        ))}
+      </nav>
+
+      {children}
+    </main>
+  );
+}
+
 export default function HouseholdDashboardPage() {
   const [state, setState] = useState<DashboardState | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -94,23 +175,35 @@ export default function HouseholdDashboardPage() {
       window.location.href = '/login';
       return;
     }
-    void loadDashboard(token).then(setState);
+    // Role decides only whether the Admin link renders; the API enforces access itself.
+    void apiGet<{ role?: string }>('/auth/me', token)
+      .then((me) => setIsAdmin(isAdminRole(me.role)))
+      .catch(() => setIsAdmin(false));
+
+    void loadDashboard(token).then((s) => {
+      // First-run: a consumer with no household goes to the guided flow. This redirect used
+      // to live on the V1 dashboard and was the ONLY entry into onboarding in the product;
+      // it moves here because consumers are no longer routed to /dashboard.
+      if (s.kind === 'needs-onboarding') {
+        window.location.href = '/onboarding';
+        return;
+      }
+      setState(s);
+    });
   }, []);
 
   if (!state) {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <LoadingState label="Loading your financial picture…" />
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
   if (state.kind === 'error') {
     return (
-      <ThemeProvider>
-        <ThemeScript />
-        <main className="mx-auto max-w-lg px-6 py-16">
+      <ThemedPage>
+        <ConsumerShell isAdmin={isAdmin} title="Your household">
           {/* Deliberately NOT the "run your check" screen: their data may exist and simply
               be unreachable, and inviting them to re-enter it would be misleading. */}
           <ErrorState
@@ -118,16 +211,15 @@ export default function HouseholdDashboardPage() {
             description="Your data is safe. Please refresh in a moment."
             action={{ label: 'Try again', onClick: () => window.location.reload() }}
           />
-        </main>
-      </ThemeProvider>
+        </ConsumerShell>
+      </ThemedPage>
     );
   }
 
   if (state.kind === 'needs-check') {
     return (
-      <ThemeProvider>
-        <ThemeScript />
-        <main className="mx-auto max-w-lg px-6 py-16">
+      <ThemedPage>
+        <ConsumerShell isAdmin={isAdmin} title="Your household">
           <EmptyState
             title="Let's build your financial picture"
             description="Answer a few questions about what you own, what you owe, and your monthly money. We'll do the rest."
@@ -136,8 +228,19 @@ export default function HouseholdDashboardPage() {
               onClick: () => (window.location.href = '/wealth-health'),
             }}
           />
-        </main>
-      </ThemeProvider>
+        </ConsumerShell>
+      </ThemedPage>
+    );
+  }
+
+  if (state.kind === 'needs-onboarding') {
+    // Unreachable in practice — the effect redirects before this state is ever stored.
+    // Rendering a spinner rather than asserting keeps a redirect that is in flight from
+    // flashing an error screen.
+    return (
+      <ThemedPage>
+        <LoadingState label="Setting up your account…" />
+      </ThemedPage>
     );
   }
 
@@ -146,27 +249,12 @@ export default function HouseholdDashboardPage() {
   const money = (minor: number) => formatMoney(minor, currency);
 
   return (
-    <ThemeProvider>
-      <ThemeScript />
-      <main className="mx-auto max-w-4xl px-6 py-10">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <Heading level={1} className="text-2xl">
-              {i.household.name ?? 'Your household'}
-            </Heading>
-            <Text muted className="mt-1 block text-sm">
-              {i.executiveSummary.headline}
-            </Text>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/wealth-health')}>
-              Update my figures
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => void signOut()}>
-              Sign out
-            </Button>
-          </div>
-        </header>
+    <ThemedPage>
+      <ConsumerShell
+        isAdmin={isAdmin}
+        title={i.household.name ?? 'Your household'}
+        subtitle={i.executiveSummary.headline}
+      >
 
         {/* Wealth Health — the headline number, straight from the engine. */}
         <div className="mb-4">
@@ -350,7 +438,7 @@ export default function HouseholdDashboardPage() {
             scoring {i.meta.scoreModelVersion} · {new Date(i.meta.computedAt).toLocaleString('en-IN')}
           </Text>
         </footer>
-      </main>
-    </ThemeProvider>
+      </ConsumerShell>
+    </ThemedPage>
   );
 }
