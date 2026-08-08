@@ -526,12 +526,85 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page).toHaveURL(/\/billing$/);
   });
 
-  test('an admin sees the Admin link on the V2 dashboard', async ({ page }) => {
+  test('an admin sees the Admin link on the V2 dashboard', async ({ page, request }) => {
+    // Provision the admin's OWN household rather than assuming the seed left one: the
+    // seeded admin's firm has no household, so /household would forward them into consumer
+    // onboarding and the page under test would never render. This file's rule is that each
+    // journey provisions the shape it needs instead of depending on database history.
+    const login = await request.post(`${API_URL}/auth/login`, {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    });
+    const { accessToken } = await login.json();
+    const provisioned = await request.post(`${API_URL}/onboarding/household`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: {},
+    });
+    expect(provisioned.ok()).toBeTruthy();
+
     await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
-    // The seeded admin belongs to a firm, so land them on the consumer home explicitly.
     await page.goto('/household');
     await expect(page.getByRole('button', { name: 'Admin' })).toBeVisible();
   });
+});
+
+test.describe('dark mode is readable', () => {
+  /**
+   * A defect that shipped in M5.5/M5.6 and was invisible to every test: the V2 consumer
+   * pages were unreadable in dark mode.
+   *
+   * `ThemeProvider` supplies context only — it renders no element. The class that adopts
+   * the tokens is `.ds-root`, and `DashboardLayout` was the ONLY thing applying it, which
+   * is why the Advisor Workspace themed correctly and the consumer pages did not. Dark mode
+   * flipped the tokens, so every design-system component resolved `text-foreground` to
+   * near-white, while the page background stayed `bg-slate-50`. Measured on /household:
+   * heading rgb(241,245,249) on rgb(248,250,252) — a contrast ratio of about 1.04:1.
+   *
+   * It was reachable by default: with no stored preference, an OS set to dark resolves to
+   * dark. So this asserts CONTRAST, not that a class is present — the property that matters
+   * is that a user can read the page.
+   */
+  const CONSUMER_SURFACES = ['/household', '/wealth-health', '/household/goals'];
+
+  for (const path of CONSUMER_SURFACES) {
+    test(`${path} has readable contrast in dark mode`, async ({ page, request }) => {
+      const consumer = await createAccount(request);
+      await page.addInitScript(() => localStorage.setItem('lcos-theme', 'dark'));
+      await asReturningConsumer(page, request, consumer);
+      await signIn(page, consumer, PASSWORD);
+      await page.goto(path);
+      await page.waitForSelector('h1');
+
+      const contrast = await page.evaluate(() => {
+        const cs = (el: Element) => getComputedStyle(el);
+        const h1 = document.querySelector('h1')!;
+        const rgb = (v: string) => (v.match(/\d+/g) ?? []).slice(0, 3).map(Number);
+        // Relative luminance per WCAG.
+        const lum = (c: number[]) => {
+          const f = (v: number) => {
+            const s = (v ?? 0) / 255;
+            return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+          };
+          return 0.2126 * f(c[0] ?? 0) + 0.7152 * f(c[1] ?? 0) + 0.0722 * f(c[2] ?? 0);
+        };
+        // The background actually painted behind the heading, not `body`.
+        let el: Element | null = h1;
+        let bg = 'rgb(255,255,255)';
+        while (el) {
+          const b = cs(el).backgroundColor;
+          if (b && b !== 'rgba(0, 0, 0, 0)' && b !== 'transparent') { bg = b; break; }
+          el = el.parentElement;
+        }
+        const l1 = lum(rgb(cs(h1).color));
+        const l2 = lum(rgb(bg));
+        const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+        return { dark: document.documentElement.classList.contains('dark'), ratio };
+      });
+
+      expect(contrast.dark).toBe(true);
+      // WCAG AA for large text is 3:1. The broken state measured ~1.04:1.
+      expect(contrast.ratio).toBeGreaterThan(3);
+    });
+  }
 });
 
 test.describe('new user registration', () => {

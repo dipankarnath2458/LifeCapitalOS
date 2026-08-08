@@ -34,7 +34,8 @@
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { Button, Heading, LoadingState, Text, ThemeProvider, ThemeScript } from '@/ui';
+import { Button, Heading, LoadingState, Text } from '@/ui';
+import { ThemedPage } from '@/components/ThemedPage';
 
 export function TemporarySurface({
   title,
@@ -61,16 +62,14 @@ export function TemporarySurface({
 
   if (!token) {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <LoadingState label="Loading…" />
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
   return (
-    <ThemeProvider>
-      <ThemeScript />
+    <ThemedPage>
       <main className="mx-auto max-w-3xl px-6 py-10">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -100,6 +99,6 @@ export function TemporarySurface({
 
         {children(token)}
       </main>
-    </ThemeProvider>
+    </ThemedPage>
   );
 }

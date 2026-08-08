@@ -41,9 +41,8 @@ import {
   Heading,
   LoadingState,
   Text,
-  ThemeProvider,
-  ThemeScript,
 } from '@/ui';
+import { ThemedPage } from '@/components/ThemedPage';
 
 /**
  * Renders a section, or the engine's reason for it being unavailable.
@@ -195,17 +194,15 @@ export default function HouseholdDashboardPage() {
 
   if (!state) {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <LoadingState label="Loading your financial picture…" />
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
   if (state.kind === 'error') {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <ConsumerShell isAdmin={isAdmin} title="Your household">
           {/* Deliberately NOT the "run your check" screen: their data may exist and simply
               be unreachable, and inviting them to re-enter it would be misleading. */}
@@ -215,14 +212,13 @@ export default function HouseholdDashboardPage() {
             action={{ label: 'Try again', onClick: () => window.location.reload() }}
           />
         </ConsumerShell>
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
   if (state.kind === 'needs-check') {
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <ConsumerShell isAdmin={isAdmin} title="Your household">
           <EmptyState
             title="Let's build your financial picture"
@@ -233,7 +229,7 @@ export default function HouseholdDashboardPage() {
             }}
           />
         </ConsumerShell>
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
@@ -242,10 +238,9 @@ export default function HouseholdDashboardPage() {
     // Rendering a spinner rather than asserting keeps a redirect that is in flight from
     // flashing an error screen.
     return (
-      <ThemeProvider>
-        <ThemeScript />
+      <ThemedPage>
         <LoadingState label="Setting up your account…" />
-      </ThemeProvider>
+      </ThemedPage>
     );
   }
 
@@ -254,8 +249,7 @@ export default function HouseholdDashboardPage() {
   const money = (minor: number) => formatMoney(minor, currency);
 
   return (
-    <ThemeProvider>
-      <ThemeScript />
+    <ThemedPage>
       <ConsumerShell
         isAdmin={isAdmin}
         title={i.household.name ?? 'Your household'}
@@ -445,6 +439,6 @@ export default function HouseholdDashboardPage() {
           </Text>
         </footer>
       </ConsumerShell>
-    </ThemeProvider>
+    </ThemedPage>
   );
 }

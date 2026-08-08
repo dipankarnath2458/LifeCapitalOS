@@ -70,21 +70,28 @@ export class OnboardingService {
     return { firmId: member.household.firmId, householdId: member.household.id };
   }
 
-  /** The caller's existing workspace, or null when they have none. */
+  /**
+   * The caller's existing workspace, or null when they have none.
+   *
+   * Looks for the first household across **every** firm the caller is an active member of.
+   * An earlier version took only their first membership and gave up when that firm had no
+   * household — so a user whose first firm was empty (a seeded admin, or an advisor whose
+   * firm has no clients yet) appeared to have no workspace at all. Since
+   * `ensurePersonalHousehold` reads "no workspace" as "create one", every call minted
+   * another firm: three calls to an endpoint that is idempotent *by contract* produced
+   * three firms, each reporting `provisioned: true`.
+   */
   async findWorkspace(userId: string): Promise<PersonalWorkspace | null> {
-    const membership = await this.prisma.membership.findFirst({
-      where: { userId, status: 'active' },
-      orderBy: { invitedAt: 'asc' },
-    });
-    if (!membership) return null;
-
     const household = await this.prisma.household.findFirst({
-      where: { firmId: membership.firmId, status: 'active' },
+      where: {
+        status: 'active',
+        firm: { memberships: { some: { userId, status: 'active' } } },
+      },
       orderBy: { createdAt: 'asc' },
     });
     if (!household) return null;
 
-    return { firmId: membership.firmId, householdId: household.id, provisioned: false };
+    return { firmId: household.firmId, householdId: household.id, provisioned: false };
   }
 
   /**
@@ -137,18 +144,18 @@ export class OnboardingService {
       // cannot deserialize a void column — it throws before ever taking the lock.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`onboarding:${actor.id}`})::bigint)`;
 
-      // Re-check INSIDE the lock — the whole point of taking it.
-      const raced = await tx.membership.findFirst({
-        where: { userId: actor.id, status: 'active' },
-        orderBy: { invitedAt: 'asc' },
+      // Re-check INSIDE the lock — the whole point of taking it. Scoped across ALL the
+      // caller's firms for the same reason as `findWorkspace`: keying off a single
+      // membership let a user whose first firm had no household fall through and create
+      // another one on every call.
+      const raced = await tx.household.findFirst({
+        where: {
+          status: 'active',
+          firm: { memberships: { some: { userId: actor.id, status: 'active' } } },
+        },
+        orderBy: { createdAt: 'asc' },
       });
-      if (raced) {
-        const household = await tx.household.findFirst({
-          where: { firmId: raced.firmId, status: 'active' },
-          orderBy: { createdAt: 'asc' },
-        });
-        if (household) return { firmId: raced.firmId, householdId: household.id, raced: true };
-      }
+      if (raced) return { firmId: raced.firmId, householdId: raced.id, raced: true };
 
       const firm = await tx.firm.create({
         data: {
