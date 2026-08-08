@@ -400,6 +400,47 @@ test.describe('household dashboard', () => {
   });
 });
 
+test.describe('consumer routing after onboarding', () => {
+  /**
+   * The gap that let a production defect ship: **no test ever logged in AGAIN after
+   * onboarding.** Every routing test used a firm-less account — the one state that stops
+   * existing the moment a consumer onboards and is given a personal firm.
+   *
+   * From then on `firms.length > 0` was true for consumers too, and post-login routing sent
+   * them to the Advisor Workspace. Nothing errored; they simply landed in the wrong product.
+   */
+  test('an onboarded consumer signing in again reaches the consumer home, not the advisor workspace', async ({
+    page,
+    request,
+  }) => {
+    const consumer = await createAccount(request);
+
+    // Onboard through the API, then sign in fresh — the second login is the whole point.
+    const login = await request.post(`${API_URL}/auth/login`, {
+      data: { email: consumer, password: PASSWORD },
+    });
+    const { accessToken } = await login.json();
+    const provisioned = await request.post(`${API_URL}/onboarding/household`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: {},
+    });
+    expect(provisioned.ok()).toBeTruthy();
+
+    await asReturningConsumer(page);
+    await signIn(page, consumer, PASSWORD);
+
+    await expect(page).not.toHaveURL(/\/app$/);
+    await expect(page.getByText(/Advisor workspace/i)).toHaveCount(0);
+  });
+
+  test('an advisor with a firm still reaches the advisor workspace', async ({ page }) => {
+    // The other half: the fix must not push advisors into the consumer experience.
+    await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await expect(page).toHaveURL(/\/app$/);
+    await expect(page.getByText('Advisor workspace').first()).toBeVisible();
+  });
+});
+
 test.describe('new user registration', () => {
   test('a new account can be created through the form and lands signed in', async ({ page }) => {
     const email = `smoke_signup_${Date.now()}@example.com`;

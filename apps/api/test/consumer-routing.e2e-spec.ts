@@ -1,0 +1,167 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/prisma/prisma.service';
+
+/**
+ * Consumer routing — the signal that distinguishes a consumer from an advisor.
+ *
+ * ## The defect this guards
+ *
+ * Since M5.5 every consumer is given a personal firm at onboarding. Post-login routing
+ * asked "do you belong to a firm?", which then became true for consumers too — so an
+ * onboarded consumer was sent to the Advisor Workspace on their next login.
+ *
+ * The fix records the consumer as a member of their OWN household
+ * (`HouseholdMember.userId`), which is the model's own user↔household link and means
+ * something firm membership cannot: *this money is mine, not my client's*.
+ */
+describe('Consumer routing signal (e2e)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  const http = () => request(app.getHttpServer());
+  const PASSWORD = 'Routing1pass';
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    app.setGlobalPrefix('api');
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    await app.init();
+    prisma = app.get(PrismaService);
+  });
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  async function newUser(prefix: string) {
+    const email = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@example.com`;
+    const reg = await http()
+      .post('/api/auth/register')
+      .send({ email, password: PASSWORD, fullName: 'Routing Probe' });
+    expect(reg.status).toBe(201);
+    return { email, token: reg.body.accessToken as string, userId: reg.body.user?.id as string };
+  }
+
+  const status = (token: string) =>
+    http().get('/api/onboarding/status').set('Authorization', `Bearer ${token}`);
+
+  it('a brand-new user owns no household — the intended fallback', async () => {
+    const { token } = await newUser('route_new');
+    const res = await status(token);
+    expect(res.status).toBe(200);
+    expect(res.body.hasHousehold).toBe(false);
+    expect(res.body.hasOwnHousehold).toBe(false);
+  });
+
+  it('a personal advisor with a valid household OWNS it — routes to the consumer home', async () => {
+    // The production defect, asserted at its source: after onboarding this user has a firm,
+    // so firm membership alone would say "advisor". Own-household membership says consumer.
+    const { token } = await newUser('route_consumer');
+    const provisioned = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ familyName: 'The Routers' });
+    expect(provisioned.status).toBe(201);
+
+    const firms = await http().get('/api/firms/me').set('Authorization', `Bearer ${token}`);
+    expect(firms.body.firms).toHaveLength(1); // would have meant "advisor" before this fix
+
+    const res = await status(token);
+    expect(res.body.hasOwnHousehold).toBe(true);
+    expect(res.body.ownHouseholdId).toBe(provisioned.body.householdId);
+  });
+
+  it('an advisory firm member does NOT own their client households', async () => {
+    // An advisor is a household's advisorId, never one of its members — so they keep the
+    // Advisor Workspace. This is the half of the fix that must not regress.
+    const admin = await http()
+      .post('/api/auth/login')
+      .send({ email: 'admin@lifecapitalos.dev', password: 'Admin@12345' });
+    const adminToken = admin.body.accessToken as string;
+    const me = await http().get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`);
+
+    const firm = await http()
+      .post('/api/firms')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: `Routing Advisory ${Date.now()}`, ownerUserId: me.body.id });
+    expect(firm.status).toBe(201);
+
+    await http()
+      .post(`/api/firms/${firm.body.id}/switch`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    const client = await http()
+      .post('/api/households')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'Client Family', baseCurrency: 'INR' });
+    expect(client.status).toBe(201);
+
+    // The point of the test: the client household exists, but the advisor does not OWN it,
+    // so routing keeps them on the Advisor Workspace.
+    const owns = await prisma.householdMember.findFirst({
+      where: { householdId: client.body.id, userId: me.body.id },
+    });
+    expect(owns).toBeNull();
+
+    const res = await status(adminToken);
+    expect(res.body.hasOwnHousehold).toBe(false);
+  });
+
+  it('back-fills a household provisioned before the self-member row existed', async () => {
+    // Consumers onboarded between M5.5 and this fix have no self-membership and would stay
+    // mis-routed. Provisioning is idempotent, so calling it again repairs them.
+    const { token } = await newUser('route_legacy');
+    const provisioned = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    const householdId = provisioned.body.householdId as string;
+
+    // Simulate a pre-fix account.
+    await prisma.householdMember.deleteMany({ where: { householdId } });
+    expect((await status(token)).body.hasOwnHousehold).toBe(false);
+
+    const again = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(again.body.provisioned).toBe(false); // no second household
+    expect(again.body.householdId).toBe(householdId);
+
+    const repaired = await status(token);
+    expect(repaired.body.hasOwnHousehold).toBe(true);
+    expect(repaired.body.ownHouseholdId).toBe(householdId);
+  });
+
+  it('never adds a synthetic member to a household that already has real members', async () => {
+    // The backfill must not invent family data, and must never make an advisor a member of
+    // a client household.
+    const { token } = await newUser('route_nosynth');
+    const provisioned = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    const householdId = provisioned.body.householdId as string;
+
+    await prisma.householdMember.deleteMany({ where: { householdId } });
+    await prisma.householdMember.create({
+      data: { householdId, name: 'encrypted', relation: 'spouse', isDependent: false },
+    });
+
+    await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+
+    const members = await prisma.householdMember.findMany({ where: { householdId } });
+    expect(members).toHaveLength(1);
+    expect(members[0].relation).toBe('spouse');
+  });
+
+  it('requires authentication', async () => {
+    expect((await http().get('/api/onboarding/status')).status).toBe(401);
+  });
+});

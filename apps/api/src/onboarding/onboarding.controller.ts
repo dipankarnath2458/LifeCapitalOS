@@ -16,13 +16,23 @@ export class OnboardingController {
   /** What the caller already has. Lets the web app decide between onboarding and dashboard. */
   @Get('status')
   async status(@CurrentUser() user: AuthUser) {
-    const workspace = await this.onboarding.findWorkspace(user.id);
+    const [workspace, own] = await Promise.all([
+      this.onboarding.findWorkspace(user.id),
+      this.onboarding.findOwnHousehold(user.id),
+    ]);
     // Deliberately not spreading `workspace`: it carries a `provisioned` flag that means
     // nothing on a read, and would read as "we just created this" to a client.
     return {
       hasHousehold: workspace !== null,
       firmId: workspace?.firmId ?? null,
       householdId: workspace?.householdId ?? null,
+      /**
+       * True when the caller is a member of a household **as themselves** — i.e. this is
+       * their own money, not a client's. Post-login routing uses this instead of firm
+       * membership, which cannot tell a consumer's personal firm from an advisory firm.
+       */
+      hasOwnHousehold: own !== null,
+      ownHouseholdId: own?.householdId ?? null,
     };
   }
 

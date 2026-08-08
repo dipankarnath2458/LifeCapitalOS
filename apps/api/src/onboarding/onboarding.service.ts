@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { FirmRole } from '@prisma/client';
+import { FirmRole, HouseholdRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { AuditService } from '../common/audit.service';
@@ -50,6 +50,26 @@ export class OnboardingService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * The household the caller belongs to **as themselves**, or null.
+   *
+   * `HouseholdMember.userId` is the model's own link between a User and a household they
+   * are a member of ("set when the member has a portal login"). It is what distinguishes
+   * *my* household from *my client's* household — an advisor is a household's `advisorId`,
+   * never one of its members.
+   *
+   * This is the signal routing needs, and it is a fact recorded at provisioning rather than
+   * a guess inferred from firm shape.
+   */
+  async findOwnHousehold(userId: string): Promise<{ firmId: string; householdId: string } | null> {
+    const member = await this.prisma.householdMember.findFirst({
+      where: { userId, household: { status: 'active' } },
+      include: { household: { select: { id: true, firmId: true } } },
+    });
+    if (!member?.household) return null;
+    return { firmId: member.household.firmId, householdId: member.household.id };
+  }
+
   /** The caller's existing workspace, or null when they have none. */
   async findWorkspace(userId: string): Promise<PersonalWorkspace | null> {
     const membership = await this.prisma.membership.findFirst({
@@ -86,7 +106,13 @@ export class OnboardingService {
     // Fast path: the overwhelmingly common case is an already-onboarded user, and it should
     // not pay for a lock.
     const existing = await this.findWorkspace(actor.id);
-    if (existing) return existing;
+    if (existing) {
+      // Self-heal accounts provisioned before the self-member row existed. Idempotent and
+      // additive: it adds the missing link, never changes an existing one. Without it, a
+      // consumer who onboarded earlier stays mis-routed to the Advisor Workspace.
+      await this.ensureSelfMembership(actor, existing.householdId);
+      return existing;
+    }
 
     const householdName = await this.resolveHouseholdName(actor, input.familyName);
     // Upper-cased: currency codes are compared and formatted as ISO 4217 elsewhere, and a
@@ -146,6 +172,22 @@ export class OnboardingService {
           baseCurrency,
         },
       });
+      // Record the consumer as a member of their OWN household.
+      //
+      // Without this row nothing in the model says "this household is mine", because
+      // `advisorId` means the same thing for a consumer as it does for an advisor's client.
+      // Post-login routing then has to guess from firm shape — and since every consumer now
+      // gets a personal firm, that guess sent them to the Advisor Workspace.
+      await tx.householdMember.create({
+        data: {
+          householdId: household.id,
+          userId: actor.id,
+          name: this.crypto.encrypt(householdName)!,
+          relation: 'self',
+          isDependent: false,
+          householdRole: HouseholdRole.OWNER,
+        },
+      });
       // Household scoping reads User.activeFirmId server-side, so the consumer's very first
       // request after onboarding resolves without a separate firm-switch round trip.
       await tx.user.update({ where: { id: actor.id }, data: { activeFirmId: firm.id } });
@@ -170,6 +212,54 @@ export class OnboardingService {
     });
 
     return { ...workspace, provisioned: true };
+  }
+
+  /**
+   * Adds the caller's self-membership row to a household that lacks it.
+   *
+   * Only ever applies to a household the caller already owns via their firm membership, and
+   * only when no membership row exists — so it cannot make an advisor a member of a client's
+   * household, and it cannot duplicate an existing row.
+   *
+   * Never throws: routing is important, but not important enough to fail a provisioning
+   * request that has otherwise succeeded.
+   */
+  private async ensureSelfMembership(actor: AuthUser, householdId: string): Promise<void> {
+    try {
+      const already = await this.prisma.householdMember.findFirst({
+        where: { householdId, userId: actor.id },
+        select: { id: true },
+      });
+      if (already) return;
+
+      // Only self-heal a household with no members at all. A household that already has
+      // members is a real family record; adding a synthetic "self" row to it would be
+      // inventing data, and for an advisor's client household it would be plainly wrong.
+      const memberCount = await this.prisma.householdMember.count({ where: { householdId } });
+      if (memberCount > 0) return;
+
+      const household = await this.prisma.household.findUnique({
+        where: { id: householdId },
+        select: { name: true, advisorId: true },
+      });
+      // `advisorId === actor.id` is what makes this the caller's own household rather than
+      // one they merely have firm access to.
+      if (!household || household.advisorId !== actor.id) return;
+
+      await this.prisma.householdMember.create({
+        data: {
+          householdId,
+          userId: actor.id,
+          name: household.name,
+          relation: 'self',
+          isDependent: false,
+          householdRole: HouseholdRole.OWNER,
+        },
+      });
+      this.logger.log(`Backfilled self-membership for household ${householdId}`);
+    } catch (err) {
+      this.logger.warn(`Could not backfill self-membership: ${String(err)}`);
+    }
   }
 
   /**
