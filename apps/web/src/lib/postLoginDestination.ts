@@ -25,6 +25,11 @@ export interface FirmMembershipSummary {
   firms: unknown[];
 }
 
+/** From `GET /onboarding/status`. `hasOwnHousehold` means "this is my money, not a client's". */
+export interface OwnHouseholdSummary {
+  hasOwnHousehold: boolean;
+}
+
 /**
  * Pure decision, separated from the fetch so it can be tested without a network.
  *
@@ -34,7 +39,16 @@ export interface FirmMembershipSummary {
  * dashboard still has a working page and can navigate on. Fail toward the destination that
  * works for more people.
  */
-export function chooseDestination(me: FirmMembershipSummary | null): string {
+export function chooseDestination(
+  me: FirmMembershipSummary | null,
+  own: OwnHouseholdSummary | null = null,
+): string {
+  // A consumer belongs to a household AS THEMSELVES. Since every consumer is now given a
+  // personal firm at onboarding, firm membership alone says only "you belong to some firm"
+  // — which is true of consumers and advisors alike, and sent consumers to the Advisor
+  // Workspace. Own-household membership is the thing that actually distinguishes them, and
+  // it is checked FIRST for exactly that reason.
+  if (own?.hasOwnHousehold) return CONSUMER_HOME;
   if (me && Array.isArray(me.firms) && me.firms.length > 0) return ADVISOR_HOME;
   return CONSUMER_HOME;
 }
@@ -46,6 +60,9 @@ export function chooseDestination(me: FirmMembershipSummary | null): string {
  * tokens. It falls back to the consumer home, which every authenticated user can load.
  */
 export async function resolvePostLoginDestination(token: string): Promise<string> {
-  const me = await apiGet<FirmMembershipSummary>('/firms/me', token).catch(() => null);
-  return chooseDestination(me);
+  const [me, own] = await Promise.all([
+    apiGet<FirmMembershipSummary>('/firms/me', token).catch(() => null),
+    apiGet<OwnHouseholdSummary>('/onboarding/status', token).catch(() => null),
+  ]);
+  return chooseDestination(me, own);
 }
