@@ -173,7 +173,10 @@ test.describe('account recovery', () => {
 });
 
 test.describe('consumer cannot reach the advisor workspace', () => {
-  test('a firm-less user typing /app is redirected to the consumer home', async ({ page, request }) => {
+  test('a consumer typing /app is redirected to the consumer home', async ({ page, request }) => {
+    // Renamed from "firm-less": since onboarding gives every consumer a personal firm, no
+    // onboarded consumer is firm-less any more. Gating /app on firm membership alone
+    // therefore let a consumer walk straight into the Advisor Workspace by typing the URL.
     const consumer = await createAccount(request);
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
