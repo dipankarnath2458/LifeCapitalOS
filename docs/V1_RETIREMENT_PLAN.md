@@ -1,255 +1,200 @@
-# V1 Consumer Experience — Retirement Plan
+# V1 → V2 Migration & Coexistence Plan
 
-> **Status:** Report only. **No code has been deleted, moved, or modified.** This document exists for
-> approval before any implementation begins, per the product decision that V2 becomes the single
-> official Life Capital OS consumer experience.
-> **Method:** every claim below comes from a per-module import graph over `apps/web/src` and
-> `apps/web/e2e`, matching `@/`, `./` and `../` import forms — not from naming or inspection by eye.
+> **Status:** Revised plan, report only. **No code has been deleted, moved, or modified.**
+> **Supersedes** the earlier deletion-first revision of this document (kept in git history).
+>
+> **Governing rule (founder decision):** V2 becomes the **primary development architecture**, but
+> **V1 remains operational and intact as a safety net until Module 10 is complete.** No V1 capability
+> is removed merely because it lacks a V2 equivalent. **No destructive deletion before Module 10.**
+>
+> **Method:** every claim is derived from a per-module import graph over `apps/web/src` and
+> `apps/web/e2e` matching `@/`, `./` and `../` forms, plus data-path tracing through the API and
+> `@lcos/core` — not from file naming or inspection by eye.
 > Companion: [`M5_6_HOUSEHOLD_DASHBOARD_ARCHITECTURE`](./M5_6_HOUSEHOLD_DASHBOARD_ARCHITECTURE.md),
-> [`M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE`](./M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE.md),
-> [`M5-5_CONSUMER_ACTIVATION`](./architecture/M5-5_CONSUMER_ACTIVATION.md).
+> [`M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE`](./M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE.md).
 
 ---
 
-## 1. Headline: three findings that change the shape of this work
+## 0. Two findings that validate keeping V1
 
-Before the inventory, three things the audit surfaced that are not obvious from the file names and
-that make a naïve deletion dangerous.
+**Finding 1 — V2's insurance panel has no data path at all.** Not merely "no capture UI". The core
+computes `coverTracked` from `input.assumptions?.insurance`, and
+`HouseholdIntelligenceController` never passes `assumptions` — it calls
+`intelligence.current(household, q.snapshotId)`. So **`coverTracked` is `false` for every consumer,
+always**, and `existingCoverMinor` is always `0`. The V2 protection section is structurally a
+placeholder.
 
-**1. `components/dashboard/` is the ADVISOR workspace, not the consumer dashboard.** All seven files
-(`ScoreCard`, `NetWorthCard`, `AiCfoPanel`, `FamilySummaryCard`, `HouseholdSelector`, `QuickActions`,
-`RecentActivity`) are imported **only** by `app/app/page.tsx` — the Advisor Workspace. Deleting a
-directory called "dashboard" during a dashboard retirement would take down the advisory product.
-**Preserve, untouched.**
+Meanwhile V1's `Protection.tsx` genuinely captures `hasTermCover`, `hasHealthInsurance` and
+`termLifeCoverMinor` into the retail `Profile`, which feeds the V1 retail snapshot and the AI coach's
+grounding. **Retiring it would delete the only working protection capture in the product** and
+replace it with a panel that cannot ever display real data.
 
-**2. Retiring `/dashboard` severs the only route into onboarding.** A new consumer reaches
-`/onboarding` exactly one way: the V1 dashboard detects zero accounts and redirects. Login goes to
-`resolvePostLoginDestination` → `/dashboard` or `/app`; nothing else links to `/onboarding`. Delete
-the V1 dashboard without replacing that nudge and **every new consumer lands on an empty V2 dashboard
-having never been asked to create a household.** This is the single highest-risk item in the plan.
+**Finding 2 — the earlier "orphans" were not orphans.** An earlier revision listed `Modal.tsx`,
+`NumberField.tsx` and `Status.tsx` as unused and safe to delete. That analysis matched only
+`@/`-style imports and missed relative ones. All three have live importers, and two are load-bearing
+for the **public marketing site**. Corrected below and everywhere in this document.
 
-**3. Retiring `/dashboard` makes `/billing` unreachable.** `/billing` is linked from exactly three
-places — `dashboard/page.tsx`, `WealthCoach`, `SecondOpinion` — all V1 consumer surfaces. Remove them
-and the paid-plan page still exists but **no user can navigate to it.** Revenue-critical, and easy to
-miss because the route itself keeps working.
-
-A fourth, smaller: the V1 dashboard is also the **only** link to `/admin` anywhere in the product.
+Both findings point the same way: **deletion was the wrong first move.**
 
 ---
 
-## 2. Current V1 inventory
+## A. V1 surfaces that CAN safely migrate to V2 now
 
-### 2.1 Routes
+"Verified V2 equivalent" means the V2 surface reads real data through a live path, proven by a test —
+not that a section exists in the contract.
 
-| Route | Classification | Notes |
+| V1 surface | V2 equivalent | Verified how | Migrate now? |
+| --- | --- | --- | --- |
+| Consumer **home route** (`CONSUMER_HOME`) | `/household` | 18 smoke tests; 154 API e2e | ✅ Yes |
+| **Net worth** figures (`NetWorthChart` data) | `intelligence.netWorth` | e2e asserts `assetsMinor` equals entered figures | ✅ Yes |
+| **Allocation** data (`AllocationDonut` data) | `intelligence.assetAllocation` | e2e asserts section available with data | ✅ Yes |
+| **Account capture** (`AddAccount`) | Wealth Health Check → household accounts | e2e asserts snapshot payload equals input | ✅ Yes |
+| **Health score** | `intelligence.wealthHealth` | e2e asserts it equals the `health-score` endpoint for the same `snapshotId` | ✅ Yes |
+| **Cashflow** | `intelligence.cashflow` | e2e asserts income/expense equal entered figures | ✅ Yes |
+| **First-run onboarding nudge** | `/household` empty state | smoke test | ✅ Yes |
+| **Plans / Admin navigation** | V2 header links | to be added | ✅ Yes |
+
+> Note on charts: V2 shows net-worth and allocation **figures** but not V1's donut/timeline
+> **visualisations**. The numbers migrate; the charts are a V2 build item (M5.8+), not a blocker —
+> V1 keeps its charts in the meantime.
+
+## B. V1 capabilities that MUST remain — V2 has no equivalent
+
+| Capability | V1 implementation | V2 status | Why it must stay |
+| --- | --- | --- | --- |
+| **Goals** | `Goals.tsx` → `/goals` | **None.** No goals in the intelligence contract, the dashboard, or any V2 route | Only way a consumer sets or tracks a goal |
+| **Family members** | `Family.tsx` → `/family` | **None.** `intelligence.household.memberCount` is read-only; no CRUD anywhere | Only way to record dependents — which feeds insurance need and scoring |
+| **Protection / insurance capture** | `Protection.tsx` → `/profile` | **Placeholder only** — `coverTracked` always `false` (§0) | Only working protection capture in the product |
+| **AI Wealth Coach** | `WealthCoach.tsx` → `/ai/coach` | **None.** PR-5 not started | Only conversational AI surface |
+| **AI Second Opinion** | `SecondOpinion.tsx` → `/ai/second-opinion` | **None** | Only second-opinion surface |
+| **Early warning** | `EarlyWarning.tsx` → `/insights/early-warning` | `intelligence.risk` — **overlapping, not verified equivalent** | Different model; no test proves parity. Treat as unmigrated |
+| **Net-worth timeline chart** | `NetWorthChart.tsx` | Figures yes, chart no | Visualisation not yet rebuilt |
+| **Allocation donut** | `AllocationDonut.tsx` | Figures yes, chart no | Visualisation not yet rebuilt |
+
+**All nine remain live, reachable and untouched until Module 10.**
+
+## C. Components preserved untouched (no change of any kind)
+
+| Group | Files | Reason |
 | --- | --- | --- |
-| `app/dashboard/page.tsx` | **Safe to delete** (after §5 migrations) | V1 consumer home. Carries the onboarding nudge, the `/billing` link and the `/admin` link — all must move first. |
-| `app/page.tsx` (landing) | **Preserve** | Public marketing site, not consumer app. |
-| `app/billing/page.tsx` | **Preserve — requires migration** | Paid plans. Route is fine; its *inbound links* all live on V1 surfaces. |
-| `app/onboarding/page.tsx` | **Preserve — requires migration** | Part of the new journey. Still writes retail-keyed records (§5.3). |
-| `app/wealth-health/`, `app/household/` | **Preserve** | V2 canonical. |
-| `app/login/`, `forgot-password/`, `reset-password/`, `verify-email/` | **Preserve** | Authentication. |
-| `app/app/**` (11 routes) | **Preserve** | Advisor Workspace — a separate product, not V1 consumer. |
-| `app/admin/**` (5 routes) | **Preserve** | Platform administration. |
-| `app/design-system/` | **Preserve** | Design-system reference. |
+| **Advisor Workspace** | all 7 of `components/dashboard/*` | Imported only by `app/app/page.tsx`. A separate product. The directory name is a trap |
+| **Marketing site** | `ToolsSection`, `HealthCheck`, `RetirementCalculator`, `InsuranceGap`, `WealthDna` | Imported by the public landing page; `WealthDna` calls `/tools/wealth-dna` |
+| **Shared UI** | `Toast` (9 importers incl. root layout), `Skeleton`, `Pager`, `Modal`, `NumberField`, `Status`, `AuthCard` | Shared across admin, marketing and auth — see Finding 2 |
+| **Admin** | `AdminShell`, `FeatureOverrides`, `lib/admin.ts`, `lib/adminContext.tsx` | Platform administration |
+| **V1 consumer (now: safety net)** | `dashboard/page.tsx` + the 9 capability components in §B | Preserved by the new rule, not by dependency |
+| **Session / API** | `lib/session.ts`, `lib/api.ts` | Authentication kernel and API client |
+| **Advisor context** | `lib/appContext.tsx`, `lib/useCurrentHousehold.ts` | Advisor Workspace |
+| **Entire API** | every file under `apps/api/src` | No API change in any phase |
+| **Kernel & schema** | Financial Kernel, Intelligence Layer, Snapshot Engine, Wealth Health / Explainable Score, Household aggregate, auth, authz, audit, multi-tenancy, `prisma/` | Frozen; no migration |
+| **V1 retail scorer** | `computeWealthHealth`, `common/financial-snapshot.service.ts`, `ai.service.ts` | Preserved until the V2 replacement is fully verified |
 
-### 2.2 Components — classified by import graph
+## D. Eventually deletable — but ONLY after Module 10
 
-**Group A — V1 consumer-only. Safe to delete once §5 migrations land.**
-Every one is imported *only* by `app/dashboard/page.tsx`:
+Nothing here is scheduled. Each becomes a **candidate** only once its V2 replacement is
+production-verified, and each requires a fresh dependency analysis at that time.
 
-| Component | Retail API it calls |
-| --- | --- |
-| `AddAccount.tsx` | `/accounts` |
-| `AllocationDonut.tsx` | `/accounts` |
-| `NetWorthChart.tsx` | `/net-worth/*` |
-| `EarlyWarning.tsx` | `/insights/early-warning` |
-| `Goals.tsx` | `/goals` |
-| `Family.tsx` | `/family` |
-| `Protection.tsx` | `/profile` |
-| `WealthCoach.tsx` | `/ai/coach` |
-| `SecondOpinion.tsx` | `/ai/second-opinion` |
+| Candidate | Unblocked by | Precondition for deletion |
+| --- | --- | --- |
+| `app/dashboard/page.tsx` | all rows below | Every capability below migrated and verified |
+| `Goals.tsx` | M5.8+ V2 goals | V2 goals CRUD live and tested |
+| `Family.tsx` | M5.8+ V2 household members | V2 member CRUD live and tested |
+| `Protection.tsx` | V2 insurance **data path** + capture UI | `coverTracked` genuinely true for a real consumer |
+| `WealthCoach.tsx`, `SecondOpinion.tsx` | PR-5 AI on the FIL | V2 AI surface live; V1 scorer retired only after parity is verified |
+| `EarlyWarning.tsx` | V2 risk parity | A test proving `intelligence.risk` covers the same conditions |
+| `NetWorthChart.tsx`, `AllocationDonut.tsx` | V2 charts | V2 visualisations shipped |
+| `AddAccount.tsx` | already migrated | Retained while `/dashboard` lives, since the page imports it |
 
-> The **APIs these call are NOT removed** — they are platform surface and stay per the decision.
-> Only the presentation layer goes.
+## E. Revised PR sequence
 
-**Group B — CORRECTED: there are no orphans. All three are shared and must be preserved.**
+**PR A — Route migration + V1 coexistence (additive, reversible).** The only PR in this batch.
 
-> An earlier revision of this document listed `Modal.tsx`, `NumberField.tsx` and `Status.tsx` as
-> already-orphaned and safe to delete. **That was wrong.** The import graph behind it matched only
-> `@/…`-style imports and missed relative ones (`./Modal`). Re-run including relative imports:
->
-> | File | Real importers | Verdict |
-> | --- | --- | --- |
-> | `Modal.tsx` | `FeatureOverrides.tsx` (**admin**) | Preserve |
-> | `NumberField.tsx` | `AddAccount` (V1) + `HealthCheck`, `InsuranceGap`, `RetirementCalculator` (**marketing**) | Preserve |
-> | `Status.tsx` | `EarlyWarning` (V1) + `HealthCheck` (**marketing**) | Preserve |
->
-> Two of the three are load-bearing for the public marketing site. Deleting them on the strength of
-> the original analysis would have broken the homepage — the exact failure this report exists to
-> prevent. The corrected graph is the one used everywhere below.
-
-**Group C — MARKETING, not consumer app. Preserve.** `ToolsSection.tsx` is imported by the public
-landing page (`app/page.tsx`), and pulls in `HealthCheck.tsx`, `RetirementCalculator.tsx`,
-`InsuranceGap.tsx`, `WealthDna.tsx` (which calls `/tools/wealth-dna`). These are lead-generation
-calculators on the marketing site. **Their names make them look like V1 consumer features; they are
-not.** Deleting them would break the public homepage.
-
-**Group D — shared infrastructure. Preserve.**
-`Toast.tsx` (7 importers incl. root layout), `Skeleton.tsx`, `Pager.tsx`, `AuthCard.tsx` (3 auth
-routes), `AdminShell.tsx`, `FeatureOverrides.tsx`.
-
-**Group E — Advisor Workspace. Preserve.** All of `components/dashboard/*` — see §1.
-
-### 2.3 Library modules
-
-| Module | Classification |
-| --- | --- |
-| `lib/session.ts`, `lib/api.ts` | **Preserve** — session kernel and API client, used everywhere. |
-| `lib/intelligence.ts`, `lib/wealthHealth.ts`, `lib/household.ts` | **Preserve** — V2 canonical. |
-| `lib/postLoginDestination.ts` | **Preserve — requires migration** (§5.1). |
-| `lib/admin.ts`, `lib/adminContext.tsx` | **Preserve — requires migration**: both hard-redirect to `/dashboard` on non-admin access. |
-| `lib/appContext.tsx`, `lib/useCurrentHousehold.ts` | **Preserve** — Advisor Workspace. |
-
-### 2.4 API — nothing is removed
-
-Per the decision, all APIs and shared services remain: Financial Kernel, Financial Intelligence
-Layer, Snapshot Engine, Wealth Health / Explainable Score engines, Household Aggregate, auth,
-authz, audit, multi-tenancy, database. The retail endpoints (`/accounts`, `/goals`, `/family`,
-`/net-worth`, `/insights`, `/ai`, `/tools`, `/profile`) stay: `/tools` still serves the marketing
-site, `/ai` still serves the coach, and the rest remain platform surface with no consumer UI in
-front of them.
-
-**No schema change. No migration. No data is deleted by this work.**
-
----
-
-## 3. Dependency analysis — what breaks if we delete naïvely
-
-| # | Dependency | Consequence if unhandled | Severity |
+| # | Change | Files | Reversible |
 | --- | --- | --- | --- |
-| D1 | `/dashboard` is the only entry to `/onboarding` | New consumers never create a household; they land on an empty dashboard | **Critical** |
-| D2 | `/billing` linked only from V1 consumer surfaces | Paid plans become unreachable | **High (revenue)** |
-| D3 | `CONSUMER_HOME = '/dashboard'` | Login sends every consumer to a deleted route | **Critical** |
-| D4 | `lib/admin.ts` + `admin/layout.tsx` redirect non-admins to `/dashboard` | Redirect to a 404 | Medium |
-| D5 | `AdminShell` has two "back" links to `/dashboard` | Dead links inside admin | Medium |
-| D6 | `/admin` linked only from the V1 dashboard | Admin console unreachable by navigation | Medium |
-| D7 | 6 smoke tests assert `/dashboard` as the consumer destination | Red CI | Medium (caught by CI) |
-| D8 | `app/app/layout.tsx` redirects firm-less users to `CONSUMER_HOME` | Advisors without a firm hit a dead route | Medium |
-| D9 | Onboarding still writes retail-keyed records | Data invisible to the V2 dashboard — the double-entry problem | Medium |
+| M1 | `CONSUMER_HOME: '/dashboard' → '/household'` | `lib/postLoginDestination.ts:21`, `.spec.ts` | one line |
+| M2 | First-run nudge → `/onboarding` from `/household` | `app/household/page.tsx` | revert file |
+| M3 | V2 header: Plans (`/billing`), Admin (`/admin`) | `app/household/page.tsx` | revert file |
+| M4 | **"More tools" link → `/dashboard`** — keeps V1 reachable | `app/household/page.tsx` | revert file |
+| M5 | Admin redirects `/dashboard` → `/household` | `lib/admin.ts:28`, `admin/layout.tsx:35`, `AdminShell.tsx:55,70` | revert 3 files |
+| M6 | Smoke suite asserts V2 home **and V1 still reachable** | `e2e/smoke.spec.ts` | revert file |
 
----
+**M4 is the change that makes this plan work.** Repointing the home route without it would leave
+`/dashboard` alive but unreachable — technically "not deleted", functionally retired, and in breach
+of rule 7. With M4, V1 becomes a **linked secondary surface** rather than the home.
 
-## 4. Risk assessment
+> **Deliberately dropped from the earlier plan:** the migration that repointed onboarding's account
+> step to the household path. It is a behaviour change, not a link change, and while V1 remains the
+> home for Goals/Family/Protection, retail-keyed onboarding data is still *used*. Revisit when those
+> capabilities migrate.
 
-| Risk | Likelihood | Impact | Mitigation |
-| --- | --- | --- | --- |
-| New consumers never onboard (D1) | **High** if unhandled | Product unusable for every new signup | Move the first-run redirect into `/household` **before** deleting; smoke test asserts a fresh consumer reaches onboarding |
-| Billing unreachable (D2) | **High** if unhandled | Silent revenue loss — nothing errors | Add plans link to the V2 dashboard; smoke test asserts reachability |
-| Deleting the Advisor Workspace by name confusion | Medium | Advisory product down | §2.2 Group E; the advisor smoke test must stay green |
-| Breaking the marketing site | Medium | Public homepage down | §2.2 Group C; landing-page smoke test must stay green |
-| Removing something still referenced | Low | Build failure | `tsc --noEmit` + build are hard gates; deletion list is import-graph verified, including relative imports |
-| Import graph misses relative imports | **Occurred once** | Would have deleted 3 shared files, breaking the marketing site | Caught and corrected before approval; the graph now matches `@/`, `./` and `../` forms |
-| Losing V1 as a fallback | Accepted by decision | — | Git history, tags, and Vercel rollback, per the decision |
+**PR B — DELETED FROM THE PLAN.** No deletion PR exists or is scheduled.
 
-**Deliberately called out:** D1 and D2 are the two failures that would **not** produce an error.
-Everything else fails loudly — a broken build, a 404, a red test. These two just quietly stop working,
-which is why both get a smoke test rather than a manual check.
+**Phases 3–4 — M5.8 → M10.** Each module that replaces a §B capability adds, to its own PR: the V2
+implementation, a test proving parity with V1, and a line in §D marking the V1 component a candidate.
 
----
+**Phase 5 — after M10.** A fresh retirement analysis, from a re-run import graph against the codebase
+as it exists then. This document is explicitly **not** that analysis and must not be reused as one.
 
-## 5. Migration strategy — what must happen *before* deletion
+## F. Dependency graph
 
-Ordered so the product is never in a broken state, and each step is independently revertible.
+```
+                          AUTH (preserved) ──► session.ts · api.ts
+                                 │
+                                 ▼
+                    resolvePostLoginDestination
+                                 │
+              ┌──────────────────┴───────────────────┐
+              │ M1: CONSUMER_HOME                    │ firms.length > 0
+              ▼                                      ▼
+   ┌──────────────────────┐                  /app  ADVISOR WORKSPACE
+   │  /household  (V2)    │  ◄── PRIMARY             └─► components/dashboard/* (untouched)
+   │  canonical consumer  │
+   └──────────┬───────────┘
+              │  reads ONE call
+              ├──────────────► GET /households/:id/intelligence/current
+              │                     └─► Snapshot Engine ─► Financial Kernel (frozen)
+              │                     └─► Wealth Health / Explainable Score
+              │
+              ├── M2 ────────► /onboarding ──► POST /onboarding/household
+              ├── M3 ────────► /billing · /admin        (preserved, now reachable)
+              │
+              └── M4 ────────► /dashboard  (V1 — OPERATIONAL SAFETY NET)
+                                  │
+                                  ├─► Goals ──────────► /goals          ⟵ no V2 equivalent
+                                  ├─► Family ─────────► /family         ⟵ no V2 equivalent
+                                  ├─► Protection ─────► /profile        ⟵ no V2 data path
+                                  ├─► WealthCoach ────► /ai/coach       ⟵ no V2 equivalent
+                                  ├─► SecondOpinion ──► /ai/second-opinion
+                                  ├─► EarlyWarning ───► /insights       ⟵ parity unproven
+                                  ├─► NetWorthChart ──► /net-worth      ⟵ chart only
+                                  ├─► AllocationDonut ► /accounts       ⟵ chart only
+                                  └─► AddAccount ─────► /accounts       (migrated; page still imports)
+                                          │
+                                          └─► V1 retail scorer (computeWealthHealth)
+                                              common/financial-snapshot.service.ts  (preserved)
 
-**5.1 Repoint the consumer home.** `CONSUMER_HOME: '/dashboard' → '/household'`. One line, and the
-change every other step depends on. Fixes D3 and D8.
+  NOT V1, untouched:  landing page + ToolsSection/calculators ─► /tools
+                      admin/** ─► AdminShell · FeatureOverrides · Modal
+                      shared UI: Toast · Skeleton · Pager · NumberField · Status · AuthCard
+```
 
-**5.2 Move the first-run nudge into `/household`.** The V2 dashboard already distinguishes
-"no household / no snapshot" and shows a call to action. Extend it so a consumer with no household is
-sent to `/onboarding`, exactly as the V1 dashboard does today. Fixes D1. **This must land before the
-V1 dashboard is deleted, not with it.**
+## G. Rollback
 
-**5.3 Give the V2 dashboard the navigation the V1 one carried** — a Plans link (`/billing`) and an
-Admin link for admin roles (`/admin`). Fixes D2 and D6.
+Every migration in PR A is a link or a constant. Reverting the PR restores `/dashboard` as the home
+route with no data or API implications, because **nothing is deleted and no API, schema or data
+changes.** Vercel redeploy is instant; `git revert` restores the constant. Rule 3 (preserve rollback)
+is satisfied structurally rather than by policy.
 
-**5.4 Repoint admin redirects** in `lib/admin.ts`, `app/admin/layout.tsx` and `AdminShell.tsx` from
-`/dashboard` to `/household`. Fixes D4 and D5.
+## H. Testing checklist for PR A
 
-**5.5 Point onboarding's account step at the household path.** Resolves D9 and the double-entry
-between onboarding and the Wealth Health Check. *Recommended in this work, but separable — say the
-word if you would rather it be its own PR.*
-
-**5.6 Update the smoke suite** to assert the V2 destination. Fixes D7.
-
-**Only then**, delete: `app/dashboard/page.tsx` and the nine Group A components. **Nothing else** —
-there are no orphans (see the Group B correction).
-
----
-
-## 6. Rollback strategy
-
-Per the decision, recovery is git and deployment, not a second UI.
-
-| Layer | Mechanism |
-| --- | --- |
-| Web | Redeploy the previous Vercel build — instant, no rebuild |
-| Code | `git revert` the merge commit; the deleted files return intact |
-| API | **No rollback needed** — no API, schema or data change in this work |
-| Data | **Nothing to restore** — no rows are deleted or migrated |
-| Tag | Recommend tagging `v2.1-v1-retired` at merge, so the boundary is a named point |
-
-Because no data or API changes, rollback is purely a deploy operation with no consistency window.
-
-**Recommended sequencing for a clean revert path:** land §5 migrations as **PR A** (additive, nothing
-deleted, fully reversible on its own), then deletions as **PR B**. Reverting B restores V1 without
-touching V2; reverting both returns to today. Bundling them makes the revert all-or-nothing.
-
----
-
-## 7. Testing checklist
-
-Verified before merge; ✓ = automated.
-
-**Journey**
-- ✓ Register → land on the V2 dashboard, not a 404
-- ✓ A consumer with no household is sent to `/onboarding`  ← guards D1
-- ✓ Onboarding creates a household
-- ✓ Wealth Health Check captures a snapshot and returns a score from the entered figures
-- ✓ Household dashboard shows those figures with provenance
-- ✓ A consumer with no snapshot sees the call to action, not zeros
-
-**Navigation**
-- ✓ No route in the app links to `/dashboard`
-- ✓ `/billing` reachable from the V2 dashboard  ← guards D2
-- ✓ `/admin` reachable for an admin role
-- ✓ Sign out → `/login`; `/app` does not resurrect the session
-
-**Preserved surfaces**
-- ✓ Public landing page renders, including the tools/calculator section  ← Group C
-- ✓ Advisor Workspace renders for a user with a firm  ← Group E
-- ✓ Admin console loads for the seeded superadmin
-- ✓ Password reset and email verification
-
-**Platform**
-- ✓ Full API e2e (24 suites, 154 tests) — unchanged, since no API changes
-- ✓ `@lcos/core` 120, API unit 52, web unit 26
-- ✓ `tsc --noEmit` and production build clean for api + web
-- ✓ No orphaned modules: import-graph re-run shows no unreferenced file left behind
+- ✓ Consumer login lands on `/household`
+- ✓ Consumer with no household is redirected to `/onboarding` (guards the only entry point)
+- ✓ **`/dashboard` is reachable from `/household` and renders** ← guards rule 7
+- ✓ **Goals, Family, Protection, Wealth Coach, Second Opinion still work on `/dashboard`** ← guards rule 2
+- ✓ `/billing` reachable; `/admin` reachable for an admin
+- ✓ Landing page + calculators render
+- ✓ Advisor Workspace renders for a user with a firm
+- ✓ Full API e2e (154), core (120), unit suites — unchanged, no API change
+- ✓ `tsc --noEmit` + production build clean
 - ✓ Green CI
 
-**Manual, on the Vercel preview**
-- Complete the journey end to end as a new user
-- Confirm no page shows a fabricated ₹0
-
----
-
-## 8. What I recommend
-
-Approve §5 as **PR A** (migrations, additive, zero deletions) and the deletions as **PR B**.
-
-The reason is D1 and D2: both are silent failures, and separating the PRs means the migration that
-prevents them is live and verified in production *before* anything is removed. If something is wrong,
-reverting the deletion is a one-click deploy rollback that leaves the migrations in place.
-
-**Awaiting approval. No files have been changed.**
+**Awaiting approval. No code has been changed.**
