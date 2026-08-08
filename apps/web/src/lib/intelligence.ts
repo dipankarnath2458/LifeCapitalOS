@@ -145,7 +145,14 @@ export type IntelligenceResponse = HouseholdIntelligence | { available: false; r
 /** What the dashboard needs to render, or why it cannot. */
 export type DashboardState =
   | { kind: 'ready'; intelligence: HouseholdIntelligence }
-  /** No household, or a household with no snapshot — both mean "run the check first". */
+  /**
+   * No household at all — the user has never onboarded. Distinct from `needs-check`
+   * because the answer is different: they need the *guided* flow, not a health check.
+   * This is now the only entry point into onboarding in the product; it used to live on
+   * the V1 dashboard, which consumers no longer reach.
+   */
+  | { kind: 'needs-onboarding' }
+  /** A household exists but has no snapshot yet — run the Wealth Health Check. */
   | { kind: 'needs-check'; reason: string }
   | { kind: 'error' };
 
@@ -159,9 +166,10 @@ export type DashboardState =
 export async function loadDashboard(token: string): Promise<DashboardState> {
   try {
     const status = await getOnboardingStatus(token);
-    if (!status?.householdId) {
-      return { kind: 'needs-check', reason: 'no household yet' };
-    }
+    if (!status) return { kind: 'error' };
+    // No household means never onboarded — send them through the guided flow rather than
+    // straight at a health check they have no container for.
+    if (!status.householdId) return { kind: 'needs-onboarding' };
 
     const res = await apiGet<IntelligenceResponse>(
       `/households/${status.householdId}/intelligence/current`,

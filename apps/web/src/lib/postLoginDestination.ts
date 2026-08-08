@@ -15,10 +15,17 @@ import { apiGet } from './api';
 
 export const ADVISOR_HOME = '/app';
 /**
- * Retail home. V1 UI, restored deliberately — see `app/dashboard/page.tsx`. Repoint this at
- * the V2 consumer dashboard when M5.5 ships; nothing else needs to change.
+ * Consumer home — the V2 Household Dashboard.
+ *
+ * V2 is the primary consumer experience. The V1 dashboard (`/dashboard`) remains deployed
+ * and functional as the rollback path until Module 10, but consumers are no longer routed
+ * to it: it reads retail (`Account.userId`) data while V2 writes household
+ * (`Account.householdId`) data, so it would report ₹0 net worth to a V2 consumer.
+ *
+ * Reverting this one constant restores V1 as the consumer home, with no data or API
+ * implications. That is the rollback path — see `docs/V2_PRIMARY_MIGRATION_PLAN.md` §H.
  */
-export const CONSUMER_HOME = '/dashboard';
+export const CONSUMER_HOME = '/household';
 
 export interface FirmMembershipSummary {
   activeFirmId: string | null;

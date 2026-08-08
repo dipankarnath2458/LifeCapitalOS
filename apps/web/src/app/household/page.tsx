@@ -20,7 +20,9 @@
  */
 
 import { useEffect, useState } from 'react';
+import { apiGet } from '@/lib/api';
 import { getAccessToken, signOut } from '@/lib/session';
+import { isAdminRole } from '@/lib/admin';
 import {
   formatMoney,
   loadDashboard,
@@ -87,6 +89,7 @@ function Figure({ label, value }: { label: string; value: string }) {
 
 export default function HouseholdDashboardPage() {
   const [state, setState] = useState<DashboardState | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -94,7 +97,21 @@ export default function HouseholdDashboardPage() {
       window.location.href = '/login';
       return;
     }
-    void loadDashboard(token).then(setState);
+    // Role decides only whether the Admin link renders; the API enforces access itself.
+    void apiGet<{ role?: string }>('/auth/me', token)
+      .then((me) => setIsAdmin(isAdminRole(me.role)))
+      .catch(() => setIsAdmin(false));
+
+    void loadDashboard(token).then((s) => {
+      // First-run: a consumer with no household goes to the guided flow. This redirect used
+      // to live on the V1 dashboard and was the ONLY entry into onboarding in the product;
+      // it moves here because consumers are no longer routed to /dashboard.
+      if (s.kind === 'needs-onboarding') {
+        window.location.href = '/onboarding';
+        return;
+      }
+      setState(s);
+    });
   }, []);
 
   if (!state) {
@@ -141,6 +158,18 @@ export default function HouseholdDashboardPage() {
     );
   }
 
+  if (state.kind === 'needs-onboarding') {
+    // Unreachable in practice — the effect redirects before this state is ever stored.
+    // Rendering a spinner rather than asserting keeps a redirect that is in flight from
+    // flashing an error screen.
+    return (
+      <ThemeProvider>
+        <ThemeScript />
+        <LoadingState label="Setting up your account…" />
+      </ThemeProvider>
+    );
+  }
+
   const i: HouseholdIntelligence = state.intelligence;
   const currency = i.meta.currency;
   const money = (minor: number) => formatMoney(minor, currency);
@@ -158,15 +187,46 @@ export default function HouseholdDashboardPage() {
               {i.executiveSummary.headline}
             </Text>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/wealth-health')}>
               Update my figures
             </Button>
+            {/* Plans and Admin were reachable ONLY from the V1 dashboard. Consumers no
+                longer land there, so without these links /billing and /admin would still
+                work by URL but be unreachable by navigation — a silent loss. */}
+            <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/billing')}>
+              Plans
+            </Button>
+            {isAdmin && (
+              <Button variant="ghost" size="sm" onClick={() => (window.location.href = '/admin')}>
+                Admin
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => void signOut()}>
               Sign out
             </Button>
           </div>
         </header>
+
+        {/* Capabilities V2 has not rebuilt yet, hosted on temporary surfaces that reuse the
+            preserved V1 components. Linked here so nothing is silently lost while V2 is
+            primary. Each is replaced by the module named on its own page. */}
+        <nav aria-label="More of your finances" className="mb-6 flex flex-wrap gap-2">
+          {[
+            { href: '/household/goals', label: 'Goals' },
+            { href: '/household/family', label: 'Family' },
+            { href: '/household/protection', label: 'Protection' },
+            { href: '/household/coach', label: 'AI coach' },
+          ].map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-muted"
+            >
+              {l.label}
+            </a>
+          ))}
+        </nav>
 
         {/* Wealth Health — the headline number, straight from the engine. */}
         <div className="mb-4">

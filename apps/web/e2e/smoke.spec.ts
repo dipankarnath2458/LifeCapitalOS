@@ -26,25 +26,33 @@ const PASSWORD = 'SmokeTest1pass';
 /**
  * Signs in through the real form and waits for wherever the user belongs.
  *
- * The destination is now membership-dependent — advisors land on /app, consumers on
- * /dashboard — so this waits for either rather than assuming the workspace.
+ * V2 is the primary consumer experience: advisors land on /app, consumers on /household,
+ * and a consumer with no household is forwarded to /onboarding.
  */
 async function signIn(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
   await page.fill('input[type=email]', email);
   await page.fill('input[type=password]', password);
   await page.click('button:has-text("Sign in")');
-  await page.waitForURL(/\/(app|dashboard|onboarding)$/);
+  await page.waitForURL(/\/(app|household|onboarding)$/);
 }
 
 /**
- * Marks onboarding as done before the page loads.
+ * Gives the account a household, so it is a RETURNING consumer.
  *
- * The retail dashboard nudges a user with no accounts into /onboarding, which is correct
- * first-run behaviour but means a freshly-registered account never settles on /dashboard.
- * Tests that need a RETURNING consumer set this first.
+ * V2 forwards a consumer with no household to /onboarding — that redirect is now the only
+ * entry point into onboarding in the product. Tests that need a settled consumer must
+ * therefore provision a household server-side, not just set a localStorage flag: the flag
+ * governed the old V1 nudge and no longer decides anything for V2.
  */
-async function asReturningConsumer(page: Page): Promise<void> {
+async function asReturningConsumer(page: Page, request: APIRequestContext, email: string): Promise<void> {
+  const login = await request.post(`${API_URL}/auth/login`, { data: { email, password: PASSWORD } });
+  const { accessToken } = await login.json();
+  const res = await request.post(`${API_URL}/onboarding/household`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    data: {},
+  });
+  expect(res.ok()).toBeTruthy();
   await page.addInitScript(() => localStorage.setItem('lcos_onboarded', '1'));
 }
 
@@ -89,12 +97,12 @@ test.describe('authentication', () => {
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test('sign in reaches the authenticated shell and stores a session', async ({ page }) => {
+  test('sign in reaches the authenticated shell and stores a session', async ({ page, request }) => {
     // As a RETURNING consumer: a first-run account is redirected on to /onboarding, and
     // reading localStorage mid-navigation destroys the execution context. This test is
     // about the session being stored, not about first-run routing — which the consumer
     // onboarding tests below cover directly.
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, email);
     await signIn(page, email, PASSWORD);
 
     // The regression this guards: a firm-less user must NOT be sent to the Advisor
@@ -110,23 +118,21 @@ test.describe('authentication', () => {
     expect(session.refresh).toBeTruthy();
   });
 
-  test('a returning consumer lands on the retail dashboard', async ({ page }) => {
-    await asReturningConsumer(page);
+  test('a returning consumer lands on the V2 household dashboard', async ({ page, request }) => {
+    await asReturningConsumer(page, request, email);
     await signIn(page, email, PASSWORD);
-    await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole('heading', { name: /Family Balance Sheet/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/household$/);
   });
 
-  test('the session survives a reload', async ({ page }) => {
-    await asReturningConsumer(page);
+  test('the session survives a reload', async ({ page, request }) => {
+    await asReturningConsumer(page, request, email);
     await signIn(page, email, PASSWORD);
     await page.reload();
-    await expect(page).toHaveURL(/\/dashboard$/);
-    await expect(page.getByRole('heading', { name: /Family Balance Sheet/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/household$/);
   });
 
-  test('sign out clears the session and returns to login', async ({ page }) => {
-    await asReturningConsumer(page);
+  test('sign out clears the session and returns to login', async ({ page, request }) => {
+    await asReturningConsumer(page, request, email);
     await signIn(page, email, PASSWORD);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await page.waitForURL('**/login');
@@ -167,13 +173,13 @@ test.describe('account recovery', () => {
 });
 
 test.describe('consumer cannot reach the advisor workspace', () => {
-  test('a firm-less user typing /app is redirected to the retail dashboard', async ({ page, request }) => {
+  test('a firm-less user typing /app is redirected to the consumer home', async ({ page, request }) => {
     const consumer = await createAccount(request);
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
     await page.goto('/app');
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page).toHaveURL(/\/household$/);
     await expect(page.getByText(/No firm yet/)).toHaveCount(0);
   });
 });
@@ -270,7 +276,7 @@ test.describe('consumer onboarding', () => {
     await page.waitForURL(/\/onboarding$/);
 
     await page.getByRole('button', { name: 'Skip for now' }).click();
-    await page.waitForURL(/\/(dashboard|app)$/);
+    await page.waitForURL(/\/(household|app)$/);
 
     const status = await page.evaluate(async (base) => {
       const res = await fetch(`${base}/onboarding/status`, {
@@ -297,7 +303,7 @@ test.describe('wealth health check', () => {
    */
   test('produces a score computed from the figures entered', async ({ page, request }) => {
     const consumer = await createAccount(request);
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
     await page.goto('/wealth-health');
 
@@ -337,7 +343,7 @@ test.describe('household dashboard', () => {
    */
   test('shows the figures from the snapshot the check captured', async ({ page, request }) => {
     const consumer = await createAccount(request);
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
     // Complete a check so a snapshot exists — the dashboard reads, it never captures.
@@ -369,7 +375,7 @@ test.describe('household dashboard', () => {
     request,
   }) => {
     const consumer = await createAccount(request);
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
     // Provision the household WITHOUT capturing a snapshot. This is the realistic state:
@@ -426,7 +432,7 @@ test.describe('consumer routing after onboarding', () => {
     });
     expect(provisioned.ok()).toBeTruthy();
 
-    await asReturningConsumer(page);
+    await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
     await expect(page).not.toHaveURL(/\/app$/);
@@ -438,6 +444,90 @@ test.describe('consumer routing after onboarding', () => {
     await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
     await expect(page).toHaveURL(/\/app$/);
     await expect(page.getByText('Advisor workspace').first()).toBeVisible();
+  });
+});
+
+test.describe('V2 primary / V1 safety net', () => {
+  /**
+   * PR A — V2 becomes the primary consumer experience while V1 stays operational.
+   * See docs/V2_PRIMARY_MIGRATION_PLAN.md.
+   *
+   * These assert the two halves of that arrangement directly, because both fail SILENTLY:
+   * a capability that quietly disappears produces no error, and a rollback path that has
+   * stopped working looks identical to one that works until you need it.
+   */
+
+  test('a NEW consumer reaches the V2 experience, not V1', async ({ page, request }) => {
+    // Deliberately no household: this proves the redirect that is now the ONLY entry point
+    // into onboarding in the product. It used to live on the V1 dashboard.
+    const consumer = await createAccount(request);
+    await signIn(page, consumer, PASSWORD);
+    await expect(page).toHaveURL(/\/onboarding$/);
+  });
+
+  test('the V1 dashboard is still reachable and renders — the rollback path', async ({
+    page,
+    request,
+  }) => {
+    // Guards rules 3, 4 and 10. If reverting CONSUMER_HOME is the rollback, then /dashboard
+    // must still work at the moment we need it — not merely still exist in the repository.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.getByRole('heading', { name: /Family Balance Sheet/i })).toBeVisible();
+  });
+
+  test('every preserved capability is reachable and working from V2', async ({ page, request }) => {
+    // Guards rules 2, 5, 6 and 7. Asserts a WORKING CONTROL on each surface, not just a
+    // heading — a page that renders a title but cannot save is functionality lost.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    for (const link of ['Goals', 'Family', 'Protection', 'AI coach']) {
+      await page.goto('/household');
+      await page.getByRole('link', { name: link, exact: true }).click();
+      await expect(page.getByTestId('temporary-surface-notice')).toBeVisible();
+      // Each hosted V1 component renders at least one interactive control.
+      await expect(page.locator('button, input, textarea, select').first()).toBeVisible();
+    }
+  });
+
+  test('protection still saves — the only working cover capture in the product', async ({
+    page,
+    request,
+  }) => {
+    // The V2 insurance panel reads `assumptions.insurance`, which the intelligence
+    // controller never passes, so its coverTracked is always false. Losing this form would
+    // remove protection capture entirely.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+    await page.goto('/household/protection');
+
+    await page.getByRole('button', { name: /Save/i }).click();
+    await expect(page.getByText(/Saved|Updated/i).first()).toBeVisible();
+  });
+
+  test('Plans and Admin survived the move off the V1 dashboard', async ({ page, request }) => {
+    // Both were linked ONLY from /dashboard. Without these links the routes still work by
+    // URL but nobody can navigate to them — the silent kind of loss.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.getByRole('button', { name: 'Plans' }).click();
+    await expect(page).toHaveURL(/\/billing$/);
+  });
+
+  test('an admin sees the Admin link on the V2 dashboard', async ({ page }) => {
+    await signIn(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    // The seeded admin belongs to a firm, so land them on the consumer home explicitly.
+    await page.goto('/household');
+    await expect(page.getByRole('button', { name: 'Admin' })).toBeVisible();
   });
 });
 
@@ -453,7 +543,7 @@ test.describe('new user registration', () => {
     await page.click('button:has-text("Create account")');
 
     // A brand-new account belongs to no firm, so it is a consumer.
-    await page.waitForURL(/\/(dashboard|onboarding)$/);
+    await page.waitForURL(/\/(household|onboarding)$/);
     await expect(page.getByText(/No firm yet/i)).toHaveCount(0);
   });
 });

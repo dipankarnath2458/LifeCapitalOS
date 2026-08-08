@@ -52,7 +52,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       {open && (
         <div className="bg-brand-dark px-4 pb-4 text-white md:hidden">
           {nav}
-          <a href="/dashboard" className="mt-4 block rounded-lg bg-white/10 px-3 py-2 text-center text-sm">
+          <a href="/household" className="mt-4 block rounded-lg bg-white/10 px-3 py-2 text-center text-sm">
             ← Back to app
           </a>
           <button onClick={signOut} className="mt-2 w-full rounded-lg bg-white/10 px-3 py-2 text-sm">
@@ -67,7 +67,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <div className="mb-8 text-xs uppercase tracking-wide text-brand-light">Admin</div>
         {nav}
         <a
-          href="/dashboard"
+          href="/household"
           className="mt-8 block rounded-lg bg-white/10 px-3 py-2 text-center text-sm hover:bg-white/20"
         >
           ← Back to app
