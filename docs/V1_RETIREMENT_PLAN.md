@@ -4,7 +4,7 @@
 > approval before any implementation begins, per the product decision that V2 becomes the single
 > official Life Capital OS consumer experience.
 > **Method:** every claim below comes from a per-module import graph over `apps/web/src` and
-> `apps/web/e2e` (exact `from '@/…'` matches), not from naming or inspection by eye.
+> `apps/web/e2e`, matching `@/`, `./` and `../` import forms — not from naming or inspection by eye.
 > Companion: [`M5_6_HOUSEHOLD_DASHBOARD_ARCHITECTURE`](./M5_6_HOUSEHOLD_DASHBOARD_ARCHITECTURE.md),
 > [`M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE`](./M5_5_WEALTH_HEALTH_CHECK_ARCHITECTURE.md),
 > [`M5-5_CONSUMER_ACTIVATION`](./architecture/M5-5_CONSUMER_ACTIVATION.md).
@@ -73,9 +73,21 @@ Every one is imported *only* by `app/dashboard/page.tsx`:
 > The **APIs these call are NOT removed** — they are platform surface and stay per the decision.
 > Only the presentation layer goes.
 
-**Group B — already orphaned today, independent of this work.** Imported by nothing:
-`Modal.tsx`, `NumberField.tsx`, `Status.tsx`. Dead before we started; safe to delete, and equally
-safe to leave.
+**Group B — CORRECTED: there are no orphans. All three are shared and must be preserved.**
+
+> An earlier revision of this document listed `Modal.tsx`, `NumberField.tsx` and `Status.tsx` as
+> already-orphaned and safe to delete. **That was wrong.** The import graph behind it matched only
+> `@/…`-style imports and missed relative ones (`./Modal`). Re-run including relative imports:
+>
+> | File | Real importers | Verdict |
+> | --- | --- | --- |
+> | `Modal.tsx` | `FeatureOverrides.tsx` (**admin**) | Preserve |
+> | `NumberField.tsx` | `AddAccount` (V1) + `HealthCheck`, `InsuranceGap`, `RetirementCalculator` (**marketing**) | Preserve |
+> | `Status.tsx` | `EarlyWarning` (V1) + `HealthCheck` (**marketing**) | Preserve |
+>
+> Two of the three are load-bearing for the public marketing site. Deleting them on the strength of
+> the original analysis would have broken the homepage — the exact failure this report exists to
+> prevent. The corrected graph is the one used everywhere below.
 
 **Group C — MARKETING, not consumer app. Preserve.** `ToolsSection.tsx` is imported by the public
 landing page (`app/page.tsx`), and pulls in `HealthCheck.tsx`, `RetirementCalculator.tsx`,
@@ -136,7 +148,8 @@ front of them.
 | Billing unreachable (D2) | **High** if unhandled | Silent revenue loss — nothing errors | Add plans link to the V2 dashboard; smoke test asserts reachability |
 | Deleting the Advisor Workspace by name confusion | Medium | Advisory product down | §2.2 Group E; the advisor smoke test must stay green |
 | Breaking the marketing site | Medium | Public homepage down | §2.2 Group C; landing-page smoke test must stay green |
-| Removing something still referenced | Low | Build failure | `tsc --noEmit` + build are hard gates; deletion is only from the confirmed-orphan list |
+| Removing something still referenced | Low | Build failure | `tsc --noEmit` + build are hard gates; deletion list is import-graph verified, including relative imports |
+| Import graph misses relative imports | **Occurred once** | Would have deleted 3 shared files, breaking the marketing site | Caught and corrected before approval; the graph now matches `@/`, `./` and `../` forms |
 | Losing V1 as a fallback | Accepted by decision | — | Git history, tags, and Vercel rollback, per the decision |
 
 **Deliberately called out:** D1 and D2 are the two failures that would **not** produce an error.
@@ -169,8 +182,8 @@ word if you would rather it be its own PR.*
 
 **5.6 Update the smoke suite** to assert the V2 destination. Fixes D7.
 
-**Only then**, delete: `app/dashboard/page.tsx`, the nine Group A components, and the three Group B
-orphans.
+**Only then**, delete: `app/dashboard/page.tsx` and the nine Group A components. **Nothing else** —
+there are no orphans (see the Group B correction).
 
 ---
 
