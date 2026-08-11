@@ -179,6 +179,65 @@ describe('household AI fallback answer', () => {
     expect(res.answer).toContain('Financial health is good at 72/100.');
   });
 
+  it('never calls a model on the free summary, even with a key configured', async () => {
+    // The cost defect this pins. `insights` is free and ungated on the argument that it narrates
+    // figures already on the consumer's dashboard. The coach page loads it automatically on
+    // mount, so the moment an API key existed, every page view and every refresh became a billed
+    // model call for any signed-in consumer — no entitlement, no rate limit.
+    //
+    // Driven with a key present, because that is the only state in which the bug exists: with no
+    // key the deterministic path is taken anyway and a passing test would prove nothing.
+    const withKey = new HouseholdAiService(
+      { current: async () => ({ available: true, ...intelligence() }) } as never,
+      {
+        latest: async () => ({ id: 'snap_1', schemaVersion: 1, engineVersion: 'm2-6.1.0', fxVersion: 'static-v1', currency: 'INR', capturedAt: '2026-08-01T00:00:00.000Z', status: 'active', payload: payload() }),
+      } as never,
+      { get: (k: string) => (k === 'ai.apiKey' ? 'sk-ant-test-not-a-real-key' : undefined) } as never,
+    );
+    // COUNT the calls; do not merely make them throw. `answer()` catches a failed model call and
+    // falls back to the deterministic narrative with `ai: false` — so a throwing stub produces an
+    // identical response either way, and a test built on one passes while the money is spent.
+    // The only observable that distinguishes the two is whether the SDK was reached at all.
+    let calls = 0;
+    const client = (withKey as unknown as { client: { messages: { create: () => Promise<unknown> } } }).client;
+    expect(client).toBeTruthy();
+    client.messages.create = async () => {
+      calls += 1;
+      return { content: [{ type: 'text', text: 'model output' }] };
+    };
+
+    const res = await withKey.insights(household);
+    expect(calls).toBe(0);
+    expect(res.available).toBe(true);
+    if (!res.available) return;
+    expect(res.ai).toBe(false);
+    expect(res.answer).toContain('Financial health is good at 72/100.');
+  });
+
+  it('still calls the model on the coach, which is gated and asked for', async () => {
+    // The other half: making the summary deterministic must not disable the paid surface too.
+    const withKey = new HouseholdAiService(
+      { current: async () => ({ available: true, ...intelligence() }) } as never,
+      {
+        latest: async () => ({ id: 'snap_1', schemaVersion: 1, engineVersion: 'm2-6.1.0', fxVersion: 'static-v1', currency: 'INR', capturedAt: '2026-08-01T00:00:00.000Z', status: 'active', payload: payload() }),
+      } as never,
+      { get: (k: string) => (k === 'ai.apiKey' ? 'sk-ant-test-not-a-real-key' : undefined) } as never,
+    );
+    let called = false;
+    const client = (withKey as unknown as { client: { messages: { create: () => Promise<unknown> } } }).client;
+    client.messages.create = async () => {
+      called = true;
+      return { content: [{ type: 'text', text: 'Here is a real answer.' }] };
+    };
+
+    const res = await withKey.coach(household, [{ role: 'user', content: 'can i retire at 55?' }]);
+    expect(called).toBe(true);
+    expect(res.available).toBe(true);
+    if (!res.available) return;
+    expect(res.ai).toBe(true);
+    expect(res.answer).toBe('Here is a real answer.');
+  });
+
   it('does not apologise on the summary surface, which asks nothing', async () => {
     // `insights` narrates; it poses no question, so a fallback there is a complete answer rather
     // than a substitute for one.

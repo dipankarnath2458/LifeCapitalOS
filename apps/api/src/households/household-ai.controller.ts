@@ -29,9 +29,14 @@ class CoachDto {
  *
  * ## Why the two routes are gated differently
  *
- * `insights` narrates figures the consumer's own dashboard already renders, from the same call the
- * dashboard already makes — so it costs nothing extra to serve, and putting a paywall in front of
- * a sentence describing numbers already on screen would be user-hostile.
+ * `insights` narrates figures the consumer's own dashboard already renders, and **never calls a
+ * model** — so it genuinely costs nothing to serve, and putting a paywall in front of a sentence
+ * describing numbers already on screen would be user-hostile.
+ *
+ * That "never calls a model" is load-bearing, not incidental. The coach page loads this summary
+ * automatically on mount; while it shared the coach's code path it was deterministic only because
+ * no API key happened to be configured, and the day one was, every page view became a billed call
+ * on an ungated route. See §6.1 of the architecture doc.
  *
  * `coach` is a conversation with a model and carries per-token cost, so it keeps the same
  * `ai_recommendations` entitlement that gates V1's `/ai/*`. Consumers without it get the

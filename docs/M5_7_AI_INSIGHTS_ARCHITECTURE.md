@@ -199,10 +199,31 @@ billing behaviour — not a defect.
 
 It leaves a question M5.7 cannot answer on its own, because it is pricing, not architecture:
 
-| Surface | Cost to serve | Proposed gate |
+| Surface | Cost to serve | Gate |
 | --- | --- | --- |
-| Deterministic insights (FIL narrative, already computed for the dashboard) | zero — same call the dashboard makes | **free** |
-| LLM coach / conversation | per-token | **premium**, mirroring V1 |
+| `insights` — the FIL narrative, already computed for the dashboard | zero — **never calls a model** | **free** |
+| `coach` — conversation | per-token | **premium**, mirroring V1 |
+
+### 6.1 Why `insights` is deterministic by construction
+
+The free surface was originally routed through the same path as the coach, and simply happened to
+return the deterministic narrative because no API key was configured. That is not the same thing as
+being free.
+
+The coach page loads the summary automatically when it mounts, so the moment a key was set in
+production, **every page view and every refresh became a billed model call** — for any signed-in
+consumer, with no entitlement check and no rate limit. The "costs nothing extra to serve" argument
+that justifies leaving it ungated was true only while the key was absent, and it silently stopped
+being true the minute the product was switched on.
+
+`insights` therefore never calls a model. Paying for one belongs on `coach`, which is gated and
+only runs when a person actually asks something. A test counts SDK calls and asserts zero **with a
+key configured**, because that is the only state in which the defect can exist.
+
+That test also has to count calls rather than throw from a stub: `answer()` catches a failed model
+call and falls back to the deterministic narrative, so a throwing stub produces an identical
+response either way. The first version of this test passed against the regression for exactly that
+reason. Whether the SDK was reached is the only observable that distinguishes the two.
 
 The recommendation is the split above: a consumer should not hit a paywall to read a sentence
 describing figures already rendered on their own dashboard, while the conversational model call —

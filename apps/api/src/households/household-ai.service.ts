@@ -181,13 +181,41 @@ export class HouseholdAiService {
     'product decisions.',
   ].join(' ');
 
-  /** A narrative summary of where the household stands. */
+  /**
+   * A narrative summary of where the household stands. **Never calls the model.**
+   *
+   * This surface is free and ungated, on the argument that it narrates figures already on the
+   * consumer's own dashboard and so costs nothing extra to serve. That argument only holds if it
+   * genuinely costs nothing — and it briefly did not: the summary loads automatically when the
+   * coach page mounts, so once an API key was configured every page view and every refresh became
+   * a billed model call, for any signed-in consumer, with no entitlement and no rate limit.
+   *
+   * So the free surface is deterministic by construction rather than by the accident of no key
+   * being present. The layer's own composed narrative is what it returns, always. Paying for a
+   * model belongs on `coach`, which is gated and only runs when someone actually asks something.
+   */
   async insights(household: Household): Promise<AiAnswer> {
-    // No `question`: this surface never asks anything specific, so a fallback here is a complete
-    // answer rather than a substitute for one.
-    return this.answer(household, [
-      { role: 'user', content: 'Summarise where my family stands financially right now.' },
-    ]);
+    const grounding = await this.ground(household);
+    if ('reason' in grounding) {
+      return { available: false, reason: grounding.reason };
+    }
+    return {
+      ...this.envelope(grounding),
+      ai: false,
+      // No `question`: this surface asks nothing, so the narrative is a complete answer rather
+      // than a substitute for one.
+      answer: this.deterministic(grounding.analysis),
+    };
+  }
+
+  /** The provenance every answer carries, whoever produced the prose. */
+  private envelope(grounding: Grounding) {
+    return {
+      available: true as const,
+      snapshotId: grounding.context.provenance.snapshotId,
+      capturedAt: grounding.context.provenance.capturedAt ?? null,
+      actions: grounding.analysis.recommendedActions,
+    };
   }
 
   /** Multi-turn conversation, grounded on the same snapshot the dashboard reads. */
@@ -208,12 +236,7 @@ export class HouseholdAiService {
       return { available: false, reason: grounding.reason };
     }
 
-    const base = {
-      available: true as const,
-      snapshotId: grounding.context.provenance.snapshotId,
-      capturedAt: grounding.context.provenance.capturedAt ?? null,
-      actions: grounding.analysis.recommendedActions,
-    };
+    const base = this.envelope(grounding);
 
     // Runtime enforcement of the redaction contract, immediately before the only place the data
     // could leave the system. A grounding block that would carry PII is never sent — the
