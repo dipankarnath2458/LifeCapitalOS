@@ -123,7 +123,8 @@ price of not removing capability. It is recorded here rather than discovered lat
 | **Goals** | High | No goals anywhere in V2 |
 | **Family / dependents CRUD** | High | `memberCount` is read-only; dependents feed insurance need |
 | **Protection capture** | High | **V2 panel has no data path** — `coverTracked` reads `assumptions.insurance`, which the controller never passes, so it is always `false` |
-| **AI Wealth Coach / Second Opinion** | High | PR-5 not started |
+| ~~**AI Wealth Coach**~~ | — | **Shipped M5.7** — native `/household/coach`, grounded on the Intelligence Layer |
+| **Second Opinion** (allocation review) | Low | **Superseded, not dropped.** V1's version reads retail `Account.userId` data a V2 consumer does not have, so it would tell them their allocation is fine while seeing nothing. V2 covers the substance in the dashboard's `assetAllocation` panel (drift, concentration, suggestions) and the narrative through the M5.7 coach, whose grounding carries `assetAllocation`. Both premium-gated, as V1's was. Still on `/dashboard` for the rollback path |
 | Early-warning parity | Medium | `intelligence.risk` overlaps but no test proves parity — treated as unmigrated |
 | Net-worth timeline chart | Low | Figures present, chart not rebuilt |
 | Allocation donut | Low | Figures present, chart not rebuilt |
@@ -136,7 +137,8 @@ price of not removing capability. It is recorded here rather than discovered lat
 | Goals | Mounted at `/household/goals` (existing component) | M5.8 |
 | Family | Mounted at `/household/family` | M5.8 |
 | Protection | Mounted at `/household/protection` | M5.9 — needs a **data path**, not just a UI |
-| AI Coach / Second Opinion | Mounted at `/household/coach` | M5.7 (PR-5) |
+| AI Coach | **Native since M5.7** — no longer a hosted V1 component | done |
+| Second Opinion | Superseded by the dashboard's allocation panel + the M5.7 coach; V1's version stays on `/dashboard` | done |
 | Early warning | Remains on `/dashboard`; V2 shows `risk` | M5.8 parity test |
 | Charts | Remain on `/dashboard`; V2 shows figures | M5.8 |
 | Double entry | Unchanged this PR | With Goals/Family/Protection migration |
@@ -149,7 +151,7 @@ unchanged APIs. Nothing is re-keyed, migrated or dropped in any phase of this pl
 | PR | Scope | Deletions | Reversible |
 | --- | --- | --- | --- |
 | **PR A** | V2 primary: R1–R8, the four capability routes, smoke coverage | none | one-line + 4 file deletes |
-| **PR B** *(M5.7)* | AI insights on the Intelligence Layer; `/household/coach` → native | none | revert |
+| ~~**PR B**~~ *(M5.7)* | **Done.** AI insights on the Intelligence Layer; `/household/coach` native | none | revert |
 | **PR C** *(M5.8)* | Native V2 Goals + Family; charts; early-warning parity test | none | revert |
 | **PR D** *(M5.9)* | Protection **data path** + capture; native `/household/protection` | none | revert |
 | **PR E** *(M6–M9)* | Reports, What-if, Retirement, Insurance, Estate planning | none | revert |

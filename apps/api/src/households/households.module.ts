@@ -27,9 +27,14 @@ import { HouseholdSimulationController } from './household-simulation.controller
 import { HouseholdSimulationService } from './household-simulation.service';
 import { HouseholdIntelligenceController } from './household-intelligence.controller';
 import { HouseholdIntelligenceService } from './household-intelligence.service';
+import { HouseholdAiController } from './household-ai.controller';
+import { HouseholdAiService } from './household-ai.service';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
-  imports: [FirmsModule],
+  // BillingModule: the Family CFO conversation keeps the same premium entitlement that gates
+  // V1's /ai/* routes. See household-ai.controller.ts.
+  imports: [FirmsModule, BillingModule],
   controllers: [
     HouseholdsController,
     HouseholdMembersController,
@@ -44,6 +49,7 @@ import { HouseholdIntelligenceService } from './household-intelligence.service';
     HouseholdHealthExplanationController,
     HouseholdSimulationController,
     HouseholdIntelligenceController,
+    HouseholdAiController,
   ],
   providers: [
     HouseholdsService,
@@ -59,6 +65,7 @@ import { HouseholdIntelligenceService } from './household-intelligence.service';
     HouseholdHealthExplanationService,
     HouseholdSimulationService,
     HouseholdIntelligenceService,
+    HouseholdAiService,
     HouseholdScopeGuard,
   ],
   exports: [HouseholdsService, HouseholdScopeGuard],

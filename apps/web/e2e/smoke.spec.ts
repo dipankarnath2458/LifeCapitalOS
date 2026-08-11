@@ -524,13 +524,52 @@ test.describe('V2 primary / V1 safety net', () => {
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
-    for (const link of ['Goals', 'Family', 'Protection', 'AI coach']) {
+    // 'AI coach' left this list in M5.7: it is now a native V2 surface rather than a hosted
+    // V1 component, and has its own test below. The rest are still awaiting M5.8/M5.9.
+    for (const link of ['Goals', 'Family', 'Protection']) {
       await page.goto('/household');
       await page.getByRole('link', { name: link, exact: true }).click();
       await expect(page.getByTestId('temporary-surface-notice')).toBeVisible();
       // Each hosted V1 component renders at least one interactive control.
       await expect(page.locator('button, input, textarea, select').first()).toBeVisible();
     }
+  });
+
+  test('the AI coach is native and grounded on the V2 snapshot', async ({ page, request }) => {
+    // M5.7. The surface this replaces hosted V1's WealthCoach, which grounds on retail
+    // (`Account.userId`) data a V2 consumer does not have — so it narrated ₹0 to a family with
+    // ₹20,00,000. The native surface reads the same snapshot as the dashboard.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('150000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    await page.goto('/household');
+    await page.getByRole('link', { name: 'AI coach', exact: true }).click();
+    await expect(page).toHaveURL(/\/household\/coach$/);
+
+    // No longer a migration surface.
+    await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
+
+    // A real summary, and provenance stated rather than implied.
+    await expect(page.getByTestId('cfo-headline')).toBeVisible();
+    await expect(page.getByTestId('cfo-provenance')).toContainText(/snapshot/i);
+
+    // Asking is premium. The paywall must appear WITHOUT destroying the free summary above it
+    // — a consumer who cannot chat can still read where they stand.
+    await page.getByLabel('Ask your Family CFO').fill('Can I afford to retire at 55?');
+    await page.getByRole('button', { name: 'Ask' }).click();
+    await expect(page.getByText(/Premium feature/i)).toBeVisible();
+    await expect(page.getByTestId('cfo-headline')).toBeVisible();
   });
 
   test('protection still saves — the only working cover capture in the product', async ({
