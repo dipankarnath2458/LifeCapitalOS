@@ -147,6 +147,49 @@ describe('household AI grounding', () => {
   });
 });
 
+describe('household AI fallback answer', () => {
+  /**
+   * The service with no model configured — production's state when `ANTHROPIC_API_KEY` is unset,
+   * and the path any API outage also takes.
+   */
+  const service = () =>
+    new HouseholdAiService(
+      { current: async () => ({ available: true, ...intelligence() }) } as never,
+      {
+        latest: async () => ({ id: 'snap_1', schemaVersion: 1, engineVersion: 'm2-6.1.0', fxVersion: 'static-v1', currency: 'INR', capturedAt: '2026-08-01T00:00:00.000Z', status: 'active', payload: payload() }),
+      } as never,
+      { get: () => undefined } as never,
+    );
+
+  const household = { id: 'hh_1' } as never;
+
+  it('admits it did not answer the question, instead of replying with a non-sequitur', async () => {
+    // Someone asks "can I afford to retire at 55?" and gets a balance-sheet summary. Without
+    // this, the reply reads as though the coach considered the question and chose to talk about
+    // something else. `ai: false` explains where the text came from, not that the question was
+    // never reasoned about.
+    const res = await service().coach(household, [
+      { role: 'user', content: 'can i afford to retire at 55?' },
+    ]);
+    expect(res.available).toBe(true);
+    if (!res.available) return;
+    expect(res.ai).toBe(false);
+    expect(res.answer).toMatch(/can.t answer that specific question right now/i);
+    // The position is still reported — the fallback is honest, not empty.
+    expect(res.answer).toContain('Financial health is good at 72/100.');
+  });
+
+  it('does not apologise on the summary surface, which asks nothing', async () => {
+    // `insights` narrates; it poses no question, so a fallback there is a complete answer rather
+    // than a substitute for one.
+    const res = await service().insights(household);
+    expect(res.available).toBe(true);
+    if (!res.available) return;
+    expect(res.answer).not.toMatch(/can.t answer that specific question/i);
+    expect(res.answer).toContain('Financial health is good at 72/100.');
+  });
+});
+
 describe('household AI dependency boundary', () => {
   it('does not inject Prisma or any engine repository', () => {
     // `AI_INTEGRATION_ARCHITECTURE` §5: the dependency boundary IS the enforcement mechanism —
