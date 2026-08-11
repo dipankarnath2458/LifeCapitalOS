@@ -225,6 +225,17 @@ describe('financial intelligence — section correctness (rich payload)', () => 
     expect(Array.isArray(out.recommendedActions)).toBe(true);
   });
 
+  it('writes money in the summary as currency, never as raw minor units', () => {
+    // These paragraphs are the one part of this object that is *prose shown to a family* — the
+    // AI coach renders them verbatim. Shipped raw, a consumer was told "Net worth is 782000000
+    // (base INR, minor units)" on a page where the same figure read ₹78,20,000.
+    const paragraph = out.executiveSummary.paragraphs.join(' ');
+    expect(paragraph).not.toMatch(/minor units/);
+    // 4,000,000 minor = ₹40,000. The digit string must not appear unformatted.
+    expect(paragraph).not.toMatch(/\b4000000\b/);
+    expect(paragraph).toMatch(/₹40,000/);
+  });
+
   it('reports full data completeness when assumptions are supplied', () => {
     const full = computeHouseholdFinancialIntelligence(
       baseInput(richPayload, {

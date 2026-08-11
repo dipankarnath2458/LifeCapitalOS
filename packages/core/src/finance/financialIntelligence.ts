@@ -1,4 +1,4 @@
-import { CurrencyCode } from '../money/money.js';
+import { CurrencyCode, formatMoney, fromMinor } from '../money/money.js';
 import { FinancialSnapshotPayload } from './financialSnapshot.js';
 import {
   computeFinancialHealthScore,
@@ -607,8 +607,13 @@ export function computeHouseholdFinancialIntelligence(
   const paragraphs = [
     explanation.summary,
     // The reconciled figure, because this paragraph is the text every narrative surface
-    // (and, from M5.7, the AI coach) repeats verbatim.
-    `Net worth is ${reconciledNetWorthMinor(p)} (base ${currency}, minor units); ` +
+    // (and, since M5.7, the AI coach) repeats verbatim.
+    //
+    // Formatted, not raw minor units. Every other field in this object is a number for a
+    // caller to format, but these paragraphs are *prose shown to a family* — and shipping
+    // them raw put "Net worth is 782000000 (base INR, minor units)" in front of a consumer
+    // on a page where the same figure read ₹78,20,000.
+    `Net worth is ${formatMoney(fromMinor(reconciledNetWorthMinor(p), currency as CurrencyCode))}; ` +
       `${warning.redCount} red and ${warning.yellowCount} amber risk signal${warning.yellowCount === 1 ? '' : 's'} detected.`,
   ];
 

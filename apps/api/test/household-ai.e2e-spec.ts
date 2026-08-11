@@ -182,7 +182,14 @@ describe('Family CFO (e2e)', () => {
     expect(dash.body.netWorth.data.netWorthMinor).toBe(rupees(1600000));
 
     const res = await insights(token, householdId);
-    expect(res.body.answer).toContain(String(rupees(1600000)));
+    // Asserted as the family reads it. The summary is prose shown to a consumer, so it states
+    // ₹16,00,000 — not the raw minor-unit integer, which is what shipped first and put
+    // "Net worth is 782000000 (base INR, minor units)" in front of a real user.
+    expect(res.body.answer).toContain('₹16,00,000');
+    expect(res.body.answer).not.toContain('minor units');
+    expect(res.body.answer).not.toContain(String(rupees(1600000)));
+    // The gross figure must not appear in any form.
+    expect(res.body.answer).not.toContain('₹20,00,000');
     expect(res.body.answer).not.toContain(String(rupees(2000000)));
   });
 

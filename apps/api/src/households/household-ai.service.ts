@@ -183,6 +183,8 @@ export class HouseholdAiService {
 
   /** A narrative summary of where the household stands. */
   async insights(household: Household): Promise<AiAnswer> {
+    // No `question`: this surface never asks anything specific, so a fallback here is a complete
+    // answer rather than a substitute for one.
     return this.answer(household, [
       { role: 'user', content: 'Summarise where my family stands financially right now.' },
     ]);
@@ -191,10 +193,16 @@ export class HouseholdAiService {
   /** Multi-turn conversation, grounded on the same snapshot the dashboard reads. */
   async coach(household: Household, history: CoachMessage[]): Promise<AiAnswer> {
     const messages = history.length > 0 ? history : [{ role: 'user' as const, content: 'How am I doing?' }];
-    return this.answer(household, messages);
+    // The question the fallback has to admit it did not answer.
+    const asked = [...messages].reverse().find((m) => m.role === 'user')?.content;
+    return this.answer(household, messages, asked);
   }
 
-  private async answer(household: Household, messages: CoachMessage[]): Promise<AiAnswer> {
+  private async answer(
+    household: Household,
+    messages: CoachMessage[],
+    question?: string,
+  ): Promise<AiAnswer> {
     const grounding = await this.ground(household);
     if ('reason' in grounding) {
       return { available: false, reason: grounding.reason };
@@ -214,11 +222,11 @@ export class HouseholdAiService {
       this.logger.error(
         `Grounding for household ${household.id} failed the PII guard; refusing the model call.`,
       );
-      return { ...base, ai: false, answer: this.deterministic(grounding.analysis) };
+      return { ...base, ai: false, answer: this.deterministic(grounding.analysis, question) };
     }
 
     if (!this.client) {
-      return { ...base, ai: false, answer: this.deterministic(grounding.analysis) };
+      return { ...base, ai: false, answer: this.deterministic(grounding.analysis, question) };
     }
 
     try {
@@ -242,11 +250,11 @@ export class HouseholdAiService {
         .join('\n')
         .trim();
       // An empty completion must not render as a blank coach reply.
-      if (!answer) return { ...base, ai: false, answer: this.deterministic(grounding.analysis) };
+      if (!answer) return { ...base, ai: false, answer: this.deterministic(grounding.analysis, question) };
       return { ...base, ai: true, answer };
     } catch (err) {
       this.logger.error(`Family CFO call failed: ${(err as Error).message}`);
-      return { ...base, ai: false, answer: this.deterministic(grounding.analysis) };
+      return { ...base, ai: false, answer: this.deterministic(grounding.analysis, question) };
     }
   }
 
@@ -258,11 +266,27 @@ export class HouseholdAiService {
    * nothing. Callers receive `ai: false` so the client can label it honestly; a user must never be
    * told a template was a personalised AI answer.
    */
-  private deterministic(analysis: GroundedAnalysis): string {
+  private deterministic(analysis: GroundedAnalysis, question?: string): string {
     const s = analysis.executiveSummary;
-    const lines = [s.headline, '', ...s.paragraphs];
+    const lines: string[] = [];
+
+    // When the user asked something specific, say plainly that it went unanswered.
+    //
+    // Without this the reply reads as a non-sequitur: someone asks "can I afford to retire at
+    // 55?" and receives a balance-sheet summary, as though the coach had considered the question
+    // and chosen to talk about something else. The provenance label alone does not carry that —
+    // it explains where the text came from, not that the question was never reasoned about.
+    if (question) {
+      lines.push(
+        'I can’t answer that specific question right now — the AI coach is unavailable. ' +
+          'Here is where you stand, from your latest snapshot:',
+        '',
+      );
+    }
+
+    lines.push(s.headline, '', ...s.paragraphs);
     if (s.watchouts.length > 0) lines.push('', `Worth watching: ${s.watchouts.join('; ')}.`);
     if (s.highlights.length > 0) lines.push(`Going well: ${s.highlights.join('; ')}.`);
-    return lines.filter((l) => l !== undefined).join('\n');
+    return lines.join('\n');
   }
 }
