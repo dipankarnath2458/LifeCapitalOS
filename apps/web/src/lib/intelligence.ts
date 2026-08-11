@@ -33,8 +33,12 @@ export type Section<T> =
 
 export interface NetWorthData {
   assetsMinor: number;
+  /** Liability-flagged accounts only — loans live in `totalDebtMinor`. */
   liabilitiesMinor: number;
+  totalDebtMinor: number;
+  /** Assets minus liability accounts *and* the debt ledger. What the family owns outright. */
   netWorthMinor: number;
+  grossNetWorthMinor: number;
   solvencyRatio: number;
   trend: Trend;
   changeMinor: number | null;

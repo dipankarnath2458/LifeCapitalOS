@@ -97,11 +97,50 @@ describe('financial intelligence — section correctness (rich payload)', () => 
     expect(out.household.lastUpdated).toBe('2026-06-30T00:00:00.000Z');
   });
 
-  it('net worth mirrors the snapshot figures', () => {
+  it('reports net worth AFTER the debt ledger, not the accounts-only figure', () => {
+    // The defect this pins: the payload carries two figures, and the layer used to report
+    // the gross one. Because the consumer wizard writes loans to the debt ledger and never
+    // as liability accounts, a family with a loan was shown a net worth that ignored it.
+    // Here: assets 10,000,000 − liability accounts 3,000,000 = 7,000,000 gross, and a
+    // further 3,000,000 of ledger debt leaves 4,000,000 actually owned.
     expect(out.netWorth.available).toBe(true);
     if (out.netWorth.available) {
-      expect(out.netWorth.data.netWorthMinor).toBe(7_000_000);
-      expect(out.netWorth.data.solvencyRatio).toBe(0.7);
+      expect(out.netWorth.data.netWorthMinor).toBe(4_000_000);
+      expect(out.netWorth.data.grossNetWorthMinor).toBe(7_000_000);
+      expect(out.netWorth.data.totalDebtMinor).toBe(3_000_000);
+      // The ratio must agree with the net worth printed beside it: 4,000,000 / 10,000,000.
+      expect(out.netWorth.data.solvencyRatio).toBe(0.4);
+    }
+  });
+
+  it('falls back to netWorth − debt when a snapshot predates householdEquity', () => {
+    // Snapshots captured before `householdEquity` was added to the payload must still
+    // reconcile, rather than silently reverting to the gross figure.
+    const { householdEquity: _dropped, ...legacy } = richPayload;
+    const out2 = computeHouseholdFinancialIntelligence(
+      baseInput(legacy as FinancialSnapshotPayload),
+    );
+    expect(out2.netWorth.available).toBe(true);
+    if (out2.netWorth.available) {
+      expect(out2.netWorth.data.netWorthMinor).toBe(4_000_000);
+    }
+  });
+
+  it('reconciles the trend series too, so it agrees with the headline', () => {
+    // A gross series under a reconciled headline would report a change the two figures
+    // cannot produce. Debt rising 1,000,000 while gross net worth rises 1,000,000 is flat.
+    const withDebtTrend = computeHouseholdFinancialIntelligence(
+      baseInput(richPayload, {
+        trend: [
+          { netWorthMinor: 6_000_000, totalDebtMinor: 2_000_000 },
+          { netWorthMinor: 7_000_000, totalDebtMinor: 3_000_000 },
+        ],
+      }),
+    );
+    expect(withDebtTrend.netWorth.available).toBe(true);
+    if (withDebtTrend.netWorth.available) {
+      expect(withDebtTrend.netWorth.data.trend).toBe('flat');
+      expect(withDebtTrend.netWorth.data.changeMinor).toBe(0);
     }
   });
 

@@ -90,8 +90,14 @@ export interface IntelligenceAssumptions {
 export interface IntelligenceInput {
   payload: FinancialSnapshotPayload;
   meta: IntelligenceMeta;
-  /** Net-worth series oldest→newest for trend (from FinancialSnapshotService.timeline). */
-  trend?: { netWorthMinor: number }[];
+  /**
+   * Net-worth series oldest→newest for trend (from FinancialSnapshotService.timeline).
+   *
+   * `totalDebtMinor` is optional only so pre-existing callers keep compiling; when it is
+   * omitted the series is the gross figure, which would make the trend disagree with the
+   * headline. Every caller in this repository passes it.
+   */
+  trend?: { netWorthMinor: number; totalDebtMinor?: number }[];
   assumptions?: IntelligenceAssumptions;
   /** Injected for purity — the layer never reads a clock itself. */
   computedAt: string;
@@ -112,8 +118,22 @@ export interface HouseholdFinancialIntelligence {
   };
   netWorth: Section<{
     assetsMinor: number;
+    /** Liability-flagged **accounts** only (overdrafts, credit cards). Excludes the debt ledger. */
     liabilitiesMinor: number;
+    /** Outstanding balance across the M2-5 debt ledger (home loans, personal loans, …). */
+    totalDebtMinor: number;
+    /**
+     * Net worth as a household means it: assets minus everything owed — liability accounts
+     * **and** the debt ledger. Equals the snapshot's `householdEquity.reconciledEquityMinor`.
+     */
     netWorthMinor: number;
+    /**
+     * Assets minus liability accounts only, before the debt ledger is applied. Retained
+     * because it is the M2-3 net-worth figure the Advisor Workspace reports, so the two
+     * surfaces can be reconciled rather than appearing to contradict each other.
+     */
+    grossNetWorthMinor: number;
+    /** Reconciled net worth as a share of assets — consistent with `netWorthMinor`. */
     solvencyRatio: number;
     trend: Trend;
     changeMinor: number | null;
@@ -231,6 +251,27 @@ const confidenceFrom = (score: number): Confidence =>
 const severityFromPriority = (p: 'high' | 'medium' | 'low'): Severity =>
   p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low';
 
+/**
+ * Net worth after the debt ledger — what a household means by the words.
+ *
+ * The snapshot deliberately carries two figures (ADR-012): `netWorth.netWorthMinor` is
+ * assets minus liability-flagged **accounts**, while the M2-5 debt ledger (home loans,
+ * personal loans) is reconciled separately into `householdEquity.reconciledEquityMinor`.
+ *
+ * The consumer wizard writes every loan as a Debt row and never as a liability account,
+ * so for a consumer household the gross figure omits their debt entirely — a family who
+ * entered a ₹4,00,000 loan was shown ₹0 liabilities and a net worth ₹4,00,000 too high.
+ * Presentation surfaces must therefore read the reconciled figure.
+ *
+ * Prefers the kernel's own reconciliation rather than recomputing it. The fallback exists
+ * only for snapshots captured before `householdEquity` was added to the payload; it
+ * repeats the kernel's definition, so if that definition ever changes, change it there
+ * first and this follows.
+ */
+const reconciledNetWorthMinor = (p: FinancialSnapshotPayload): number =>
+  p.householdEquity?.reconciledEquityMinor ??
+  p.netWorth.netWorthMinor - (p.debt?.totalOutstandingMinor ?? 0);
+
 const trendFromSeries = (series: number[]): { trend: Trend; changeMinor: number | null; changePct: number | null } => {
   if (series.length < 2) return { trend: 'unknown', changeMinor: null, changePct: null };
   const prev = series[series.length - 2]!;
@@ -315,16 +356,23 @@ export function computeHouseholdFinancialIntelligence(
   // --- Net Worth ---
   // Trend from the provided net-worth series (oldest→newest). The caller passes the
   // household's snapshot timeline, which already includes the current position.
-  const nwSeries = (input.trend ?? []).map((t) => t.netWorthMinor);
+  // Reconciled on both sides: a trend built from gross figures while the headline is
+  // reconciled would report a change the two numbers cannot produce.
+  const nwSeries = (input.trend ?? []).map((t) => t.netWorthMinor - (t.totalDebtMinor ?? 0));
   const nwTrend = trendFromSeries(nwSeries);
+  const reconciledNw = reconciledNetWorthMinor(p);
   const netWorth: HouseholdFinancialIntelligence['netWorth'] = {
     available: true,
     confidence: 'high',
     data: {
       assetsMinor: p.netWorth.assetsMinor,
       liabilitiesMinor: p.netWorth.liabilitiesMinor,
-      netWorthMinor: p.netWorth.netWorthMinor,
-      solvencyRatio: p.netWorth.solvencyRatio,
+      totalDebtMinor: p.debt?.totalOutstandingMinor ?? 0,
+      netWorthMinor: reconciledNw,
+      grossNetWorthMinor: p.netWorth.netWorthMinor,
+      // Same ratio the kernel defines (net ÷ assets), over the reconciled numerator so it
+      // agrees with the net worth reported beside it.
+      solvencyRatio: p.netWorth.assetsMinor > 0 ? reconciledNw / p.netWorth.assetsMinor : 0,
       trend: nwTrend.trend,
       changeMinor: nwTrend.changeMinor,
       changePct: nwTrend.changePct,
@@ -405,7 +453,10 @@ export function computeHouseholdFinancialIntelligence(
   } else {
     const usingDefaults = !input.assumptions?.retirement;
     const ra = input.assumptions?.retirement ?? DEFAULT_INTELLIGENCE_ASSUMPTIONS.retirement;
-    const currentCorpus = input.assumptions?.retirement?.currentCorpusMinor ?? Math.max(0, p.netWorth.netWorthMinor);
+    // Reconciled: borrowed money is not retirement corpus. Using the gross figure funded
+    // a family's retirement projection with the balance of their outstanding home loan.
+    const currentCorpus =
+      input.assumptions?.retirement?.currentCorpusMinor ?? Math.max(0, reconciledNetWorthMinor(p));
     const result = computeRetirement({
       currentAge: primaryAge,
       retirementAge: ra.retirementAge,
@@ -555,7 +606,9 @@ export function computeHouseholdFinancialIntelligence(
     (watchouts.length > 0 ? `, with ${watchouts.length} area${watchouts.length > 1 ? 's' : ''} to watch.` : '.');
   const paragraphs = [
     explanation.summary,
-    `Net worth is ${p.netWorth.netWorthMinor} (base ${currency}, minor units); ` +
+    // The reconciled figure, because this paragraph is the text every narrative surface
+    // (and, from M5.7, the AI coach) repeats verbatim.
+    `Net worth is ${reconciledNetWorthMinor(p)} (base ${currency}, minor units); ` +
       `${warning.redCount} red and ${warning.yellowCount} amber risk signal${warning.yellowCount === 1 ? '' : 's'} detected.`,
   ];
 
