@@ -285,9 +285,16 @@ export default function HouseholdDashboardPage() {
                 <p className="text-3xl font-bold text-foreground" data-testid="net-worth">
                   {money(n.netWorthMinor)}
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                {/*
+                  Loans are shown as their own figure because the Wealth Health Check
+                  writes every loan to the debt ledger and never as a liability account.
+                  With only Assets and Liabilities on the panel, a family who entered a
+                  ₹4,00,000 loan saw "Liabilities ₹0" and their loan nowhere at all.
+                */}
+                <div className="grid grid-cols-3 gap-3">
                   <Figure label="Assets" value={money(n.assetsMinor)} />
                   <Figure label="Liabilities" value={money(n.liabilitiesMinor)} />
+                  <Figure label="Loans" value={money(n.totalDebtMinor)} />
                 </div>
               </div>
             )}

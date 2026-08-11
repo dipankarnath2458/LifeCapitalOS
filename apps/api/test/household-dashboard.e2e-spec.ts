@@ -52,7 +52,7 @@ describe('Household dashboard data (e2e)', () => {
   }
 
   /** The same sequence the Wealth Health Check performs. */
-  async function completeCheck(token: string, householdId: string) {
+  async function completeCheck(token: string, householdId: string, loanOutstanding = 0) {
     const cash = await http()
       .post(`/api/households/${householdId}/accounts`)
       .set('Authorization', `Bearer ${token}`)
@@ -87,6 +87,25 @@ describe('Household dashboard data (e2e)', () => {
         .post(`/api/households/${householdId}/cashflow`)
         .set('Authorization', `Bearer ${token}`)
         .send({ accountId: cash.body.id, currency: 'INR', occurredAt, ...flow });
+    }
+
+    // The wizard writes a loan only when the family enters one, and always to the debt
+    // ledger — never as a liability account. That asymmetry is what made the reconciliation
+    // defect invisible for as long as every test here ran debt-free.
+    if (loanOutstanding > 0) {
+      const debt = await http()
+        .post(`/api/households/${householdId}/debts`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          name: 'Loan',
+          type: 'other',
+          currency: 'INR',
+          principalMinor: loanOutstanding,
+          outstandingMinor: loanOutstanding,
+          annualInterestRatePct: 9,
+          minimumPaymentMinor: rupees(12000),
+        });
+      expect(debt.status).toBe(201);
     }
 
     const snap = await http()
@@ -126,6 +145,30 @@ describe('Household dashboard data (e2e)', () => {
     expect(body.cashflow.available).toBe(true);
     expect(body.cashflow.data.incomeMinor).toBe(rupees(300000));
     expect(body.cashflow.data.expenseMinor).toBe(rupees(150000));
+  });
+
+  it('subtracts the family’s loan from the net worth it reports', async () => {
+    // The defect: the snapshot carries two figures — assets minus liability *accounts*
+    // (gross), and that minus the debt ledger (reconciled, ADR-012). The layer reported the
+    // gross one, while the wizard writes every loan to the ledger. A family who entered a
+    // ₹4,00,000 loan was shown ₹0 liabilities and a net worth ₹4,00,000 too high, with the
+    // loan appearing nowhere on the page.
+    const { token, householdId } = await newConsumer('dash_debt');
+    await completeCheck(token, householdId, rupees(400000));
+
+    const { body } = await intelligence(token, householdId);
+    expect(body.netWorth.available).toBe(true);
+    const n = body.netWorth.data;
+
+    expect(n.assetsMinor).toBe(rupees(2000000));
+    // Still zero — the loan is not an account, and pretending otherwise would double-count.
+    expect(n.liabilitiesMinor).toBe(0);
+    // ...so the loan must be reported in its own right, or it is invisible.
+    expect(n.totalDebtMinor).toBe(rupees(400000));
+    expect(n.netWorthMinor).toBe(rupees(1600000));
+    expect(n.grossNetWorthMinor).toBe(rupees(2000000));
+    // The ratio has to agree with the net worth beside it: 16L / 20L.
+    expect(n.solvencyRatio).toBeCloseTo(0.8, 5);
   });
 
   it('provides every section the dashboard renders', async () => {

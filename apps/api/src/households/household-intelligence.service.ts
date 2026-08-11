@@ -60,7 +60,13 @@ export class HouseholdIntelligenceService {
 
     // Net-worth trend series (oldest→newest) from the kernel's own read API — never raw tables.
     const timeline = await this.snapshots.timeline(household.id);
-    const trend = timeline.map((t) => ({ netWorthMinor: t.netWorthMinor }));
+    // Debt travels with each point so the layer can reconcile the series the same way it
+    // reconciles the headline. `timeline` already returns both figures; this passes them
+    // through rather than reshaping a kernel read API.
+    const trend = timeline.map((t) => ({
+      netWorthMinor: t.netWorthMinor,
+      totalDebtMinor: t.totalDebtMinor,
+    }));
 
     const intelligence = computeHouseholdFinancialIntelligence({
       payload: snap.payload as unknown as FinancialSnapshotPayload,

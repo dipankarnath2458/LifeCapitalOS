@@ -50,6 +50,47 @@ it is the correctness property:
 The only client-side transformation is **formatting** — minor units to currency, ratios to
 percentages for display.
 
+### 2.1 Which net worth the dashboard reports
+
+The snapshot deliberately carries **two** net-worth figures, per ADR-012:
+
+| Figure | Definition | Where |
+| --- | --- | --- |
+| Gross | assets − liability-flagged **accounts** (overdrafts, credit cards) | `payload.netWorth.netWorthMinor` |
+| Reconciled | that, minus the **M2-5 debt ledger** (home loans, personal loans) | `payload.householdEquity.reconciledEquityMinor` |
+
+The Wealth Health Check writes every loan a family enters to the **debt ledger**, and never as a
+liability account. For a consumer household the gross figure therefore omits their debt entirely.
+
+The Financial Intelligence Layer originally reported the gross figure, so a family who entered a
+₹4,00,000 loan in the wizard saw **₹20,00,000 net worth, ₹0 liabilities, and their loan nowhere on
+the page** — the same class of confidently-wrong number that V1 produced from the opposite
+direction, and that this module exists to prevent.
+
+The layer now reports the **reconciled** figure as `netWorth.netWorthMinor`, and exposes
+`totalDebtMinor` and `grossNetWorthMinor` alongside it:
+
+- `solvencyRatio` is computed over the same reconciled numerator, so it agrees with the net worth
+  printed beside it.
+- The **trend series is reconciled too** — a gross series under a reconciled headline would report
+  a change the two numbers cannot produce.
+- The **retirement corpus proxy** uses the reconciled figure: borrowed money is not corpus.
+- The **executive summary** narrates the reconciled figure, because that paragraph is the text
+  every narrative surface — and from M5.7 the AI coach — repeats verbatim.
+
+The dashboard renders **Assets · Liabilities · Loans** so the debt is visible in its own right,
+not merely subtracted out of sight.
+
+**The kernel is unchanged.** Both figures were always in the payload, correctly computed; this is a
+read-model presentation fix. `FinancialSnapshotPayload` and `schemaVersion 1` are untouched, so
+every stored snapshot reconciles correctly with no backfill.
+
+**One surface still reports the gross figure by design:** the Advisor Workspace net-worth card
+reads `GET /households/:id/net-worth/current` (M2-3, frozen kernel), not the intelligence layer.
+`grossNetWorthMinor` is retained precisely so the two surfaces can be reconciled rather than
+appearing to contradict each other. Aligning the advisor surface is a separate decision, since it
+means changing a frozen kernel endpoint's meaning.
+
 ## 3. Absence is a first-class state, not an empty panel
 
 Two kinds of absence exist and the dashboard treats them differently, because conflating them is how

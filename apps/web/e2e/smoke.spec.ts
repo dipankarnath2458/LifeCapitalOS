@@ -373,6 +373,40 @@ test.describe('household dashboard', () => {
     await expect(page.getByText(/Based on your snapshot/i)).toBeVisible();
   });
 
+  test('subtracts a loan the family entered, and shows the loan itself', async ({
+    page,
+    request,
+  }) => {
+    // The defect, at the surface a family actually sees. The wizard writes loans to the
+    // debt ledger and never as liability accounts, and the dashboard reported the
+    // accounts-only net worth — so a family who typed a ₹4,00,000 loan into this very
+    // wizard was shown ₹20,00,000 net worth, ₹0 liabilities, and no loan anywhere.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Outstanding loan balance (₹)').fill('400000');
+    await page.getByLabel('Monthly payment (₹)').fill('12000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('150000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // ₹20,00,000 of assets less a ₹4,00,000 loan.
+    await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
+    // And the loan is on the page, not merely subtracted out of sight.
+    await expect(page.getByText('Loans')).toBeVisible();
+    await expect(page.getByText('4,00,000')).toBeVisible();
+  });
+
   test('invites a consumer with no data to run the check, rather than showing zeros', async ({
     page,
     request,
