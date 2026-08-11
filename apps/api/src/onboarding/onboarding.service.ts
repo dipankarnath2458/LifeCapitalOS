@@ -104,6 +104,25 @@ export class OnboardingService {
    *
    * Also deliberately safe for an ADVISOR who already belongs to a firm: they already have a
    * workspace, so this returns it rather than provisioning a second, personal one.
+   *
+   * ## Why there is no self-membership backfill
+   *
+   * An earlier version repaired households that predated the self-member row, guarded on
+   * `household.advisorId === actor.id`. That guard is unsound: for an advisor, `advisorId`
+   * IS them for every household they are assigned to — that is what "assigned advisor"
+   * means. Combined with "no members yet" (normal for a new client), it wrote the advisor
+   * into their CLIENT's household as `self`, after which `hasOwnHousehold` flipped true and
+   * routing sent them to the consumer dashboard showing the client's finances as their own.
+   *
+   * There is nothing left for a backfill to do, so the safe move is to have none:
+   *
+   *  - **No new gaps can appear.** The household and its self-member row are created in the
+   *    same transaction below, so they exist together or not at all.
+   *  - **No old gaps exist.** Verified against production: zero households matched the
+   *    legacy pattern (see `docs/V1_RETIREMENT_PLAN.md` and PR #52's investigation).
+   *
+   * If a legacy gap is ever found, repair it as a targeted, audited operation against that
+   * specific household — never by inferring ownership from `advisorId`.
    */
   async ensurePersonalHousehold(
     actor: AuthUser,
@@ -112,14 +131,10 @@ export class OnboardingService {
   ): Promise<PersonalWorkspace> {
     // Fast path: the overwhelmingly common case is an already-onboarded user, and it should
     // not pay for a lock.
+    // Returns the existing workspace UNTOUCHED. It deliberately does not repair or
+    // annotate it: see the note on self-membership below.
     const existing = await this.findWorkspace(actor.id);
-    if (existing) {
-      // Self-heal accounts provisioned before the self-member row existed. Idempotent and
-      // additive: it adds the missing link, never changes an existing one. Without it, a
-      // consumer who onboarded earlier stays mis-routed to the Advisor Workspace.
-      await this.ensureSelfMembership(actor, existing.householdId);
-      return existing;
-    }
+    if (existing) return existing;
 
     const householdName = await this.resolveHouseholdName(actor, input.familyName);
     // Upper-cased: currency codes are compared and formatted as ISO 4217 elsewhere, and a
@@ -219,54 +234,6 @@ export class OnboardingService {
     });
 
     return { ...workspace, provisioned: true };
-  }
-
-  /**
-   * Adds the caller's self-membership row to a household that lacks it.
-   *
-   * Only ever applies to a household the caller already owns via their firm membership, and
-   * only when no membership row exists — so it cannot make an advisor a member of a client's
-   * household, and it cannot duplicate an existing row.
-   *
-   * Never throws: routing is important, but not important enough to fail a provisioning
-   * request that has otherwise succeeded.
-   */
-  private async ensureSelfMembership(actor: AuthUser, householdId: string): Promise<void> {
-    try {
-      const already = await this.prisma.householdMember.findFirst({
-        where: { householdId, userId: actor.id },
-        select: { id: true },
-      });
-      if (already) return;
-
-      // Only self-heal a household with no members at all. A household that already has
-      // members is a real family record; adding a synthetic "self" row to it would be
-      // inventing data, and for an advisor's client household it would be plainly wrong.
-      const memberCount = await this.prisma.householdMember.count({ where: { householdId } });
-      if (memberCount > 0) return;
-
-      const household = await this.prisma.household.findUnique({
-        where: { id: householdId },
-        select: { name: true, advisorId: true },
-      });
-      // `advisorId === actor.id` is what makes this the caller's own household rather than
-      // one they merely have firm access to.
-      if (!household || household.advisorId !== actor.id) return;
-
-      await this.prisma.householdMember.create({
-        data: {
-          householdId,
-          userId: actor.id,
-          name: household.name,
-          relation: 'self',
-          isDependent: false,
-          householdRole: HouseholdRole.OWNER,
-        },
-      });
-      this.logger.log(`Backfilled self-membership for household ${householdId}`);
-    } catch (err) {
-      this.logger.warn(`Could not backfill self-membership: ${String(err)}`);
-    }
   }
 
   /**
