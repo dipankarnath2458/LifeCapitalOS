@@ -138,30 +138,53 @@ describe('Consumer routing signal (e2e)', () => {
     expect(res.body.hasOwnHousehold).toBe(false);
   });
 
-  it('back-fills a household provisioned before the self-member row existed', async () => {
-    // Consumers onboarded between M5.5 and this fix have no self-membership and would stay
-    // mis-routed. Provisioning is idempotent, so calling it again repairs them.
-    const { token } = await newUser('route_legacy');
+  it('never mutates the membership of a household it did not create', async () => {
+    // Replaces an earlier test that asserted a self-membership BACKFILL. That backfill was
+    // removed: its guard (`advisorId === caller`) is true for an advisor and their client's
+    // household, so it wrote advisors into client records. See the note in
+    // `onboarding.service.ts`.
+    //
+    // The property that replaces it is stronger and simpler: provisioning either creates a
+    // complete workspace, or returns an existing one untouched. It never edits membership
+    // it did not write.
+    const { token } = await newUser('route_untouched');
     const provisioned = await http()
       .post('/api/onboarding/household')
       .set('Authorization', `Bearer ${token}`)
       .send({});
     const householdId = provisioned.body.householdId as string;
 
-    // Simulate a pre-fix account.
+    // A household whose membership has drifted for any reason.
     await prisma.householdMember.deleteMany({ where: { householdId } });
-    expect((await status(token)).body.hasOwnHousehold).toBe(false);
 
     const again = await http()
       .post('/api/onboarding/household')
       .set('Authorization', `Bearer ${token}`)
       .send({});
-    expect(again.body.provisioned).toBe(false); // no second household
+    expect(again.body.provisioned).toBe(false);
     expect(again.body.householdId).toBe(householdId);
 
-    const repaired = await status(token);
-    expect(repaired.body.hasOwnHousehold).toBe(true);
-    expect(repaired.body.ownHouseholdId).toBe(householdId);
+    // Left exactly as found — no repair, no invention.
+    expect(await prisma.householdMember.count({ where: { householdId } })).toBe(0);
+  });
+
+  it('creates the household and its self-member row atomically', async () => {
+    // This is what makes the absence of a backfill safe: a new gap cannot appear, because
+    // both rows are written in one transaction.
+    const { token, email } = await newUser('route_atomic');
+    const provisioned = await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(provisioned.status).toBe(201);
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    const member = await prisma.householdMember.findFirst({
+      where: { householdId: provisioned.body.householdId, userId: user!.id },
+    });
+    expect(member).not.toBeNull();
+    expect(member!.relation).toBe('self');
+    expect((await status(token)).body.hasOwnHousehold).toBe(true);
   });
 
   it('never adds a synthetic member to a household that already has real members', async () => {
@@ -223,6 +246,48 @@ describe('Consumer routing signal (e2e)', () => {
     const st = await status(advisor.token);
     expect(st.body.hasHousehold).toBe(true);
     expect(st.body.householdId).toBeTruthy();
+  });
+
+  it('NEVER writes an advisor into a client household', async () => {
+    // The hazard: `ensureSelfMembership` guarded on `advisorId === caller`, which is TRUE
+    // for an advisor and their client's household — that is what "assigned advisor" means.
+    // Combined with "no members yet" (normal for a new client), calling any surface that
+    // provisions would write the advisor into the client's household as `self`.
+    //
+    // The consequence is worse than a stray row: `hasOwnHousehold` then flips true and the
+    // advisor is routed to the CONSUMER dashboard showing their client's finances as their
+    // own. Demonstrated against a running API before this fix.
+    const advisor = await newAdvisor('guard_advisor');
+
+    await http()
+      .post(`/api/firms/${advisor.firmId}/switch`)
+      .set('Authorization', `Bearer ${advisor.token}`)
+      .send({});
+    const client = await http()
+      .post('/api/households')
+      .set('Authorization', `Bearer ${advisor.token}`)
+      .send({ name: 'Client Family', baseCurrency: 'INR' });
+    expect(client.status).toBe(201);
+
+    // Assign the advisor to the client household — the ordinary advisory arrangement, and
+    // exactly the state that satisfied the old guard.
+    await prisma.household.update({
+      where: { id: client.body.id },
+      data: { advisorId: advisor.userId },
+    });
+    expect(await prisma.householdMember.count({ where: { householdId: client.body.id } })).toBe(0);
+
+    // Any surface that provisions: onboarding, the Wealth Health Check.
+    await http()
+      .post('/api/onboarding/household')
+      .set('Authorization', `Bearer ${advisor.token}`)
+      .send({});
+
+    // The client household must be untouched...
+    expect(await prisma.householdMember.count({ where: { householdId: client.body.id } })).toBe(0);
+    // ...and the advisor must NOT be treated as a consumer who owns it.
+    const st = await status(advisor.token);
+    expect(st.body.hasOwnHousehold).toBe(false);
   });
 
   it('requires authentication', async () => {
