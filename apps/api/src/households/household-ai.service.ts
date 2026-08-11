@@ -7,6 +7,7 @@ import {
   containsNoPiiKeys,
   type AiGroundingContext,
   type FinancialSnapshotPayload,
+  type GroundingEnvelope,
   type HouseholdFinancialIntelligence,
 } from '@lcos/core';
 import { HouseholdIntelligenceService } from './household-intelligence.service';
@@ -26,9 +27,42 @@ interface GroundedAnalysis {
   executiveSummary: HouseholdFinancialIntelligence['executiveSummary'];
 }
 
-interface Grounding {
+export interface Grounding {
   context: AiGroundingContext;
   analysis: GroundedAnalysis;
+}
+
+/**
+ * Everything the model may see, and nothing else. **Pure** — no IO, no clock — so the redaction
+ * property can be tested directly rather than inferred from a service's behaviour.
+ *
+ * ## The PII hazard this exists to close
+ *
+ * The pure intelligence object is PII-light by construction: `household.name` is null, ids only,
+ * coarse demographics. But `HouseholdIntelligenceService.current()` deliberately decrypts the
+ * family name into it for the dashboard header. Handing that object to a model would send a real
+ * family's name to a third-party LLM.
+ *
+ * So the analysis is assembled by **naming each section** — an allow-list, never a spread and
+ * never a `delete`. A `delete` stops protecting the moment someone adds an identifying field to a
+ * section it does not know about; an allow-list keeps protecting by default, and a new section
+ * simply does not reach the model until someone adds it here deliberately.
+ */
+export function buildHouseholdGrounding(
+  envelope: GroundingEnvelope,
+  payload: FinancialSnapshotPayload,
+  intel: HouseholdFinancialIntelligence,
+): Grounding {
+  return {
+    context: buildAiGroundingContext(envelope, payload),
+    analysis: {
+      wealthHealth: intel.wealthHealth,
+      risk: intel.risk,
+      opportunity: intel.opportunity,
+      recommendedActions: intel.recommendedActions,
+      executiveSummary: intel.executiveSummary,
+    },
+  };
 }
 
 export type AiAnswer =
@@ -115,7 +149,7 @@ export class HouseholdAiService {
       return { reason: intel.reason };
     }
 
-    const context = buildAiGroundingContext(
+    return buildHouseholdGrounding(
       {
         snapshotId: snap.id,
         schemaVersion: snap.schemaVersion,
@@ -127,18 +161,8 @@ export class HouseholdAiService {
         status: snap.status,
       },
       snap.payload as unknown as FinancialSnapshotPayload,
+      intel,
     );
-
-    return {
-      context,
-      analysis: {
-        wealthHealth: intel.wealthHealth,
-        risk: intel.risk,
-        opportunity: intel.opportunity,
-        recommendedActions: intel.recommendedActions,
-        executiveSummary: intel.executiveSummary,
-      },
-    };
   }
 
   private static SYSTEM = [
