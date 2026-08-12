@@ -125,6 +125,29 @@ describe('household AI grounding', () => {
     ]);
   });
 
+  it('hands the model a net worth that already subtracts the family’s loan', () => {
+    // Asserted on the grounding block itself — the object that is serialized into the prompt —
+    // rather than on any rendered sentence. The earlier e2e for this checked the response text,
+    // which in CI comes from the deterministic template and was already correct; the block the
+    // model actually reads went unexamined, and shipped the gross figure to production.
+    //
+    // Assets 20,00,000 with a 3,50,000 loan → 16,50,000 owned, 20,00,000 gross.
+    const withLoan: FinancialSnapshotPayload = {
+      ...payload(),
+      debt: { totalOutstandingMinor: 350_000, totalMonthlyPaymentMinor: 12_000, weightedAvgRatePct: 9, debtCount: 1, byType: [] },
+      householdEquity: { netWorthMinor: 2_000_000, totalDebtMinor: 350_000, reconciledEquityMinor: 1_650_000 },
+    };
+    const g = buildHouseholdGrounding(envelope, withLoan, intelligence());
+
+    expect(g.context.financial.netWorth.netWorthMinor).toBe(1_650_000);
+    expect(g.context.financial.netWorth.grossNetWorthMinor).toBe(2_000_000);
+    expect(g.context.financial.netWorth.totalDebtMinor).toBe(350_000);
+
+    // And the gross figure must not be reachable under any name that reads as "net worth".
+    const serializedNw = JSON.stringify(g.context.financial.netWorth);
+    expect(serializedNw).not.toMatch(/"netWorthMinor":2000000/);
+  });
+
   it('carries the layer’s conclusions, so the model assesses nothing itself', () => {
     expect(grounding.analysis.wealthHealth).toBeDefined();
     expect(grounding.analysis.risk).toBeDefined();

@@ -95,6 +95,30 @@ export interface FinancialSnapshotPayload {
 }
 
 /**
+ * Net worth after the debt ledger — what a household means by the words.
+ *
+ * The payload deliberately carries two figures (ADR-012): `netWorth.netWorthMinor` is assets
+ * minus liability-flagged **accounts**, while the M2-5 debt ledger (home loans, personal loans)
+ * is reconciled separately into `householdEquity.reconciledEquityMinor`.
+ *
+ * The consumer wizard writes every loan as a Debt row and never as a liability account, so for a
+ * consumer household the gross figure omits their debt entirely. Every surface that presents a
+ * net worth — a dashboard panel, a narrative paragraph, or a grounding block handed to a model —
+ * must read the reconciled figure.
+ *
+ * **This lives here, beside the payload it interprets, because it has more than one caller.** It
+ * began as a private helper in the intelligence layer; the AI grounding builder read
+ * `payload.netWorth` directly and so kept shipping the gross figure to a model long after the
+ * dashboard was corrected. One definition, imported by both, is what stops that recurring.
+ *
+ * Prefers the kernel's own reconciliation rather than recomputing it. The fallback exists only
+ * for snapshots captured before `householdEquity` was added to the payload.
+ */
+export const reconciledNetWorthMinor = (p: FinancialSnapshotPayload): number =>
+  p.householdEquity?.reconciledEquityMinor ??
+  p.netWorth.netWorthMinor - (p.debt?.totalOutstandingMinor ?? 0);
+
+/**
  * Deterministic canonicalization: recursively sort object keys so the same logical
  * payload always serializes to the same string (a stable checksum input). Arrays keep
  * their order (order is meaningful in the payload).
