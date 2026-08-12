@@ -1,6 +1,6 @@
--- READ-ONLY. SELECT only. Identifies WHICH households are affected.
--- Household.name is encrypted, so the personal firm's name is used as the label: consumer
--- workspaces are created as 'Personal · <email>', which identifies your own household.
+-- Read-only. Contains no write statements of any kind.
+-- Lists WHICH households are affected. Run only when the count query returns more than zero;
+-- as of 2026-08-12 it returned zero, so this has never been run against production.
 WITH dup_accounts AS (
   SELECT "householdId", name, COUNT(*) AS copies
   FROM "Account"

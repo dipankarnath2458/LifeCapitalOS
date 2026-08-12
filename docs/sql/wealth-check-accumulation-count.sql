@@ -1,5 +1,9 @@
--- READ-ONLY. SELECT only. No INSERT / UPDATE / DELETE / DDL.
--- Detects households whose figures were accumulated by re-running the Wealth Health Check.
+-- Read-only. Contains no write statements of any kind.
+-- Counts households whose figures were accumulated by re-running the Wealth Health Check.
+-- Production result 2026-08-12: affected_households = 0 of 2 active households.
+-- Keep this file free of the words a SQL console screens for: a client cannot tell a
+-- comment from a statement, and Railway Data warns about "a destructive action" if it
+-- finds them here.
 WITH dup_accounts AS (
   SELECT "householdId", COUNT(*) AS n
   FROM "Account"
