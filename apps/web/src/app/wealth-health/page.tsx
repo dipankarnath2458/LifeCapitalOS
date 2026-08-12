@@ -12,7 +12,11 @@
  */
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { runWealthHealthCheck, type HealthScoreResult } from '@/lib/wealthHealth';
+import {
+  loadCurrentFigures,
+  runWealthHealthCheck,
+  type HealthScoreResult,
+} from '@/lib/wealthHealth';
 import {
   Badge,
   Button,
@@ -39,6 +43,15 @@ export default function WealthHealthPage() {
   const [token, setToken] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
+  /**
+   * True until the prefill attempt settles.
+   *
+   * The form must not be typeable before then. The prefill setters run when the request
+   * resolves, so anything typed in the meantime is silently overwritten — and for a family
+   * with no figures yet the prefilled value is an empty string, so their input simply
+   * vanishes. Two browser tests caught exactly that by typing faster than the network.
+   */
+  const [hydrating, setHydrating] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<HealthScoreResult | null>(null);
   const [cash, setCash] = useState('');
@@ -56,6 +69,29 @@ export default function WealthHealthPage() {
       return;
     }
     setToken(t);
+    // Prefill from what the household already holds, so this reads as "update my figures"
+    // rather than "tell us everything again". A blank field then means "I have none of
+    // this" — something the user decided — instead of an empty box they never filled.
+    //
+    // A failure here leaves the form empty, which is exactly how it behaved before. It must
+    // never block the check: someone with no figures yet is the common case, not an error.
+    loadCurrentFigures(t)
+      .then((figures) => {
+        if (!figures) return;
+        const put = (n: number) => (n > 0 ? String(n) : '');
+        setCash(put(figures.cash));
+        setInvestments(put(figures.investments));
+        setProperty(put(figures.property));
+        setLoanOutstanding(put(figures.loanOutstanding));
+        setLoanMonthlyPayment(put(figures.loanMonthlyPayment));
+        setLoanRatePct(put(figures.loanRatePct));
+        setMonthlyIncome(put(figures.monthlyIncome));
+        setMonthlyExpenses(put(figures.monthlyExpenses));
+      })
+      .catch(() => {
+        /* keep the empty form */
+      })
+      .finally(() => setHydrating(false));
   }, []);
   const num = (v: string) => parseFloat(v) || 0;
   async function submit() {
@@ -148,6 +184,21 @@ export default function WealthHealthPage() {
               Run it again
             </Button>
           </div>
+        </main>
+      </ThemedPage>
+    );
+  }
+  if (hydrating) {
+    return (
+      <ThemedPage>
+        <main className="mx-auto max-w-lg px-6 py-12">
+          <Heading level={1} className="mb-1 text-2xl">
+            Wealth Health Check
+          </Heading>
+          <Text muted className="mb-6 block text-sm">
+            Loading your figures…
+          </Text>
+          <Spinner />
         </main>
       </ThemedPage>
     );

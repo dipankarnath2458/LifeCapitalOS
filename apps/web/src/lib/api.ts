@@ -49,6 +49,11 @@ export async function apiPut<T>(path: string, body: unknown, token?: string): Pr
   return request<T>(path, jsonInit('PUT', body), token);
 }
 
+/** Partial update. The household kernel exposes PATCH for accounts, debts and transactions. */
+export async function apiPatch<T>(path: string, body: unknown, token?: string): Promise<T> {
+  return request<T>(path, jsonInit('PATCH', body), token);
+}
+
 export async function apiDelete<T>(path: string, token?: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' }, token);
 }
