@@ -407,6 +407,54 @@ test.describe('household dashboard', () => {
     await expect(page.getByText('4,00,000')).toBeVisible();
   });
 
+  test('re-running the check updates the figures instead of doubling them', async ({
+    page,
+    request,
+  }) => {
+    // The defect at the surface a family touches. Before this, revisiting "Update my figures"
+    // and submitting the same numbers doubled their net worth, with nothing to warn them.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Outstanding loan balance (₹)').fill('400000');
+    await page.getByLabel('Monthly payment (₹)').fill('12000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('150000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
+
+    // Return to the check the way a consumer does — the dashboard's own button.
+    await page.getByRole('button', { name: 'Update my figures' }).click();
+    await expect(page).toHaveURL(/\/wealth-health$/);
+
+    // Prefilled with what they already told us, not blank. This is the half of the fix a
+    // browser can see, and the reason someone stopped re-entering one number into an empty
+    // form while the rest silently accumulated.
+    await expect(page.getByLabel('Cash & savings (₹)')).toHaveValue('900000');
+    await expect(page.getByLabel('Investments (₹)')).toHaveValue('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByLabel('Outstanding loan balance (₹)')).toHaveValue('400000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByLabel('Monthly income (₹)')).toHaveValue('300000');
+    await expect(page.getByLabel('Monthly expenses (₹)')).toHaveValue('150000');
+
+    // Submit unchanged. Nothing about the family's position has changed, so nothing on the
+    // dashboard may change either.
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
+    await expect(page.getByText('₹32,00,000')).toHaveCount(0);
+  });
+
   test('invites a consumer with no data to run the check, rather than showing zeros', async ({
     page,
     request,
