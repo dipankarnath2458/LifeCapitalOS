@@ -4,6 +4,7 @@ import {
   buildAiGroundingContext,
   containsNoPiiKeys,
 } from './aiGrounding.js';
+import { computeHouseholdFinancialIntelligence } from './financialIntelligence.js';
 import type { FinancialSnapshotPayload } from './financialSnapshot.js';
 
 describe('AI grounding + PII redaction contract', () => {
@@ -31,6 +32,64 @@ describe('AI grounding + PII redaction contract', () => {
     status: 'active',
   };
 
+  it('presents net worth AFTER the debt ledger, under the name a reader reaches for', () => {
+    // The defect, asserted on the grounding payload itself rather than on anything rendered.
+    //
+    // This block used to be `payload.netWorth` passed straight through, whose `netWorthMinor` is
+    // assets minus liability ACCOUNTS only. A consumer's loans live in the debt ledger, so a
+    // model asked what a family was worth quoted the field called `netWorth.netWorthMinor` and
+    // overstated it by the whole mortgage. The reconciled figure was present, but only under
+    // `householdEquity.reconciledEquityMinor` — a name that does not say "net worth".
+    //
+    // Fixture: assets 100, liability accounts 20 → 80 gross; ledger debt 20 → 60 actually owned.
+    const { netWorth } = buildAiGroundingContext(envelope, payload).financial;
+    expect(netWorth.netWorthMinor).toBe(60);
+    expect(netWorth.grossNetWorthMinor).toBe(80);
+    expect(netWorth.assetsMinor).toBe(100);
+    expect(netWorth.liabilitiesMinor).toBe(20);
+    expect(netWorth.totalDebtMinor).toBe(20);
+    // The ratio must agree with the net worth beside it: 60 / 100.
+    expect(netWorth.solvencyRatio).toBeCloseTo(0.6, 10);
+  });
+
+  it('states the definition in the context, not only in the field names', () => {
+    // A model reads prose as readily as it reads keys, and this is the distinction it got wrong.
+    const notes = buildAiGroundingContext(envelope, payload).notes.join(' ');
+    expect(notes).toMatch(/netWorthMinor is AFTER all borrowings/);
+    expect(notes).toMatch(/grossNetWorthMinor excludes the debt ledger/);
+  });
+
+  it('reconciles a snapshot captured before householdEquity existed', () => {
+    // Older payloads have no `householdEquity`; the grounding must still subtract the ledger
+    // rather than silently falling back to the gross figure.
+    const { householdEquity: _dropped, ...legacy } = payload;
+    const { netWorth } = buildAiGroundingContext(
+      envelope,
+      legacy as FinancialSnapshotPayload,
+    ).financial;
+    expect(netWorth.netWorthMinor).toBe(60);
+    expect(netWorth.grossNetWorthMinor).toBe(80);
+  });
+
+  it('agrees with the intelligence layer field for field', () => {
+    // The property that keeps this from drifting again: the dashboard and the model describe the
+    // same household with the same numbers under the same names, from one shared reconciliation.
+    const g = buildAiGroundingContext(envelope, payload).financial.netWorth;
+    const fil = computeHouseholdFinancialIntelligence({
+      payload,
+      meta: { householdId: 'hh_1', snapshotId: 'snap_1', snapshotSchemaVersion: 1, currency: 'INR' },
+      computedAt: '2026-04-01T00:00:00.000Z',
+    }).netWorth;
+    expect(fil.available).toBe(true);
+    if (!fil.available) return;
+    expect(g.netWorthMinor).toBe(fil.data.netWorthMinor);
+    expect(g.grossNetWorthMinor).toBe(fil.data.grossNetWorthMinor);
+    expect(g.totalDebtMinor).toBe(fil.data.totalDebtMinor);
+    expect(g.assetsMinor).toBe(fil.data.assetsMinor);
+    expect(g.liabilitiesMinor).toBe(fil.data.liabilitiesMinor);
+    expect(g.solvencyRatio).toBeCloseTo(fil.data.solvencyRatio, 10);
+  });
+
   it('is deterministic', () => {
     expect(buildAiGroundingContext(envelope, payload)).toEqual(buildAiGroundingContext(envelope, payload));
   });
@@ -44,7 +103,9 @@ describe('AI grounding + PII redaction contract', () => {
 
   it('keeps aggregates but drops per-account rows and raw ids', () => {
     const g = buildAiGroundingContext(envelope, payload);
-    expect(g.financial.netWorth.netWorthMinor).toBe(80);
+    // 80 is the accounts-only figure, and it is still here — under the name that says so.
+    // `netWorthMinor` is asserted in its own test above, where the distinction is the point.
+    expect(g.financial.netWorth.grossNetWorthMinor).toBe(80);
     expect(g.financial.assetAllocation[0]!.pct).toBe(100);
     expect(g.structure).toEqual({ memberCount: 2, entityCount: 1, accountCount: 1 });
     // no assets[]/liabilities[]/entityHoldings[]/relationships id arrays on the context

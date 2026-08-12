@@ -20,13 +20,44 @@ recompute figures.
 | Section | Included | Deliberately dropped |
 | --- | --- | --- |
 | `provenance` | `snapshotId`, `schemaVersion`, `engineVersion`, `fxVersion`, `currency`, `capturedAt`, `status`, `redactionVersion` | — |
-| `financial` | `netWorth`, `debt`, `cashflowSummary`, `budgetSummary`, `assetAllocation`, `currencyExposure`, `householdEquity` (aggregates only) | per-account `assets[]`/`liabilities[]` rows, `entityHoldings[]` |
+| `financial` | `netWorth` (see §2.1), `debt`, `cashflowSummary`, `budgetSummary`, `assetAllocation`, `currencyExposure`, `householdEquity` (aggregates only) | per-account `assets[]`/`liabilities[]` rows, `entityHoldings[]` |
 | `structure` | `memberCount`, `entityCount`, `accountCount` | raw `accountIds`/`entityIds` arrays |
 | `demographics` | `ageYears`, `isDependent`, `relation` per member | `memberId`, names, dates of birth |
 | `notes` | grounding disclaimers (base currency, do-not-recompute, redaction statement) | — |
 
 **Never present, anywhere in the context:** names, tax ids / PAN, dates of birth, email, phone, or
 account/entity/member ids. `containsNoPiiKeys()` enforces this and is asserted in tests.
+
+### 2.1 `financial.netWorth` — reconciled, not the raw payload block (`redact-1.1.0`)
+
+| Field | Meaning |
+| --- | --- |
+| `netWorthMinor` | Assets minus **everything owed** — liability accounts *and* the M2-5 debt ledger |
+| `grossNetWorthMinor` | Assets minus liability **accounts** only. **Not** the household net worth |
+| `totalDebtMinor` | Outstanding across the debt ledger |
+| `liabilitiesMinor` | Liability-flagged accounts only (overdrafts, credit cards) |
+| `solvencyRatio` | Reconciled net worth ÷ assets — consistent with `netWorthMinor` |
+
+**Why this is not simply `payload.netWorth`.** It was, and that is how a wrong number reached a
+user. The payload's `netWorth.netWorthMinor` excludes the debt ledger, and the consumer wizard
+writes every loan to that ledger — so for a consumer household it omits their borrowing entirely.
+The reconciled figure was in the context all along, but only as
+`householdEquity.reconciledEquityMinor`, a name that does not announce itself as net worth.
+
+Asked what a family was worth, the model quoted the field called `netWorth.netWorthMinor` and
+overstated it by the size of their loan — while the dashboard, which had been corrected earlier,
+showed the right figure on the same screen. Fixing the dashboard's read model had left this path
+untouched, because it reads the payload directly rather than through the intelligence layer.
+
+Two things prevent a recurrence:
+
+- Both paths call the **same** `reconciledNetWorthMinor` helper, which lives beside the payload it
+  interprets rather than privately inside either consumer.
+- A test asserts the grounding block **agrees with the intelligence layer field for field**, so
+  the dashboard and the model cannot describe one household two ways.
+
+The `notes` array also states the definition in prose. A model reads prose as readily as it reads
+keys, and this is precisely the distinction it got wrong.
 
 ## 3. Why
 

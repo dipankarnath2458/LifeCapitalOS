@@ -1,5 +1,5 @@
 import { CurrencyCode, formatMoney, fromMinor } from '../money/money.js';
-import { FinancialSnapshotPayload } from './financialSnapshot.js';
+import { FinancialSnapshotPayload, reconciledNetWorthMinor } from './financialSnapshot.js';
 import {
   computeFinancialHealthScore,
   FINANCIAL_HEALTH_MODEL_VERSION,
@@ -251,26 +251,6 @@ const confidenceFrom = (score: number): Confidence =>
 const severityFromPriority = (p: 'high' | 'medium' | 'low'): Severity =>
   p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low';
 
-/**
- * Net worth after the debt ledger — what a household means by the words.
- *
- * The snapshot deliberately carries two figures (ADR-012): `netWorth.netWorthMinor` is
- * assets minus liability-flagged **accounts**, while the M2-5 debt ledger (home loans,
- * personal loans) is reconciled separately into `householdEquity.reconciledEquityMinor`.
- *
- * The consumer wizard writes every loan as a Debt row and never as a liability account,
- * so for a consumer household the gross figure omits their debt entirely — a family who
- * entered a ₹4,00,000 loan was shown ₹0 liabilities and a net worth ₹4,00,000 too high.
- * Presentation surfaces must therefore read the reconciled figure.
- *
- * Prefers the kernel's own reconciliation rather than recomputing it. The fallback exists
- * only for snapshots captured before `householdEquity` was added to the payload; it
- * repeats the kernel's definition, so if that definition ever changes, change it there
- * first and this follows.
- */
-const reconciledNetWorthMinor = (p: FinancialSnapshotPayload): number =>
-  p.householdEquity?.reconciledEquityMinor ??
-  p.netWorth.netWorthMinor - (p.debt?.totalOutstandingMinor ?? 0);
 
 const trendFromSeries = (series: number[]): { trend: Trend; changeMinor: number | null; changePct: number | null } => {
   if (series.length < 2) return { trend: 'unknown', changeMinor: null, changePct: null };
