@@ -121,11 +121,11 @@ price of not removing capability. It is recorded here rather than discovered lat
 | Missing | Severity | Note |
 | --- | --- | --- |
 | **Goals** | High | No goals anywhere in V2 |
-| **Family / dependents CRUD** | High | `memberCount` is read-only; dependents feed insurance need |
+| ~~**Family / dependents CRUD**~~ | ~~High~~ | **DONE — M5.8 PR 1.** Native at `/household/family` on `HouseholdMember`, the table the snapshot reads. Also captures date of birth, which V1 never did: that turned retirement on for consumers, where it had reported `available: false` for everyone |
 | **Protection capture** | High | **V2 panel has no data path** — `coverTracked` reads `assumptions.insurance`, which the controller never passes, so it is always `false` |
 | ~~**AI Wealth Coach**~~ | — | **Shipped M5.7** — native `/household/coach`, grounded on the Intelligence Layer |
 | **Second Opinion** (allocation review) | Low | **Superseded, not dropped.** V1's version reads retail `Account.userId` data a V2 consumer does not have, so it would tell them their allocation is fine while seeing nothing. V2 covers the substance in the dashboard's `assetAllocation` panel (drift, concentration, suggestions) and the narrative through the M5.7 coach, whose grounding carries `assetAllocation`. Both premium-gated, as V1's was. Still on `/dashboard` for the rollback path |
-| Early-warning parity | Medium | `intelligence.risk` overlaps but no test proves parity — treated as unmigrated |
+| ~~Early-warning parity~~ | ~~Medium~~ | **DONE — M5.8 PR 1.** `early-warning-parity.e2e-spec.ts` proves both paths agree on every non-goal signal and on the traffic light and counts. The goal-derived signal cannot match until goals reach the snapshot (PR 2), and that gap is asserted rather than hidden |
 | Net-worth timeline chart | Low | Figures present, chart not rebuilt |
 | Allocation donut | Low | Figures present, chart not rebuilt |
 | Retail↔household double entry | Medium | Onboarding still writes retail-keyed records |
@@ -135,11 +135,11 @@ price of not removing capability. It is recorded here rather than discovered lat
 | Capability | Handling now | Replaced by |
 | --- | --- | --- |
 | Goals | Mounted at `/household/goals` (existing component) | M5.8 |
-| Family | Mounted at `/household/family` | M5.8 |
+| ~~Family~~ | **Native since M5.8 PR 1.** V1's `Family.tsx` stays on `/dashboard` as the safety net; the two stores both remain, unmigrated by design | done |
 | Protection | Mounted at `/household/protection` | M5.9 — needs a **data path**, not just a UI |
 | AI Coach | **Native since M5.7** — no longer a hosted V1 component | done |
 | Second Opinion | Superseded by the dashboard's allocation panel + the M5.7 coach; V1's version stays on `/dashboard` | done |
-| Early warning | Remains on `/dashboard`; V2 shows `risk` | M5.8 parity test |
+| ~~Early warning~~ | **Parity proven in M5.8 PR 1** for all non-goal signals | done |
 | Charts | Remain on `/dashboard`; V2 shows figures | M5.8 |
 | Double entry | Unchanged this PR | With Goals/Family/Protection migration |
 
