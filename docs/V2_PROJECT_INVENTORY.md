@@ -315,8 +315,14 @@ Wealth DNA), billing (plans, subscribe/cancel), Account Aggregator linking (prem
 ## 22. Technical risks
 
 1. **Encryption-key governance (highest).** `FIELD_ENCRYPTION_KEY` is permanent; rotation breaks
-   existing PII, and `decrypt` silently returns junk. Need KMS + rotation/re-encryption + strict mode
-   before encrypting more fields.
+   existing PII with no migration path. Need KMS + rotation/re-encryption + strict mode before
+   encrypting more fields. **Correction:** an earlier revision of this entry said `decrypt` silently
+   returns junk under a wrong key. It does not — AES-GCM authenticates, so it **throws**; verified
+   empirically. Silent passthrough happens only for legacy plaintext values (no `:` separators).
+   The distinction matters: failure is loud, not insidious. See
+   [`SECURITY_KEY_EXPOSURE`](./SECURITY_KEY_EXPOSURE.md), which also records a 2026-08-13 exposure
+   of the production key and the deliberate decision to defer rotation until before first real
+   customer data.
 2. **No delivery channel for auth secrets.** Passwordless/reset is non-functional in production until
    email/SMS is integrated (§12) — a launch blocker for real users.
 3. **No background-job infra.** Compute-heavy V2 features would run in the request path.

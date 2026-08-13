@@ -32,3 +32,8 @@
 - Dependency scanning + build/lint/test gates in CI before deploy.
 - Production checklist: rotate `JWT_*` and `FIELD_ENCRYPTION_KEY`, change seeded
   admin credentials, enable backups, set real Razorpay/AA keys.
+
+- **`FIELD_ENCRYPTION_KEY` was exposed on 2026-08-13** (private screenshot; not public).
+  Rotation is **deliberately deferred** with named trigger conditions — see
+  [`SECURITY_KEY_EXPOSURE`](./SECURITY_KEY_EXPOSURE.md). It must be revisited **before the first
+  real customer's data is entered**.
