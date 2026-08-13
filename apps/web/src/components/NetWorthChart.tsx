@@ -1,17 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { apiGet, apiPost } from '@/lib/api';
 import { Skeleton } from './Skeleton';
+import { formatTrendDate, NetWorthTrendChart } from './charts/NetWorthTrendChart';
 
 interface Snapshot {
   assetsMinor: number;
@@ -20,17 +12,6 @@ interface Snapshot {
   currency: string;
   capturedAt: string;
 }
-
-const inrCompact = (minor: number) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(minor / 100);
-
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
 
 /** Net-worth over time from /net-worth/timeline, with a button to capture a snapshot. */
 export function NetWorthChart({ token }: { token: string }) {
@@ -60,7 +41,7 @@ export function NetWorthChart({ token }: { token: string }) {
     }
   }
 
-  const points = (data ?? []).map((s) => ({ date: fmtDate(s.capturedAt), net: s.netWorthMinor / 100 }));
+  const points = (data ?? []).map((s) => ({ date: formatTrendDate(s.capturedAt), net: s.netWorthMinor / 100 }));
 
   return (
     <div className="rounded-2xl bg-white p-6 shadow">
@@ -81,28 +62,7 @@ export function NetWorthChart({ token }: { token: string }) {
           Capture a snapshot now and again over time to see your net-worth trend.
         </p>
       ) : (
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <defs>
-                <linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0f766e" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#0f766e" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#94a3b8" />
-              <YAxis
-                tickFormatter={(v: number) => inrCompact(v * 100)}
-                tick={{ fontSize: 12 }}
-                stroke="#94a3b8"
-                width={64}
-              />
-              <Tooltip formatter={(v: number) => inrCompact(v * 100)} labelClassName="text-slate-500" />
-              <Area type="monotone" dataKey="net" stroke="#0f766e" strokeWidth={2} fill="url(#nwFill)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        <NetWorthTrendChart points={points} />
       )}
     </div>
   );

@@ -146,9 +146,16 @@ export interface HouseholdIntelligence {
 
 export type IntelligenceResponse = HouseholdIntelligence | { available: false; reason: string };
 
-/** What the dashboard needs to render, or why it cannot. */
+/**
+ * What the dashboard needs to render, or why it cannot.
+ *
+ * The states that HAVE a household carry its id. Additive, and the reason is not tidiness:
+ * every caller that needed the id was re-fetching `/onboarding/status` to get a value this
+ * function had already resolved and thrown away. Two of those redundant calls per dashboard
+ * load were enough to trip the API's rate limiter under the smoke suite.
+ */
 export type DashboardState =
-  | { kind: 'ready'; intelligence: HouseholdIntelligence }
+  | { kind: 'ready'; householdId: string; intelligence: HouseholdIntelligence }
   /**
    * No household at all — the user has never onboarded. Distinct from `needs-check`
    * because the answer is different: they need the *guided* flow, not a health check.
@@ -157,7 +164,7 @@ export type DashboardState =
    */
   | { kind: 'needs-onboarding' }
   /** A household exists but has no snapshot yet — run the Wealth Health Check. */
-  | { kind: 'needs-check'; reason: string }
+  | { kind: 'needs-check'; householdId: string; reason: string }
   | { kind: 'error' };
 
 /**
@@ -175,12 +182,13 @@ export async function loadDashboard(token: string): Promise<DashboardState> {
     // straight at a health check they have no container for.
     if (!status.householdId) return { kind: 'needs-onboarding' };
 
+    const householdId = status.householdId;
     const res = await apiGet<IntelligenceResponse>(
-      `/households/${status.householdId}/intelligence/current`,
+      `/households/${householdId}/intelligence/current`,
       token,
     );
-    if (!res.available) return { kind: 'needs-check', reason: res.reason };
-    return { kind: 'ready', intelligence: res };
+    if (!res.available) return { kind: 'needs-check', householdId, reason: res.reason };
+    return { kind: 'ready', householdId, intelligence: res };
   } catch {
     return { kind: 'error' };
   }

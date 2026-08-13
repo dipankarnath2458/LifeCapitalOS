@@ -43,6 +43,13 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { AllocationDonutChart } from '@/components/charts/AllocationDonutChart';
+import {
+  formatTrendDate,
+  NetWorthTrendChart,
+  type TrendPoint,
+} from '@/components/charts/NetWorthTrendChart';
+import { loadTimeline } from '@/lib/householdGoals';
 
 /**
  * Renders a section, or the engine's reason for it being unavailable.
@@ -168,6 +175,13 @@ function ConsumerShell({
 export default function HouseholdDashboardPage() {
   const [state, setState] = useState<DashboardState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  /**
+   * Net-worth history, read from the kernel's own timeline. A separate call because it is
+   * history rather than the current position — the single-snapshot rule governs the figures on
+   * this page, and a trend is by definition many snapshots. A failure here leaves the trend
+   * panel out; it must never take the dashboard down.
+   */
+  const [trend, setTrend] = useState<TrendPoint[] | null>(null);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -189,6 +203,28 @@ export default function HouseholdDashboardPage() {
         return;
       }
       setState(s);
+      if (s.kind === 'error') return;
+
+      // Chained rather than parallel, using the id `loadDashboard` already resolved. Firing it
+      // alongside meant a second `/onboarding/status` for a value we were holding — enough,
+      // with the rest of a page load, to earn a 429 from the rate limiter.
+      //
+      // Reads only. No capture button reaches this page: `/household` is read-only, and an
+      // existing test asserts that viewing it captures no snapshot.
+      void loadTimeline(token, s.householdId)
+        .then((points) =>
+          setTrend(
+            points.map((p) => ({
+              date: formatTrendDate(p.capturedAt),
+              // Reconciled, matching the headline above. Both fields come from the timeline, so
+              // this selects rather than calculates.
+              net: (p.netWorthMinor - p.totalDebtMinor) / 100,
+            })),
+          ),
+        )
+        // The trend is secondary. A failure here leaves the panel out; it must never take the
+        // dashboard down.
+        .catch(() => setTrend([]));
     });
   }, []);
 
@@ -278,6 +314,30 @@ export default function HouseholdDashboardPage() {
           </Panel>
         </div>
 
+        {/* Net worth over time. Rendered only with at least two captures — a single point is
+            not a trend, and drawing one would imply a history the family does not have yet.
+
+            The wrapper appears as soon as the timeline RESOLVES, and stays empty until there
+            are two points. It earns its place: without it, a test asserting the chart is absent
+            passes while the fetch is still in flight, so "we correctly drew no trend" and "the
+            page had not loaded yet" are indistinguishable. That is not hypothetical — the first
+            version of this test passed against a build that drew a trend from a single
+            capture. */}
+        {trend !== null && (
+          <div data-testid="trend-region">
+            {trend.length >= 2 && (
+              <Card className="mt-4" data-testid="networth-trend">
+                <CardContent className="py-5">
+                  <Heading level={3} className="mb-2 text-base">
+                    Net worth over time
+                  </Heading>
+                  <NetWorthTrendChart points={trend} />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <Panel title="Net worth" section={i.netWorth}>
             {(n) => (
@@ -335,6 +395,18 @@ export default function HouseholdDashboardPage() {
           <Panel title="How your money is spread" section={i.assetAllocation}>
             {(a) => (
               <div className="space-y-2">
+                {/* The same chart `/dashboard` draws, fed percentages the engine already
+                    computed. No allocation maths happens in the browser. */}
+                {a.current.length > 0 && (
+                  <div className="mb-4" data-testid="allocation-chart">
+                    <AllocationDonutChart
+                      slices={a.current.map((slice) => ({
+                        name: slice.assetClass.replace(/_/g, ' '),
+                        value: Math.round(slice.pct),
+                      }))}
+                    />
+                  </div>
+                )}
                 {a.current.map((slice) => (
                   <div key={slice.assetClass} className="flex items-center justify-between gap-3">
                     <span className="text-sm capitalize text-foreground">
