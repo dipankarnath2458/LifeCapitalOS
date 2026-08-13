@@ -572,9 +572,10 @@ test.describe('V2 primary / V1 safety net', () => {
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
-    // 'AI coach' left this list in M5.7: it is now a native V2 surface rather than a hosted
-    // V1 component, and has its own test below. The rest are still awaiting M5.8/M5.9.
-    for (const link of ['Goals', 'Family', 'Protection']) {
+    // 'AI coach' left this list in M5.7 and 'Family' in M5.8 PR 1: both are native V2 surfaces
+    // now rather than hosted V1 components, and each has its own test. The rest await M5.8 PR 2
+    // and M5.9.
+    for (const link of ['Goals', 'Protection']) {
       await page.goto('/household');
       await page.getByRole('link', { name: link, exact: true }).click();
       await expect(page.getByTestId('temporary-surface-notice')).toBeVisible();
@@ -618,6 +619,68 @@ test.describe('V2 primary / V1 safety net', () => {
     await page.getByRole('button', { name: 'Ask' }).click();
     await expect(page.getByText(/Premium feature/i)).toBeVisible();
     await expect(page.getByTestId('cfo-headline')).toBeVisible();
+  });
+
+  test('family is native, and adding a date of birth unlocks retirement', async ({
+    page,
+    request,
+  }) => {
+    // The headline outcome of M5.8 PR 1. Before it, no consumer in the product could see a
+    // retirement projection: V1's family form never captured a date of birth and onboarding does
+    // not set one, so the section reported "no member age" for everybody.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    // Give the household figures, so retirement has something to project from.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    // Retirement cannot be projected yet — the reason is shown, not a fabricated number.
+    await page.goto('/household');
+    await expect(page.getByText(/No member age available/i)).toBeVisible();
+
+    // The native surface: no hosted-V1 notice, and the date-of-birth field V1 never had.
+    await page.goto('/household/family');
+    await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
+    await expect(page.getByTestId('dob-missing-notice')).toBeVisible();
+
+    await page.getByLabel('Name').fill('Meera Bhuyan');
+    await page.getByLabel('Date of birth').fill('1985-04-02');
+    await page.getByRole('button', { name: 'Add to my family' }).click();
+    await expect(page.getByTestId('member-list')).toContainText('Meera Bhuyan');
+
+    // Recapture so the snapshot carries the new member, then the panel appears.
+    await page.goto('/wealth-health');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+
+    await expect(page.getByText(/No member age available/i)).toHaveCount(0);
+    await expect(page.getByText('Monthly SIP needed')).toBeVisible();
+  });
+
+  test('V1 family still works on the dashboard — the safety net is untouched', async ({
+    page,
+    request,
+  }) => {
+    // PR 1 replaces the V2 surface only. V1's Family component still writes FamilyMember and
+    // still renders on /dashboard, which stays the recoverable path until Module 10.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/dashboard');
+    await expect(page.locator('button, input').first()).toBeVisible();
+    await expect(page.getByText(/Application error/i)).toHaveCount(0);
   });
 
   test('protection still saves — the only working cover capture in the product', async ({

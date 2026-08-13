@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { HouseholdMember } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
@@ -105,8 +105,36 @@ export class HouseholdMembersService {
     return this.serialize(member);
   }
 
+  /**
+   * Removes a member.
+   *
+   * ## Why a member with a portal login cannot be deleted here
+   *
+   * `HouseholdMember.userId` is the **post-login routing signal**. `findOwnHousehold` resolves it
+   * into `hasOwnHousehold`, which `postLoginDestination` checks before anything else.
+   *
+   * Delete that row and the chain runs: `hasOwnHousehold` goes false; `firms.length > 0` is true,
+   * because every consumer has had a personal firm since M5.5; and the next sign-in lands them in
+   * the **Advisor Workspace**. A consumer would be silently exiled from their own product by
+   * pressing a delete button on their own name — the same failure mode as #52 and #54, reached
+   * through a new door.
+   *
+   * The condition is exactly the existing self-member condition (`userId != null`) and nothing
+   * more. It does not infer from `relation`, which is free text. **Deletion of every other member
+   * — a spouse, a child, an advisor's client's dependant — is unchanged.**
+   *
+   * Removing someone who has a portal login is a real operation; it just is not a *delete*. It
+   * means revoking access, which belongs with membership management rather than with editing the
+   * family list.
+   */
   async remove(actor: AuthUser, firm: FirmContext, householdId: string, memberId: string, ip?: string) {
-    await this.owned(householdId, memberId);
+    const existing = await this.owned(householdId, memberId);
+    if (existing.userId) {
+      throw new BadRequestException(
+        'This member has a sign-in for this household and cannot be removed here. ' +
+          'Remove their access first.',
+      );
+    }
     await this.prisma.householdMember.delete({ where: { id: memberId } });
     await this.audit.log({
       actorId: actor.id,
