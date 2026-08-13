@@ -27,6 +27,8 @@ import { HouseholdSimulationController } from './household-simulation.controller
 import { HouseholdSimulationService } from './household-simulation.service';
 import { HouseholdIntelligenceController } from './household-intelligence.controller';
 import { HouseholdIntelligenceService } from './household-intelligence.service';
+import { HouseholdGoalsController } from './household-goals.controller';
+import { HouseholdGoalsService } from './household-goals.service';
 import { HouseholdAiController } from './household-ai.controller';
 import { HouseholdAiService } from './household-ai.service';
 import { BillingModule } from '../billing/billing.module';
@@ -49,6 +51,7 @@ import { BillingModule } from '../billing/billing.module';
     HouseholdHealthExplanationController,
     HouseholdSimulationController,
     HouseholdIntelligenceController,
+    HouseholdGoalsController,
     HouseholdAiController,
   ],
   providers: [
@@ -65,6 +68,7 @@ import { BillingModule } from '../billing/billing.module';
     HouseholdHealthExplanationService,
     HouseholdSimulationService,
     HouseholdIntelligenceService,
+    HouseholdGoalsService,
     HouseholdAiService,
     HouseholdScopeGuard,
   ],

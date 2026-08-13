@@ -572,10 +572,10 @@ test.describe('V2 primary / V1 safety net', () => {
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
-    // 'AI coach' left this list in M5.7 and 'Family' in M5.8 PR 1: both are native V2 surfaces
-    // now rather than hosted V1 components, and each has its own test. The rest await M5.8 PR 2
-    // and M5.9.
-    for (const link of ['Goals', 'Protection']) {
+    // 'AI coach' left this list in M5.7, 'Family' in M5.8 PR 1 and 'Goals' in PR 2: each is a
+    // native V2 surface now rather than a hosted V1 component, and each has its own test. Only
+    // Protection is still hosted, awaiting M5.9.
+    for (const link of ['Protection']) {
       await page.goto('/household');
       await page.getByRole('link', { name: link, exact: true }).click();
       await expect(page.getByTestId('temporary-surface-notice')).toBeVisible();
@@ -681,6 +681,74 @@ test.describe('V2 primary / V1 safety net', () => {
     await page.goto('/dashboard');
     await expect(page.locator('button, input').first()).toBeVisible();
     await expect(page.getByText(/Application error/i)).toHaveCount(0);
+  });
+
+  test('goals are native, and the dashboard draws its charts', async ({ page, request }) => {
+    // M5.8 PR 2. Goals move to the household, and the charts V1 had are drawn from layer data.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    // Native goals: no hosted-V1 notice.
+    await page.goto('/household/goals');
+    await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
+    await page.getByLabel('What is it for').fill('New home');
+    await page.getByLabel('Amount needed (₹)').fill('5000000');
+    await page.getByLabel('Saved so far (₹)').fill('500000');
+    await page.getByLabel('When you need it').fill('2030-06-01');
+    await page.getByRole('button', { name: 'Add this goal' }).click();
+    await expect(page.getByTestId('goal-list')).toContainText('New home');
+
+    // The allocation chart draws from the layer's own percentages.
+    await page.goto('/household');
+    await expect(page.getByTestId('allocation-chart')).toBeVisible();
+  });
+
+  test('the dashboard trend appears only with a history, and captures nothing', async ({
+    page,
+    request,
+  }) => {
+    // Two properties at once. A single capture is not a trend, and drawing one would imply a
+    // history the family does not have. And /household must stay read-only: V1's chart carries a
+    // "Capture snapshot" button, which is exactly why only its drawing was reused here.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    const runCheck = async () => {
+      await page.goto('/wealth-health');
+      await page.getByLabel('Cash & savings (₹)').fill('900000');
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await page.getByLabel('Monthly income (₹)').fill('300000');
+      await page.getByLabel('Monthly expenses (₹)').fill('75000');
+      await page.getByRole('button', { name: 'See my score' }).click();
+      await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    };
+
+    await runCheck();
+    await page.goto('/household');
+    // Wait for the timeline to have RESOLVED before asserting the chart is absent. Without this
+    // the assertion passes while the fetch is still in flight — it did, against a build that
+    // drew a trend from one capture, which is the exact defect this test is here to catch.
+    await expect(page.getByTestId('trend-region')).toHaveCount(1);
+    await expect(page.getByTestId('networth-trend')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Capture snapshot' })).toHaveCount(0);
+
+    await runCheck();
+    await page.goto('/household');
+    await expect(page.getByTestId('networth-trend')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Capture snapshot' })).toHaveCount(0);
   });
 
   test('protection still saves — the only working cover capture in the product', async ({
