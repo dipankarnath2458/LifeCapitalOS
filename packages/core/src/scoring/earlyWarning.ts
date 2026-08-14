@@ -16,8 +16,14 @@ export interface EarlyWarningInput {
   totalLiabilitiesMinor: number;
   annualIncomeMinor: number;
   monthlyDebtPaymentMinor: number;
-  hasTermCover: boolean;
-  hasHealthInsurance: boolean;
+  /**
+   * Protection cover. `null` means **not asked** — which is not the same as `false`.
+   *
+   * `false` is a fact the family gave us ("I have no term cover") and produces a signal.
+   * `null` is the absence of a fact, and produces none. See the Insurance Gap signal below.
+   */
+  hasTermCover: boolean | null;
+  hasHealthInsurance: boolean | null;
   dependents: number;
   /** Goals with how far behind their funding schedule they are, in [0,1]. */
   goalSlippage?: number[];
@@ -93,21 +99,37 @@ export function computeEarlyWarning(input: EarlyWarningInput): EarlyWarningRepor
   });
 
   // 5. Insurance gap — term + health, weighted by dependents.
-  const protectionNeeded = input.dependents > 0 || input.annualIncomeMinor > 0;
-  let insStatus: ScoreBand = 'green';
-  if (protectionNeeded) {
-    if (!input.hasTermCover && !input.hasHealthInsurance) insStatus = 'red';
-    else if (!input.hasTermCover || !input.hasHealthInsurance) insStatus = 'yellow';
+  //
+  // Emitted ONLY when both answers are known. `no term cover, no health cover` is a factual
+  // claim about a family, and `risk.topRisks` is on the AI coach's allow-list, so an unasked
+  // household was being told as settled fact that it had no insurance. The V2 layer supplies
+  // no protection data at all today, so that was every household with any income.
+  //
+  // The signal is omitted here rather than filtered downstream on purpose: `redCount`,
+  // `yellowCount` and `overall` are derived below from the signals that exist, so they cannot
+  // disagree with the list shown beside them. Filtering afterwards would leave a count of 3
+  // next to two listed risks — the defect class of #55 and #59.
+  //
+  // Passing booleans (as the V1 retail path does, from `Profile`) behaves exactly as before.
+  const hasTerm = input.hasTermCover;
+  const hasHealth = input.hasHealthInsurance;
+  if (hasTerm != null && hasHealth != null) {
+    const protectionNeeded = input.dependents > 0 || input.annualIncomeMinor > 0;
+    let insStatus: ScoreBand = 'green';
+    if (protectionNeeded) {
+      if (!hasTerm && !hasHealth) insStatus = 'red';
+      else if (!hasTerm || !hasHealth) insStatus = 'yellow';
+    }
+    signals.push({
+      key: 'insurance',
+      label: 'Insurance Gap',
+      status: insStatus,
+      detail: [
+        hasTerm ? 'term cover ✓' : 'no term cover',
+        hasHealth ? 'health cover ✓' : 'no health cover',
+      ].join(', '),
+    });
   }
-  signals.push({
-    key: 'insurance',
-    label: 'Insurance Gap',
-    status: insStatus,
-    detail: [
-      input.hasTermCover ? 'term cover ✓' : 'no term cover',
-      input.hasHealthInsurance ? 'health cover ✓' : 'no health cover',
-    ].join(', '),
-  });
 
   // 6. Goal slippage — any goal materially behind schedule.
   const slips = input.goalSlippage ?? [];

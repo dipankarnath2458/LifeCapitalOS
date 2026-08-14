@@ -537,8 +537,12 @@ export function computeHouseholdFinancialIntelligence(
     totalLiabilitiesMinor: p.netWorth.liabilitiesMinor,
     annualIncomeMinor: annualIncome,
     monthlyDebtPaymentMinor: p.debt.totalMonthlyPaymentMinor,
-    hasTermCover: input.assumptions?.insurance?.hasTermCover ?? false,
-    hasHealthInsurance: input.assumptions?.insurance?.hasHealthInsurance ?? false,
+    // `null`, not `false`: no protection assumptions means we have not asked this family, and
+    // `false` would state as fact that they have no cover. `meta.dataCompleteness` already
+    // reports `insurancePolicies` as missing; the early-warning engine now stays silent rather
+    // than asserting. M5.9 supplies the real answers.
+    hasTermCover: input.assumptions?.insurance?.hasTermCover ?? null,
+    hasHealthInsurance: input.assumptions?.insurance?.hasHealthInsurance ?? null,
     dependents,
   };
   const warning = computeEarlyWarning(ewInput);
