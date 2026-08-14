@@ -184,14 +184,19 @@ describe('financial intelligence — section correctness (rich payload)', () => 
     }
   });
 
-  it('insurance reuses analyzeLifeInsuranceGap (cover untracked → low confidence)', () => {
-    expect(out.insurance.available).toBe(true);
-    if (out.insurance.available) {
-      expect(out.insurance.data.dependents).toBe(1);
-      expect(out.insurance.data.coverTracked).toBe(false);
-      expect(out.insurance.confidence).toBe('low');
-      expect(out.insurance.data.recommendedCoverMinor).toBeGreaterThan(0);
+  it('insurance reports ABSENCE when cover was never recorded — no fabricated gap (M5.9)', () => {
+    // This test previously asserted `available: true` with `coverTracked: false`, which meant
+    // the layer emitted a shortfall equal to the ENTIRE recommended cover for a family nobody
+    // had asked. The dashboard hid it by checking `coverTracked`; any other consumer got the
+    // number. `Section<T>` carries "we don't know" properly, so it does.
+    expect(out.insurance.available).toBe(false);
+    if (!out.insurance.available) {
+      expect(out.insurance.reason).toMatch(/insurance details/i);
     }
+    // Absence must still be reported as missing data rather than passing silently.
+    expect(out.meta.dataCompleteness.missing).toContain('insurancePolicies');
+    // And no protection figure may leak out of an unavailable section.
+    expect(JSON.stringify(out.insurance)).not.toMatch(/protectionGapMinor|recommendedCoverMinor/);
   });
 
   it('cash flow reflects savings rate + status', () => {
@@ -249,10 +254,36 @@ describe('financial intelligence — section correctness (rich payload)', () => 
     expect(full.meta.dataCompleteness.pct).toBe(100);
     expect(full.meta.dataCompleteness.missing).toHaveLength(0);
     expect(full.meta.confidence).toBe('high');
+    // Recorded cover: the section becomes available, and now with high confidence rather than
+    // the "low" it used to report while quietly assuming zero.
+    expect(full.insurance.available).toBe(true);
     if (full.insurance.available) {
+      expect(full.insurance.confidence).toBe('high');
       expect(full.insurance.data.coverTracked).toBe(true);
       expect(full.insurance.data.existingCoverMinor).toBe(50_000_000);
+      expect(full.insurance.data.recommendedCoverMinor).toBeGreaterThan(0);
     }
+  });
+
+  it('a family that states it holds NO cover gets a real red, not silence (M5.9)', () => {
+    // The other half of the distinction. Unknown is silence; a stated zero is a finding, and
+    // must not be swallowed by the same branch that handles "not asked".
+    const stated = computeHouseholdFinancialIntelligence(
+      baseInput(richPayload, {
+        assumptions: {
+          insurance: { existingCoverMinor: 0, hasTermCover: false, hasHealthInsurance: false },
+        },
+      }),
+    );
+    expect(stated.insurance.available).toBe(true);
+    if (stated.insurance.available) {
+      expect(stated.insurance.data.status).toBe('red');
+      expect(stated.insurance.data.adequate).toBe(false);
+      expect(stated.insurance.data.protectionGapMinor).toBe(
+        stated.insurance.data.recommendedCoverMinor,
+      );
+    }
+    expect(stated.meta.dataCompleteness.missing).not.toContain('insurancePolicies');
   });
 });
 

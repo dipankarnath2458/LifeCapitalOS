@@ -9,6 +9,7 @@ import {
 } from '@lcos/core';
 import { CryptoService } from '../common/crypto.service';
 import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
+import { HouseholdProtectionService } from './household-protection.service';
 
 /**
  * Financial Intelligence Layer (M5) — the single reusable consumer of the Financial
@@ -25,6 +26,7 @@ export class HouseholdIntelligenceService {
   constructor(
     private readonly snapshots: HouseholdFinancialSnapshotService,
     private readonly crypto: CryptoService,
+    private readonly protection: HouseholdProtectionService,
   ) {}
 
   /**
@@ -44,6 +46,10 @@ export class HouseholdIntelligenceService {
    * Live intelligence — composed from the latest (or a given) **immutable** snapshot;
    * **not persisted**. Returns `{ available: false }` when the household has no snapshot
    * yet, so consumers can prompt to capture one instead of rendering empty sections.
+   */
+  /**
+   * @param assumptions Overrides the module-owned inputs this service would otherwise load.
+   *   Callers normally omit it — see the note above `resolveAssumptions`.
    */
   async current(
     household: Household,
@@ -68,6 +74,8 @@ export class HouseholdIntelligenceService {
       totalDebtMinor: t.totalDebtMinor,
     }));
 
+    const resolved = assumptions ?? (await this.resolveAssumptions(household.id));
+
     const intelligence = computeHouseholdFinancialIntelligence({
       payload: snap.payload as unknown as FinancialSnapshotPayload,
       meta: {
@@ -80,7 +88,7 @@ export class HouseholdIntelligenceService {
         capturedAt: snap.capturedAt instanceof Date ? snap.capturedAt.toISOString() : String(snap.capturedAt),
       },
       trend,
-      assumptions,
+      assumptions: resolved,
       computedAt: new Date().toISOString(),
     });
 
@@ -89,6 +97,31 @@ export class HouseholdIntelligenceService {
     intelligence.household.baseCurrency = household.baseCurrency;
 
     return { available: true, ...intelligence };
+  }
+
+  /**
+   * Module-owned inputs the snapshot does not carry (M5.9).
+   *
+   * Loaded **here** rather than at each call site, and that placement is the fix. The M5.9
+   * defect was not a missing table — it was that `current()` accepted an `assumptions` argument
+   * and every caller forgot to pass it, so `assumptions.insurance` was permanently `undefined`
+   * and the layer reported protection it had never been given. Two call sites, both wrong, for
+   * as long as the layer has existed.
+   *
+   * Resolving inside the service makes that class of omission impossible: a new consumer gets
+   * the household's real inputs by calling `current()`, with nothing to remember. It is also
+   * what `M5_FINANCIAL_INTELLIGENCE_LAYER.md` describes — *"load module-owned assumptions
+   * (retirement/insurance) if any"* — rather than the call-site wiring sketched in §3 of the
+   * M5.9 note.
+   *
+   * Returns `undefined` when nothing is known, which the layer reads as "not asked".
+   * Retirement assumptions are still unwired; that is recorded as out of scope in §6.3.
+   */
+  private async resolveAssumptions(
+    householdId: string,
+  ): Promise<IntelligenceAssumptions | undefined> {
+    const insurance = await this.protection.assumptionsFor(householdId);
+    return insurance ? { insurance } : undefined;
   }
 
   /** Exposed for callers/tests that want the active composing-engine version. */

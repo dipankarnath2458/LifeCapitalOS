@@ -1,6 +1,28 @@
 # M5.9 — Protection / Insurance Intelligence — Architecture
 
-**Status:** design only. No code written. Awaiting approval.
+**Status: IMPLEMENTED.** Approved with decisions 1–4 as recommended (§10). The §4.3 core change
+shipped first as a standalone hotfix (#67) because the false claim was live; the rest shipped as
+this milestone.
+
+## Deviations from this note, and why
+
+Two, both recorded here rather than buried in a diff.
+
+**1. `assumptions` is resolved inside `HouseholdIntelligenceService`, not at each call site.**
+§3 and §7.1 sketched the controller and the AI service each passing a third argument. That would
+have worked and reproduced the exact fragility that caused this milestone: `current()` has always
+*accepted* an `assumptions` argument, and both callers simply forgot it. Wiring two call sites
+correctly leaves the third to be forgotten later. The service now loads its own module-owned
+inputs, so a new consumer gets the household's real protection by calling `current()` with
+nothing to remember. This is also what `M5_FINANCIAL_INTELLIGENCE_LAYER.md` already described
+(*"load module-owned assumptions (retirement/insurance) if any"*); the note's call-site wiring
+was the weaker of the two designs. The parameter survives as an override for tests.
+
+**2. The early-warning parity gap is closed, not merely excluded.** #67 had to exclude the
+insurance signal from `early-warning-parity.e2e-spec.ts`, with an assertion that would fail once
+V2 gained protection data. It has. `seedHousehold` now records the same answers the retail
+profile states, insurance is back inside the parity assertion, and a separate test holds the
+distinction that survives: a household that has recorded nothing still produces no signal.
 
 Milestone: make protection a real capability in V2 — a data path, not a form. Preserves the
 Financial Kernel and the frozen snapshot contract; the one core change proposed is argued for

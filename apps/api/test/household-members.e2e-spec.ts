@@ -255,9 +255,31 @@ describe('Household members (e2e)', () => {
   it('a dependant raises the recommended life cover', async () => {
     // Dependants are the reason the figure exists. If adding one moved nothing, this surface
     // would be decoration.
+    //
+    // Since M5.9 the insurance section is unavailable until the household has recorded its
+    // cover — an unasked family gets no assessment rather than a gap computed against zero. So
+    // this test now records protection first. That is not a weakening: the subject is still
+    // whether a dependant moves the recommended figure, and the assertion is unchanged.
     const { token, householdId } = await newConsumer('fam_cover');
     await seedFigures(token, householdId);
     await capture(token, householdId);
+
+    const recordProtection = async () => {
+      const members = await http()
+        .get(`/api/households/${householdId}/members`)
+        .set(auth(token));
+      for (const m of members.body as { id: string; isDependent: boolean }[]) {
+        await http()
+          .patch(`/api/households/${householdId}/protection/members/${m.id}`)
+          .set(auth(token))
+          .send({
+            hasHealthInsurance: true,
+            ...(m.isDependent ? {} : { hasTermCover: true, termLifeCoverMinor: rupees(1000000) }),
+          });
+      }
+    };
+    await recordProtection();
+
     const before = await intelligence(token, householdId);
     expect(before.body.insurance.available).toBe(true);
     const coverBefore = before.body.insurance.data.recommendedCoverMinor;
@@ -270,8 +292,11 @@ describe('Household members (e2e)', () => {
       isDependent: true,
     });
     await capture(token, householdId);
+    // The new dependant has answered nothing, so the household would go unassessable again.
+    await recordProtection();
 
     const after = await intelligence(token, householdId);
+    expect(after.body.insurance.available).toBe(true);
     expect(after.body.insurance.data.dependents).toBe(dependantsBefore + 1);
     expect(after.body.insurance.data.recommendedCoverMinor).toBeGreaterThan(coverBefore);
   });

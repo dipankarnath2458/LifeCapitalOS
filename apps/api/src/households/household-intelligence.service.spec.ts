@@ -60,9 +60,16 @@ const fakeCrypto = {
   decrypt: (v: string | null) => (v ? v.replace(/^enc\((.*)\)$/, '$1') : null),
 } as any;
 
+/**
+ * Module-owned protection inputs (M5.9). `undefined` is the honest default here: these fakes
+ * describe a household that has recorded no cover, and the layer must read that as "not asked".
+ */
+const fakeProtection = (insurance?: unknown) =>
+  ({ assumptionsFor: async () => insurance }) as any;
+
 describe('HouseholdIntelligenceService', () => {
   it('composes the canonical intelligence object from the latest snapshot', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto);
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
     const res = await svc.current(household);
     expect(res.available).toBe(true);
     if (res.available) {
@@ -75,7 +82,7 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('resolves the family name only at the decrypted boundary (object stays PII-light otherwise)', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto);
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
     const res = await svc.current(household);
     if (res.available) {
       expect(res.household.name).toBe('Sharma Family');
@@ -84,18 +91,22 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('honours an explicit snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto);
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
     const res = await svc.current(household, 'snap_1');
     expect(res.available).toBe(true);
   });
 
   it('404s an unknown snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto);
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
     await expect(svc.current(household, 'nope')).rejects.toThrow();
   });
 
   it('degrades gracefully when the household has no snapshot yet', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots({ latest: async () => null }), fakeCrypto);
+    const svc = new HouseholdIntelligenceService(
+      fakeSnapshots({ latest: async () => null }),
+      fakeCrypto,
+      fakeProtection(),
+    );
     const res = await svc.current(household);
     expect(res.available).toBe(false);
     if (!res.available) expect(res.reason).toBe('no snapshot captured');

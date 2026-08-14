@@ -16,23 +16,28 @@ import { AppModule } from '../src/app.module';
  * does not test the finance; it tests that the V2 composition feeds the engine faithfully and
  * does not drop or distort a signal on the way.
  *
- * ## The two signals that cannot match, stated rather than hidden
+ * ## Insurance: diverged in #67, and CLOSED here (M5.9)
+ *
+ * A short history, because this signal has meant three different things.
+ *
+ * 1. Originally V1 read real protection booleans from `Profile` while V2 had no protection store
+ *    and defaulted to `false`. Parity "held" only because **both paths were wrong in the same
+ *    way** — one saying "no cover" from a real answer, the other from a default.
+ * 2. The #67 hotfix made V2 pass `null` (not asked) so the engine stopped asserting a fact about
+ *    unasked families. Insurance then had to be excluded here, and the divergence was asserted
+ *    explicitly so it would fail the day it closed.
+ * 3. M5.9 gives V2 a protection store. `seedHousehold` now records the *same* answers the retail
+ *    profile states, so the insurance signal is comparable again and is back inside the parity
+ *    assertion. The gap is closed rather than permanently excused.
+ *
+ * The distinction that survives is asserted separately below: a household that has recorded
+ * nothing must still produce no signal at all.
+ *
+ * ## The one signal that cannot match
  *
  * **Goals.** V1's input carries `goalSlippage`; the layer's input **omits it entirely**, because
- * the Financial Snapshot has no goals section. No goal-derived signal can appear in V2's `risk`.
- *
- * **Insurance (new — the M5.9 hotfix).** V1 reads real protection booleans from `Profile`. The V2
- * layer has no protection data at all, and now passes `null` rather than `false`, so the engine
- * emits no insurance signal for V2 instead of asserting "no term cover, no health cover" about a
- * family nobody asked.
- *
- * That divergence is the *point* of the hotfix, not a regression. Before it, this file's parity
- * held only because **both paths were wrong in the same way** — V1 said "no cover" from a real
- * answer, V2 said "no cover" from a default. Matching outputs, incomparable meanings.
- *
- * So parity is asserted across every **non-goal, non-insurance** signal, and each gap is asserted
- * explicitly below so it fails the day it closes. M5.9 closes the insurance one by giving V2 real
- * protection data.
+ * the Financial Snapshot has no goals section. No goal-derived signal can appear in V2's `risk`,
+ * and that gap is asserted explicitly so it fails the day goals reach the snapshot.
  */
 describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
   let app: INestApplication;
@@ -59,9 +64,9 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
    *
    * Cash-only assets (so liquid == emergency fund == total assets on both sides) and no debt.
    *
-   * The profile states `hasTermCover: false` deliberately: that is a real answer, and V1 must
-   * still raise its red for it. V2 receives no protection assumptions at all and now makes no
-   * claim either way, which is why the insurance signal is compared separately below.
+   * The profile states `hasTermCover: false` deliberately: that is a real answer on the retail
+   * side, and since M5.9 `seedHousehold` records the SAME answer against every household member,
+   * so both paths derive the same insurance signal from equivalent facts.
    *
    * Income is monthly on the household path and annual on the retail one — the layer multiplies
    * the month by 12 (`financialIntelligence.ts:304`), so the retail profile states that product.
@@ -143,6 +148,23 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
       expect(created.status).toBe(201);
     }
 
+    // Protection, recorded to match the retail profile exactly (M5.9). Until this milestone the
+    // household path had NO protection store, so V2 could not answer the question at all. Every
+    // member must answer or the layer declines to assess — which is the behaviour the separate
+    // test below covers.
+    const members = await http().get(`/api/households/${householdId}/members`).set(auth(token));
+    expect(members.status).toBe(200);
+    for (const m of members.body as { id: string; isDependent: boolean }[]) {
+      const res = await http()
+        .patch(`/api/households/${householdId}/protection/members/${m.id}`)
+        .set(auth(token))
+        .send({
+          hasHealthInsurance: false,
+          ...(m.isDependent ? {} : { hasTermCover: false, termLifeCoverMinor: 0 }),
+        });
+      expect(res.status).toBe(200);
+    }
+
     const snap = await http()
       .post(`/api/households/${householdId}/financial-snapshot`)
       .set(auth(token))
@@ -153,11 +175,11 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
   /** Signals that can only ever come from goals, which the snapshot does not carry. */
   const GOAL_SIGNALS = ['goal_slippage', 'goals', 'goal'];
   const isGoalSignal = (key: string) => GOAL_SIGNALS.some((g) => key.includes(g));
-  /** Protection: V1 has real answers, V2 has none. Closed by M5.9, asserted below until then. */
-  const isInsuranceSignal = (key: string) => key === 'insurance';
-  const incomparable = (key: string) => isGoalSignal(key) || isInsuranceSignal(key);
+  // Insurance is NO LONGER excluded — see the history at the top of this file. Goals remain the
+  // only incomparable signal.
+  const incomparable = (key: string) => isGoalSignal(key);
 
-  it('reports the same non-goal, non-insurance signals on both paths', async () => {
+  it('reports the same non-goal signals on both paths, insurance included', async () => {
     const { token, householdId } = await consumer();
     await seedRetail(token);
     await seedHousehold(token, householdId);
@@ -216,15 +238,10 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     expect(expectedRed + expectedYellow).toBeGreaterThan(0);
   });
 
-  it('documents the protection gap: V1 states a cover answer, V2 makes no claim', async () => {
-    // The M5.9 hotfix, asserted from both sides at once.
-    //
-    // The profile says `hasTermCover: false` — a real answer — so V1 must still raise its red.
-    // V2 has no protection data, so it must say NOTHING: not a red, not a green, no signal. The
-    // two are different states, and before the hotfix they produced the same output.
-    //
-    // When M5.9 gives V2 real protection data this fails, which is the point: the parity claim
-    // must be revisited then rather than drifting.
+  it('the protection gap is CLOSED: both paths derive the same insurance signal (M5.9)', async () => {
+    // Step 3 of the history at the top of this file. Both paths now hold the same real answers
+    // — the retail profile says no cover, and every household member says the same — so the
+    // insurance signal must agree in status AND in the sentence shown to the family.
     const { token, householdId } = await consumer();
     await seedRetail(token);
     await seedHousehold(token, householdId);
@@ -237,9 +254,53 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     const v1Insurance = (
       v1.body.signals as { key: string; status: string; detail: string }[]
     ).find((s) => s.key === 'insurance');
+    const v2Insurance = (
+      v2.body.risk.data.topRisks as { key: string; severity: string; detail: string }[]
+    ).find((r) => r.key === 'insurance');
+
     expect(v1Insurance).toBeDefined();
+    expect(v2Insurance).toBeDefined();
     expect(v1Insurance!.status).toBe('red');
-    expect(v1Insurance!.detail).toBe('no term cover, no health cover');
+    expect(v2Insurance!.severity).toBe('high'); // 'red' in the layer's severity vocabulary
+    expect(v2Insurance!.detail).toBe(v1Insurance!.detail);
+    expect(v2Insurance!.detail).toBe('no term cover, no health cover');
+
+    // And the layer now assesses the gap itself, which it could not do before M5.9.
+    expect(v2.body.insurance.available).toBe(true);
+  });
+
+  it('but an unrecorded household still makes no claim — the #67 distinction survives', async () => {
+    // Closing the parity gap must not quietly reintroduce the defect for families who have not
+    // answered. A household with no protection recorded gets NO signal: not a red, not a green.
+    const { token, householdId } = await consumer();
+    await seedRetail(token);
+    // Deliberately NOT seedHousehold: no protection is recorded on the household path here.
+    const cash = await http()
+      .post(`/api/households/${householdId}/accounts`)
+      .set(auth(token))
+      .send({
+        name: 'Cash & savings',
+        type: 'bank',
+        assetClass: 'cash',
+        currency: 'INR',
+        balanceMinor: rupees(CASH),
+        isLiability: false,
+      });
+    const occurredAt = new Date().toISOString();
+    for (const f of [
+      { type: 'income', category: 'salary', amountMinor: rupees(MONTHLY_INCOME) },
+      { type: 'expense', category: 'living', amountMinor: rupees(MONTHLY_EXPENSES) },
+    ]) {
+      await http()
+        .post(`/api/households/${householdId}/cashflow`)
+        .set(auth(token))
+        .send({ accountId: cash.body.id, currency: 'INR', occurredAt, ...f });
+    }
+    await http().post(`/api/households/${householdId}/financial-snapshot`).set(auth(token)).send({});
+
+    const v2 = await http()
+      .get(`/api/households/${householdId}/intelligence/current`)
+      .set(auth(token));
 
     expect((v2.body.risk.data.topRisks as { key: string }[]).map((r) => r.key)).not.toContain(
       'insurance',
@@ -247,6 +308,7 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     // `risk` is on the AI coach's allow-list, so the claim must not survive anywhere inside it —
     // not as a signal, not as a detail string the model could quote back to a family.
     expect(JSON.stringify(v2.body.risk)).not.toMatch(/no term cover|no health cover/);
+    expect(v2.body.insurance.available).toBe(false);
   });
 
   it('documents the goal gap: V2 carries no goal-derived signal', async () => {

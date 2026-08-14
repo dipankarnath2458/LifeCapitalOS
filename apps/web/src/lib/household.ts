@@ -29,6 +29,18 @@ export async function getOnboardingStatus(token: string): Promise<OnboardingStat
 }
 
 /**
+ * The caller's household, resolved **once** per page.
+ *
+ * `null` means they have never onboarded — a state to handle, not an error. Pages pass the id
+ * on to each subsequent call rather than re-resolving it: doing that per operation put enough
+ * extra load on `/onboarding/status` to earn a 429 from the rate limiter during M5.8 PR 2.
+ */
+export async function resolveHouseholdId(token: string): Promise<string | null> {
+  const status = await getOnboardingStatus(token);
+  return status?.householdId ?? null;
+}
+
+/**
  * Ensures the caller has a household, creating one only if they do not.
  *
  * Safe to call from anywhere and as often as needed: the server is idempotent by contract
