@@ -8,7 +8,7 @@ import {
 } from './financialHealth.js';
 import { explainFinancialHealth } from './financialHealthExplanation.js';
 import { emergencyFundTarget, analyzeLifeInsuranceGap } from './insurance.js';
-import { computeRetirement } from './retirement.js';
+import { computeRetirement, retirementStatus, type RetirementStatus } from './retirement.js';
 import { analyzeAllocation, type AssetClass, type RiskTolerance } from './assetAllocation.js';
 import { computeEarlyWarning, type EarlyWarningInput } from '../scoring/earlyWarning.js';
 
@@ -77,6 +77,19 @@ export interface IntelligenceAssumptions {
     postRetirementReturnPct: number;
     /** Overrides the corpus proxy (defaults to net worth) when the module tracks it. */
     currentCorpusMinor?: number;
+    /**
+     * The lifestyle the family wants to fund, per year (M5.10). Overrides the default of
+     * "whatever you spend today". Additive — omitting it preserves prior behaviour.
+     */
+    desiredAnnualIncomeMinor?: number;
+    /**
+     * What the family puts aside for retirement each month (M5.10).
+     *
+     * `undefined` means **not stated**, and is not zero: without it the projection of where a
+     * family actually lands cannot be made, so the `projection` sub-section below reports itself
+     * unavailable rather than assuming they save nothing. A stated `0` is a real answer.
+     */
+    monthlyContributionMinor?: number;
   };
   insurance?: {
     existingCoverMinor: number;
@@ -164,6 +177,28 @@ export interface HouseholdFinancialIntelligence {
     onTrack: boolean;
     monthlySipRequiredMinor: number;
     usingDefaultAssumptions: boolean;
+    /** The lifestyle being funded, per year, inflated to retirement (M5.10). */
+    inflatedAnnualIncomeMinor: number;
+    /** The age the projection retires at, and the age it plans to. */
+    retirementAge: number;
+    planningToAge: number;
+    /**
+     * Where the family actually lands, given what they are saving (M5.10).
+     *
+     * A **nested** section rather than nullable fields, because it is unavailable for a
+     * different reason than the parent: the parent needs an age and expenses, this needs a
+     * stated contribution. Nesting keeps "we cannot answer this part" from being a flag every
+     * consumer has to remember to check — the same lesson as Protection's `coverTracked`.
+     */
+    projection: Section<{
+      monthlyContributionMinor: number;
+      projectedFromCurrentMinor: number;
+      projectedFromContributionsMinor: number;
+      projectedCorpusAtRetirementMinor: number;
+      /** Signed: positive is a surplus. */
+      surplusOrShortfallMinor: number;
+      status: RetirementStatus;
+    }>;
   }>;
   insurance: Section<{
     recommendedCoverMinor: number;
@@ -437,16 +472,22 @@ export function computeHouseholdFinancialIntelligence(
     // a family's retirement projection with the balance of their outstanding home loan.
     const currentCorpus =
       input.assumptions?.retirement?.currentCorpusMinor ?? Math.max(0, reconciledNetWorthMinor(p));
+    // The lifestyle to fund: what the family SAYS they want, else what they spend today. The
+    // fallback is a figure from the snapshot, not a guess.
+    const annualIncomeTarget =
+      input.assumptions?.retirement?.desiredAnnualIncomeMinor ?? expense * 12;
+    const contribution = input.assumptions?.retirement?.monthlyContributionMinor;
     const result = computeRetirement({
       currentAge: primaryAge,
       retirementAge: ra.retirementAge,
       yearsInRetirement: ra.yearsInRetirement,
-      currentAnnualExpensesMinor: expense * 12,
+      currentAnnualExpensesMinor: annualIncomeTarget,
       currentCorpusMinor: currentCorpus,
       inflationRatePct: ra.inflationRatePct,
       preRetirementReturnPct: ra.preRetirementReturnPct,
       postRetirementReturnPct: ra.postRetirementReturnPct,
       currency,
+      ...(contribution !== undefined ? { monthlyContributionMinor: contribution } : {}),
     });
     const required = result.requiredCorpus.minor;
     const projected = result.projectedCorpusFromCurrent.minor;
@@ -462,6 +503,28 @@ export function computeHouseholdFinancialIntelligence(
         onTrack: result.onTrack,
         monthlySipRequiredMinor: result.monthlySipRequired.minor,
         usingDefaultAssumptions: usingDefaults,
+        inflatedAnnualIncomeMinor: result.inflatedAnnualExpenses.minor,
+        retirementAge: ra.retirementAge,
+        planningToAge: ra.retirementAge + ra.yearsInRetirement,
+        projection:
+          contribution === undefined
+            ? {
+                available: false,
+                reason:
+                  'No monthly retirement contribution recorded yet, so where you land cannot be projected.',
+              }
+            : {
+                available: true,
+                confidence: usingDefaults ? 'medium' : 'high',
+                data: {
+                  monthlyContributionMinor: contribution,
+                  projectedFromCurrentMinor: projected,
+                  projectedFromContributionsMinor: result.projectedCorpusFromContributions.minor,
+                  projectedCorpusAtRetirementMinor: result.projectedCorpusAtRetirement.minor,
+                  surplusOrShortfallMinor: result.surplusOrShortfall.minor,
+                  status: retirementStatus(result.surplusOrShortfall.minor, required),
+                },
+              },
       },
     };
   }

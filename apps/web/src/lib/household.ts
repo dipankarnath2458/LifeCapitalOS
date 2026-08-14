@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './api';
+import { HOUSEHOLD_ID_KEY } from './session';
 
 export interface OnboardingStatus {
   hasHousehold: boolean;
@@ -29,15 +30,36 @@ export async function getOnboardingStatus(token: string): Promise<OnboardingStat
 }
 
 /**
- * The caller's household, resolved **once** per page.
+ * The caller's household, resolved **once per session** rather than once per page.
  *
- * `null` means they have never onboarded — a state to handle, not an error. Pages pass the id
- * on to each subsequent call rather than re-resolving it: doing that per operation put enough
- * extra load on `/onboarding/status` to earn a 429 from the rate limiter during M5.8 PR 2.
+ * `null` means they have never onboarded — a state to handle, not an error.
+ *
+ * ## Why this is cached
+ *
+ * `/onboarding/status` is rate limited like every route (120/60s per route per IP), and it is
+ * the single most-called endpoint in the product because *every* V2 surface needs the household
+ * id before it can ask for anything else. M5.8 PR 2 already had to stop callers re-resolving it
+ * per operation; adding one more surface in M5.10 pushed it over the limit again, and a 429 here
+ * is not a slow page — it makes `hasOwnHousehold` read false and lands a consumer in the Advisor
+ * Workspace.
+ *
+ * A consumer's own household id does not change while they are signed in, so caching it for the
+ * tab is correct rather than merely convenient. Only a real id is cached: `null` means "not
+ * onboarded yet", which genuinely can change mid-session and must be re-checked. `clearTokens`
+ * drops it, so it can never outlive the session it belongs to.
  */
+export function rememberHouseholdId(id: string): void {
+  if (typeof window !== 'undefined') sessionStorage.setItem(HOUSEHOLD_ID_KEY, id);
+}
+
 export async function resolveHouseholdId(token: string): Promise<string | null> {
+  const cached = typeof window !== 'undefined' ? sessionStorage.getItem(HOUSEHOLD_ID_KEY) : null;
+  if (cached) return cached;
+
   const status = await getOnboardingStatus(token);
-  return status?.householdId ?? null;
+  const id = status?.householdId ?? null;
+  if (id) rememberHouseholdId(id);
+  return id;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { apiGet } from './api';
+import { rememberHouseholdId } from './household';
 
 /**
  * Where a user goes after signing in.
@@ -69,7 +70,16 @@ export function chooseDestination(
 export async function resolvePostLoginDestination(token: string): Promise<string> {
   const [me, own] = await Promise.all([
     apiGet<FirmMembershipSummary>('/firms/me', token).catch(() => null),
-    apiGet<OwnHouseholdSummary>('/onboarding/status', token).catch(() => null),
+    apiGet<OwnHouseholdSummary & { householdId?: string | null }>(
+      '/onboarding/status',
+      token,
+    ).catch(() => null),
   ]);
+  // Sign-in already fetched the household id, so the first page the user lands on should not
+  // fetch it again. `/onboarding/status` is the most-called route in the product — every V2
+  // surface needs the id before it can ask for anything else — and it is rate limited per
+  // route, so the duplicate is what pushes a busy session over the limit. A 429 here is not a
+  // slow page: `hasOwnHousehold` reads false and the consumer lands in the Advisor Workspace.
+  if (own?.householdId) rememberHouseholdId(own.householdId);
   return chooseDestination(me, own);
 }

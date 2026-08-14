@@ -134,6 +134,7 @@ price of not removing capability. It is recorded here rather than discovered lat
 
 | Capability | Handling now | Replaced by |
 | --- | --- | --- |
+| ~~Retirement planning~~ | **Native since M5.10.** The first Planning Experience: a household-scoped plan feeding the intelligence layer through `assumptions.retirement`. V1's `RetirementCalculator.tsx` stays on `/dashboard` | done |
 | ~~Goals~~ | **Native since M5.8 PR 2.** Household-scoped, carrying `householdId` and `firmId`. V1's `Goals.tsx` stays on `/dashboard`; the two goal stores both remain, unmigrated by design | done |
 | ~~Family~~ | **Native since M5.8 PR 1.** V1's `Family.tsx` stays on `/dashboard` as the safety net; the two stores both remain, unmigrated by design | done |
 | ~~Protection~~ | **Native since M5.9.** Per-member cover on `HouseholdMember`, reaching the layer through `assumptions.insurance`. V1's `Protection.tsx` stays on `/dashboard`; both stores remain, unmigrated by design | done |

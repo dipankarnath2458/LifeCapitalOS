@@ -576,7 +576,7 @@ test.describe('V2 primary / V1 safety net', () => {
     // went native in M5.7, Family in M5.8 PR 1, Goals in PR 2 and Protection in M5.9 — so the
     // list is now checked for the OPPOSITE property. Each must be reachable, native, and carry a
     // working control; a page that renders a title but cannot save is functionality lost.
-    for (const link of ['Goals', 'Family', 'Protection', 'AI coach']) {
+    for (const link of ['Goals', 'Retirement', 'Family', 'Protection', 'AI coach']) {
       await page.goto('/household');
       await page.getByRole('link', { name: link, exact: true }).click();
       await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
@@ -797,6 +797,69 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByTestId('protection-panel')).toBeVisible();
   });
 
+  test('retirement planning states a plan, and the projection follows it', async ({
+    page,
+    request,
+  }) => {
+    // M5.10, the first Planning Experience. Before it, retirement was a V1 calculator that
+    // computed in React and persisted nothing — type numbers, close the tab, answer gone.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByLabel('Investments (₹)').fill('4000000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('100000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    // Retirement needs an age to project over. Without one the layer declines to project at
+    // all rather than inventing a horizon — asserted here before it is supplied.
+    await page.goto('/household/retirement');
+    await expect(page.getByTestId('retirement-unavailable')).toBeVisible();
+
+    await page.goto('/household/family');
+    await page.getByLabel('Name').fill('Ravi Bhuyan');
+    await page.getByLabel('Date of birth').fill('1986-04-02');
+    await page.getByRole('button', { name: 'Add to my family' }).click();
+    await expect(page.getByTestId('member-list')).toContainText('Ravi Bhuyan');
+
+    // Ages come from the SNAPSHOT, not the live member table, so the check has to be re-run
+    // before the projection can see the new date of birth. Same step the M5.8 family journey
+    // needs, and a reminder that planning reads the kernel's record rather than its tables.
+    await page.goto('/wealth-health');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    await page.goto('/household/retirement');
+    await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
+
+    // Nothing saved yet: we can say what they NEED, but not where they LAND. Ordered behind a
+    // positive signal so "absent" cannot pass while the fetch is still in flight.
+    await expect(page.getByTestId('save-plan')).toBeVisible();
+    await expect(page.getByTestId('projection-unavailable')).toBeVisible();
+    await expect(page.getByTestId('retirement-projection')).toHaveCount(0);
+
+    await page.getByLabel('Retire at age').fill('60');
+    await page.getByLabel('Saving for retirement each month (₹)').fill('50000');
+    await page.getByTestId('save-plan').click();
+
+    // Stating the contribution is what turns "we cannot say" into a status.
+    await expect(page.getByTestId('retirement-projection')).toBeVisible();
+
+    // And what-if changes nothing about the plan it explores.
+    await page.getByTestId('run-whatif').click();
+    await expect(page.getByTestId('whatif-outcomes')).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId('retirement-projection')).toBeVisible();
+  });
+
   test('Plans and Admin survived the move off the V1 dashboard', async ({ page, request }) => {
     // Both were linked ONLY from /dashboard. Without these links the routes still work by
     // URL but nobody can navigate to them — the silent kind of loss.
@@ -845,7 +908,13 @@ test.describe('dark mode is readable', () => {
    * dark. So this asserts CONTRAST, not that a class is present — the property that matters
    * is that a user can read the page.
    */
-  const CONSUMER_SURFACES = ['/household', '/wealth-health', '/household/goals', '/household/protection'];
+  const CONSUMER_SURFACES = [
+    '/household',
+    '/wealth-health',
+    '/household/goals',
+    '/household/protection',
+    '/household/retirement',
+  ];
 
   for (const path of CONSUMER_SURFACES) {
     test(`${path} has readable contrast in dark mode`, async ({ page, request }) => {

@@ -730,9 +730,48 @@ model Household {
   debtSnapshots DebtSnapshot[]
   financialSnapshots FinancialSnapshot[]
   healthScores  FinancialHealthScore[]
+  retirementPlan RetirementPlan?
 
   @@index([firmId])
   @@index([advisorId])
+}
+
+// The household's retirement PLAN (M5.10) — their stated intent, not a financial position.
+// See docs/M5_10_RETIREMENT_PLANNING_ARCHITECTURE.md §17.
+//
+// A module-owned planning input, deliberately NOT in the Financial Snapshot: a snapshot is the
+// kernel's immutable record of what a family owns at a moment, and an intention is neither
+// immutable nor owned. Editing your retirement age must not require re-capturing a snapshot,
+// and must not rewrite history.
+//
+// EVERY planning column is nullable with NO default, and there is no backfill. `null` means
+// "not stated". A default in the column would erase the difference between the family's choice
+// and ours — the service applies documented defaults and reports which figures came from where,
+// so the distinction survives all the way to the UI.
+//
+// `Goal` was considered and rejected: a goal's target amount is STATED, while a retirement
+// target is DERIVED from income x inflation x longevity, and storing a computed number as an
+// input would go stale the moment expenses change.
+model RetirementPlan {
+  id          String  @id @default(cuid())
+  householdId String  @unique // exactly one plan per household, enforced by the database
+  firmId      String? // advisory scoping, consistent with Goal
+
+  retirementAge            Int?
+  lifeExpectancy           Int?
+  desiredAnnualIncomeMinor BigInt?
+  monthlyContributionMinor BigInt?
+  currentCorpusMinor       BigInt?
+  inflationRatePct         Float?
+  preRetirementReturnPct   Float?
+  postRetirementReturnPct  Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([firmId])
 }
 
 // A person in a household. userId is set when the member has a portal login.
