@@ -747,6 +747,16 @@ model HouseholdMember {
   isDependent   Boolean       @default(true)
   householdRole HouseholdRole @default(MEMBER)
 
+  // Protection (M5.9). See docs/M5_9_PROTECTION_ARCHITECTURE.md §2.2.
+  //
+  // NULLABLE AND DELIBERATELY WITHOUT DEFAULTS. `null` means "not asked"; `false` means the
+  // family told us they have no cover. A `@default(false)` would convert every household we
+  // have never asked into one that told us it has no insurance — the exact defect the #67
+  // hotfix removed from the early-warning engine. There is no backfill for the same reason.
+  hasTermCover       Boolean?
+  hasHealthInsurance Boolean?
+  termLifeCoverMinor BigInt?
+
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([householdId])

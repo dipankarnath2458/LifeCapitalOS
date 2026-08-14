@@ -147,9 +147,10 @@ function ConsumerShell({
         </div>
       </header>
 
-      {/* Capabilities V2 has not rebuilt yet, hosted on temporary surfaces that reuse the
-          preserved V1 components. Linked here so nothing is silently lost while V2 is
-          primary. Each is replaced by the module named on its own page. */}
+      {/* The rest of the family's finances. Every one of these is a NATIVE V2 surface as of
+          M5.9 — none is a hosted V1 component any more (AI coach M5.7, Family M5.8 PR 1, Goals
+          PR 2, Protection M5.9). The V1 originals all still render on `/dashboard`, which stays
+          the recoverable path until Module 10. */}
       <nav aria-label="More of your finances" className="mb-6 flex flex-wrap gap-2">
         {[
           { href: '/household/goals', label: 'Goals' },
@@ -446,24 +447,21 @@ export default function HouseholdDashboardPage() {
             )}
           </Panel>
 
+          {/* The `coverTracked` guard that used to live here is gone. It existed because the
+              layer returned `available: true` with a gap computed against a cover of zero, so
+              this page had to know not to believe it. Since M5.9 the layer reports absence
+              itself, and `Panel` renders its reason like every other section — one fewer place
+              where a consumer has to remember that a figure might not mean what it says. */}
           <Panel title="Protection" section={i.insurance}>
-            {(ins) =>
-              ins.coverTracked ? (
-                <div className="space-y-3">
-                  <Badge tone={toneFor(ins.status)}>{ins.adequate ? 'adequate' : 'gap'}</Badge>
-                  <Figure label="Recommended cover" value={money(ins.recommendedCoverMinor)} />
-                  {ins.protectionGapMinor > 0 && (
-                    <Figure label="Shortfall" value={money(ins.protectionGapMinor)} />
-                  )}
-                </div>
-              ) : (
-                // Not zero: an untracked cover is unknown, and rendering a ₹0 gap would
-                // read as "fully covered".
-                <Text muted className="block text-sm">
-                  We don&apos;t have your insurance details yet, so protection isn&apos;t scored.
-                </Text>
-              )
-            }
+            {(ins) => (
+              <div className="space-y-3" data-testid="protection-panel">
+                <Badge tone={toneFor(ins.status)}>{ins.adequate ? 'adequate' : 'gap'}</Badge>
+                <Figure label="Recommended cover" value={money(ins.recommendedCoverMinor)} />
+                {ins.protectionGapMinor > 0 && (
+                  <Figure label="Shortfall" value={money(ins.protectionGapMinor)} />
+                )}
+              </div>
+            )}
           </Panel>
         </div>
 

@@ -470,9 +470,24 @@ export function computeHouseholdFinancialIntelligence(
   let insurance: HouseholdFinancialIntelligence['insurance'];
   if (annualIncome <= 0 && dependents === 0) {
     insurance = { available: false, reason: 'No income or dependents recorded to assess protection needs.' };
+  } else if (!input.assumptions?.insurance) {
+    /**
+     * Not asked. Previously this branch produced `available: true` with `existingCoverMinor: 0`,
+     * which made the shortfall the ENTIRE recommended cover — a crore-scale "protection gap"
+     * computed for a family whose cover nobody had ever asked about. The dashboard hid it by
+     * checking `coverTracked`, but that was a consumer working around a layer stating something
+     * it had no basis for, and any other consumer got the fabricated figure.
+     *
+     * `Section<T>` exists for exactly this, and `meta.dataCompleteness` already reports
+     * `insurancePolicies` as missing. `coverTracked` survives on the tracked branch, so nothing
+     * that reads it breaks.
+     */
+    insurance = {
+      available: false,
+      reason: 'No insurance details recorded yet, so protection cannot be assessed.',
+    };
   } else {
-    const coverTracked = !!input.assumptions?.insurance;
-    const existingCover = input.assumptions?.insurance?.existingCoverMinor ?? 0;
+    const existingCover = input.assumptions.insurance.existingCoverMinor;
     const gap = analyzeLifeInsuranceGap({
       annualIncomeMinor: annualIncome,
       outstandingLiabilitiesMinor: p.debt.totalOutstandingMinor,
@@ -480,14 +495,12 @@ export function computeHouseholdFinancialIntelligence(
       dependents,
       currency,
     });
-    const status: StatusLight = gap.adequate
-      ? 'green'
-      : coverTracked && existingCover > 0
-        ? 'yellow'
-        : 'red';
+    // Reaching here means the family HAS answered, so a red is a real red: they told us they
+    // hold nothing. Partial cover is the amber.
+    const status: StatusLight = gap.adequate ? 'green' : existingCover > 0 ? 'yellow' : 'red';
     insurance = {
       available: true,
-      confidence: coverTracked ? 'high' : 'low',
+      confidence: 'high',
       data: {
         recommendedCoverMinor: gap.recommendedCoverMinor.minor,
         existingCoverMinor: existingCover,
@@ -495,7 +508,12 @@ export function computeHouseholdFinancialIntelligence(
         adequate: gap.adequate,
         status,
         dependents,
-        coverTracked,
+        /**
+         * Always true on this branch now — the section is unavailable when cover is untracked.
+         * Retained so consumers reading it keep compiling and keep working; it is no longer
+         * load-bearing, and new consumers should read `available` instead.
+         */
+        coverTracked: true,
       },
     };
   }

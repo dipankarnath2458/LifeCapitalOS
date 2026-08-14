@@ -122,7 +122,7 @@ price of not removing capability. It is recorded here rather than discovered lat
 | --- | --- | --- |
 | ~~**Goals**~~ | ~~High~~ | **DONE — M5.8 PR 2.** Native at `/household/goals`, household-scoped. Note what it does *not* fix: a goal still moves no figure, because the snapshot carries no goals section — see §3 of `M5_8_GOALS_CHARTS_ARCHITECTURE.md` |
 | ~~**Family / dependents CRUD**~~ | ~~High~~ | **DONE — M5.8 PR 1.** Native at `/household/family` on `HouseholdMember`, the table the snapshot reads. Also captures date of birth, which V1 never did: that turned retirement on for consumers, where it had reported `available: false` for everyone |
-| **Protection capture** | High | **V2 panel has no data path** — `coverTracked` reads `assumptions.insurance`, which the controller never passes, so it is always `false` |
+| ~~**Protection capture**~~ | ~~High~~ | **DONE — M5.9.** The defect was one missing argument: no caller passed `assumptions`, so the layer reported protection it had never been given. The service now loads module-owned inputs itself, so a future consumer cannot reintroduce the omission |
 | ~~**AI Wealth Coach**~~ | — | **Shipped M5.7** — native `/household/coach`, grounded on the Intelligence Layer |
 | **Second Opinion** (allocation review) | Low | **Superseded, not dropped.** V1's version reads retail `Account.userId` data a V2 consumer does not have, so it would tell them their allocation is fine while seeing nothing. V2 covers the substance in the dashboard's `assetAllocation` panel (drift, concentration, suggestions) and the narrative through the M5.7 coach, whose grounding carries `assetAllocation`. Both premium-gated, as V1's was. Still on `/dashboard` for the rollback path |
 | ~~Early-warning parity~~ | ~~Medium~~ | **DONE — M5.8 PR 1.** `early-warning-parity.e2e-spec.ts` proves both paths agree on every non-goal signal and on the traffic light and counts. The goal-derived signal cannot match until goals reach the snapshot (PR 2), and that gap is asserted rather than hidden |
@@ -136,7 +136,7 @@ price of not removing capability. It is recorded here rather than discovered lat
 | --- | --- | --- |
 | ~~Goals~~ | **Native since M5.8 PR 2.** Household-scoped, carrying `householdId` and `firmId`. V1's `Goals.tsx` stays on `/dashboard`; the two goal stores both remain, unmigrated by design | done |
 | ~~Family~~ | **Native since M5.8 PR 1.** V1's `Family.tsx` stays on `/dashboard` as the safety net; the two stores both remain, unmigrated by design | done |
-| Protection | Mounted at `/household/protection` | M5.9 — needs a **data path**, not just a UI |
+| ~~Protection~~ | **Native since M5.9.** Per-member cover on `HouseholdMember`, reaching the layer through `assumptions.insurance`. V1's `Protection.tsx` stays on `/dashboard`; both stores remain, unmigrated by design | done |
 | AI Coach | **Native since M5.7** — no longer a hosted V1 component | done |
 | Second Opinion | Superseded by the dashboard's allocation panel + the M5.7 coach; V1's version stays on `/dashboard` | done |
 | ~~Early warning~~ | **Parity proven in M5.8 PR 1** for all non-goal signals | done |
@@ -153,7 +153,7 @@ unchanged APIs. Nothing is re-keyed, migrated or dropped in any phase of this pl
 | **PR A** | V2 primary: R1–R8, the four capability routes, smoke coverage | none | one-line + 4 file deletes |
 | ~~**PR B**~~ *(M5.7)* | **Done.** AI insights on the Intelligence Layer; `/household/coach` native | none | revert |
 | ~~**PR C**~~ *(M5.8)* | **Done.** Native V2 Family + early-warning parity (PR 1); native Goals + charts (PR 2) | none | revert |
-| **PR D** *(M5.9)* | Protection **data path** + capture; native `/household/protection` | none | revert |
+| ~~**PR D**~~ *(M5.9)* | **Done.** Protection data path + per-member capture; native `/household/protection`; early-warning parity gap closed | none | revert |
 | **PR E** *(M6–M9)* | Reports, What-if, Retirement, Insurance, Estate planning | none | revert |
 | **PR F** *(M10)* | Full V2 journey + production verification | none | revert |
 | **PR G** *(post-M10)* | **Separate** V1 retirement analysis, then deletion | first deletions | git + deploy |

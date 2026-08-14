@@ -572,14 +572,14 @@ test.describe('V2 primary / V1 safety net', () => {
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
-    // 'AI coach' left this list in M5.7, 'Family' in M5.8 PR 1 and 'Goals' in PR 2: each is a
-    // native V2 surface now rather than a hosted V1 component, and each has its own test. Only
-    // Protection is still hosted, awaiting M5.9.
-    for (const link of ['Protection']) {
+    // Every one of these was a hosted V1 component behind a "temporary surface" notice. AI coach
+    // went native in M5.7, Family in M5.8 PR 1, Goals in PR 2 and Protection in M5.9 — so the
+    // list is now checked for the OPPOSITE property. Each must be reachable, native, and carry a
+    // working control; a page that renders a title but cannot save is functionality lost.
+    for (const link of ['Goals', 'Family', 'Protection', 'AI coach']) {
       await page.goto('/household');
       await page.getByRole('link', { name: link, exact: true }).click();
-      await expect(page.getByTestId('temporary-surface-notice')).toBeVisible();
-      // Each hosted V1 component renders at least one interactive control.
+      await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
       await expect(page.locator('button, input, textarea, select').first()).toBeVisible();
     }
   });
@@ -751,20 +751,50 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByRole('button', { name: 'Capture snapshot' })).toHaveCount(0);
   });
 
-  test('protection still saves — the only working cover capture in the product', async ({
+  test('protection is native, and recording cover changes what the dashboard says', async ({
     page,
     request,
   }) => {
-    // The V2 insurance panel reads `assumptions.insurance`, which the intelligence
-    // controller never passes, so its coverTracked is always false. Losing this form would
-    // remove protection capture entirely.
+    // M5.9, end to end in a browser. Before this, a consumer could fill in the protection form
+    // and change NO figure anywhere: it wrote the retail `Profile`, and the intelligence
+    // controller never passed `assumptions`, so the panel's `coverTracked` was always false.
     const consumer = await createAccount(request);
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
-    await page.goto('/household/protection');
 
-    await page.getByRole('button', { name: /Save/i }).click();
-    await expect(page.getByText(/Saved|Updated/i).first()).toBeVisible();
+    // A snapshot first, so the dashboard has something to render around the panel.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    // Nothing recorded: the dashboard says so rather than showing a gap it cannot justify.
+    await page.goto('/household');
+    await expect(page.getByTestId('protection-panel')).toHaveCount(0);
+    // The layer's own reason, rendered by Panel like any other unavailable section.
+    await expect(page.getByText(/No insurance details recorded yet/i)).toBeVisible();
+
+    // The native surface — no hosted-V1 notice, and it asks per person.
+    await page.goto('/household/protection');
+    await expect(page.getByTestId('temporary-surface-notice')).toHaveCount(0);
+    await expect(page.getByTestId('protection-incomplete')).toBeVisible();
+
+    const save = page.locator('[data-testid^="save-"]').first();
+    const memberId = (await save.getAttribute('data-testid'))!.replace('save-', '');
+    await page.getByTestId(`health-${memberId}`).selectOption('yes');
+    await page.getByTestId(`term-${memberId}`).selectOption('yes');
+    await page.getByLabel('Life cover amount (₹)').fill('60000000');
+    await page.getByTestId(`save-${memberId}`).click();
+    await expect(page.getByTestId('protection-summary')).toBeVisible();
+
+    // The figure moved: the panel now renders, with no re-capture of the snapshot needed —
+    // protection is a module-owned assumption, not a kernel position.
+    await page.goto('/household');
+    await expect(page.getByTestId('protection-panel')).toBeVisible();
   });
 
   test('Plans and Admin survived the move off the V1 dashboard', async ({ page, request }) => {
@@ -815,7 +845,7 @@ test.describe('dark mode is readable', () => {
    * dark. So this asserts CONTRAST, not that a class is present — the property that matters
    * is that a user can read the page.
    */
-  const CONSUMER_SURFACES = ['/household', '/wealth-health', '/household/goals'];
+  const CONSUMER_SURFACES = ['/household', '/wealth-health', '/household/goals', '/household/protection'];
 
   for (const path of CONSUMER_SURFACES) {
     test(`${path} has readable contrast in dark mode`, async ({ page, request }) => {

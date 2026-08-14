@@ -1,5 +1,4 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from './api';
-import { getOnboardingStatus } from './household';
 
 /**
  * Household goals and the net-worth trend (M5.8 PR 2).
@@ -52,14 +51,8 @@ export const GOAL_TYPES = [
   'custom',
 ] as const;
 
-/**
- * The caller's household, resolved once. `null` means they have never onboarded — a state the
- * page must handle rather than treat as an error.
- */
-export async function resolveHouseholdId(token: string): Promise<string | null> {
-  const status = await getOnboardingStatus(token);
-  return status?.householdId ?? null;
-}
+/** Re-exported so goals callers keep their import; it now lives beside `getOnboardingStatus`. */
+export { resolveHouseholdId } from './household';
 
 export async function listGoals(token: string, householdId: string): Promise<HouseholdGoal[]> {
   return apiGet<HouseholdGoal[]>(`/households/${householdId}/goals`, token);
