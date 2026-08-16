@@ -21,6 +21,13 @@ export interface CoachMessage {
 /** Sections of the intelligence object the model is allowed to see. */
 interface GroundedAnalysis {
   wealthHealth: HouseholdFinancialIntelligence['wealthHealth'];
+  /**
+   * Retirement planning (M5.10). Added deliberately, as an allow-list requires: the coach can
+   * now answer "can I afford to retire at 55?" from the platform's own computed projection
+   * instead of having no retirement figures at all. It receives the section as settled fact and
+   * never recomputes it — the calculation stays in `@lcos/core`.
+   */
+  retirement: HouseholdFinancialIntelligence['retirement'];
   risk: HouseholdFinancialIntelligence['risk'];
   opportunity: HouseholdFinancialIntelligence['opportunity'];
   recommendedActions: HouseholdFinancialIntelligence['recommendedActions'];
@@ -57,6 +64,7 @@ export function buildHouseholdGrounding(
     context: buildAiGroundingContext(envelope, payload),
     analysis: {
       wealthHealth: intel.wealthHealth,
+      retirement: intel.retirement,
       risk: intel.risk,
       opportunity: intel.opportunity,
       recommendedActions: intel.recommendedActions,

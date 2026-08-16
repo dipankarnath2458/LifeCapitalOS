@@ -53,6 +53,15 @@ export function getRefreshToken(): string | null {
   return store()?.getItem(REFRESH_KEY) ?? null;
 }
 
+/**
+ * The household id resolved for this session, cached by `lib/household`.
+ *
+ * The key lives here so the module that CLEARS session state and the module that writes it
+ * cannot drift apart — a stale key would silently leave one family's id readable to the next
+ * person signing in on the same browser.
+ */
+export const HOUSEHOLD_ID_KEY = 'lcos_household_id';
+
 export function setTokens(tokens: TokenPair): void {
   const s = store();
   if (!s) return;
@@ -65,6 +74,9 @@ export function clearTokens(): void {
   if (!s) return;
   s.removeItem(ACCESS_KEY);
   s.removeItem(REFRESH_KEY);
+  // The cached household id belongs to the session that just ended. Leaving it behind would
+  // hand the next person to sign in on this browser someone else's household id.
+  s.removeItem(HOUSEHOLD_ID_KEY);
 }
 
 let ending = false;

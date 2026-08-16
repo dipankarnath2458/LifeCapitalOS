@@ -29,8 +29,11 @@ import { HouseholdIntelligenceController } from './household-intelligence.contro
 import { HouseholdIntelligenceService } from './household-intelligence.service';
 import { HouseholdGoalsController } from './household-goals.controller';
 import { HouseholdProtectionController } from './household-protection.controller';
+import { HouseholdRetirementController } from './household-retirement.controller';
 import { HouseholdGoalsService } from './household-goals.service';
 import { HouseholdProtectionService } from './household-protection.service';
+import { HouseholdRetirementService } from './household-retirement.service';
+import { RetirementPlanService } from './retirement-plan.service';
 import { HouseholdAiController } from './household-ai.controller';
 import { HouseholdAiService } from './household-ai.service';
 import { BillingModule } from '../billing/billing.module';
@@ -55,6 +58,7 @@ import { BillingModule } from '../billing/billing.module';
     HouseholdIntelligenceController,
     HouseholdGoalsController,
     HouseholdProtectionController,
+    HouseholdRetirementController,
     HouseholdAiController,
   ],
   providers: [
@@ -73,6 +77,8 @@ import { BillingModule } from '../billing/billing.module';
     HouseholdIntelligenceService,
     HouseholdGoalsService,
     HouseholdProtectionService,
+    HouseholdRetirementService,
+    RetirementPlanService,
     HouseholdAiService,
     HouseholdScopeGuard,
   ],

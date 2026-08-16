@@ -154,6 +154,7 @@ function ConsumerShell({
       <nav aria-label="More of your finances" className="mb-6 flex flex-wrap gap-2">
         {[
           { href: '/household/goals', label: 'Goals' },
+          { href: '/household/retirement', label: 'Retirement' },
           { href: '/household/family', label: 'Family' },
           { href: '/household/protection', label: 'Protection' },
           { href: '/household/coach', label: 'AI coach' },

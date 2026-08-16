@@ -67,9 +67,13 @@ const fakeCrypto = {
 const fakeProtection = (insurance?: unknown) =>
   ({ assumptionsFor: async () => insurance }) as any;
 
+/** Module-owned retirement inputs (M5.10). `undefined` = this household has stated no plan. */
+const fakeRetirementPlans = (retirement?: unknown) =>
+  ({ assumptionsFor: async () => retirement }) as any;
+
 describe('HouseholdIntelligenceService', () => {
   it('composes the canonical intelligence object from the latest snapshot', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
     const res = await svc.current(household);
     expect(res.available).toBe(true);
     if (res.available) {
@@ -82,7 +86,7 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('resolves the family name only at the decrypted boundary (object stays PII-light otherwise)', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
     const res = await svc.current(household);
     if (res.available) {
       expect(res.household.name).toBe('Sharma Family');
@@ -91,13 +95,13 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('honours an explicit snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
     const res = await svc.current(household, 'snap_1');
     expect(res.available).toBe(true);
   });
 
   it('404s an unknown snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
     await expect(svc.current(household, 'nope')).rejects.toThrow();
   });
 
@@ -106,6 +110,7 @@ describe('HouseholdIntelligenceService', () => {
       fakeSnapshots({ latest: async () => null }),
       fakeCrypto,
       fakeProtection(),
+      fakeRetirementPlans(),
     );
     const res = await svc.current(household);
     expect(res.available).toBe(false);

@@ -153,6 +153,8 @@ describe('household AI grounding', () => {
     expect(grounding.analysis.risk).toBeDefined();
     expect(grounding.analysis.opportunity).toBeDefined();
     expect(grounding.analysis.executiveSummary.headline).toContain('72/100');
+    // The coach receives the retirement projection as settled fact and never recomputes it.
+    expect(grounding.analysis.retirement).toBeDefined();
   });
 
   it('does not leak sections that were never allow-listed', () => {
@@ -162,6 +164,10 @@ describe('household AI grounding', () => {
       'executiveSummary',
       'opportunity',
       'recommendedActions',
+      // M5.10: added deliberately, which is exactly how an allow-list is supposed to grow.
+      // Before this the coach had no retirement figures at all and could only decline the
+      // most common question a family asks.
+      'retirement',
       'risk',
       'wealthHealth',
     ]);
