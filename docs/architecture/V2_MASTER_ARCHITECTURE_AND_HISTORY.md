@@ -483,7 +483,7 @@ Judged on merged code, not roadmap position.
 | **Debt** | Complete | M2-5 | `household-debt.service.ts`, `core/finance/debt.ts` | Yes |
 | **Financial Health Score** | Complete | M3-1/M3-2 | `core/finance/financialHealth.ts` | Yes — but blind to protection & retirement |
 | **Protection / Insurance** | Complete | M5.9 | `household-protection.service.ts`, `/household/protection` | Yes — verified in production |
-| **Retirement Planning** | Complete | M5.10 | `retirement-plan.service.ts`, `household-retirement.service.ts`, `/household/retirement` | Merged; production application unverified (§13) |
+| **Retirement Planning** | Complete | M5.10 | `retirement-plan.service.ts`, `household-retirement.service.ts`, `/household/retirement` | **Yes — verified in production 2026-08-17** (§13); one open question: whether any household has yet saved a plan |
 | **Goals** | **PARTIAL** | M5.8 | `household-goals.service.ts`, `/household/goals` | CRUD yes — **moves no figure**. §7 Gap 1 |
 | **Asset Allocation** | Complete (read-only) | M5 | `core/finance/assetAllocation.ts`; dashboard panel + donut | Yes — analysis only, no rebalancing |
 | **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — 6 signal keys, of which **5 fire for a V2 household**; `goal_slippage` is accepted and never supplied (Gap 1) |
@@ -767,7 +767,7 @@ M5.x   V2 primary                        consumers → /household; V1 preserved 
 M5.7   AI Family CFO                     native coach, allow-listed grounding        COMPLETE
 M5.8   Family · Goals · Charts · Parity   native surfaces; DOB unlocks retirement     COMPLETE (Goals PARTIAL)
 M5.9   Protection / Insurance             per-member cover → assumptions.insurance    COMPLETE
-M5.10  Retirement Planning                RetirementPlan → assumptions.retirement     COMPLETE (merged 9311324)
+M5.10  Retirement Planning                RetirementPlan → assumptions.retirement     COMPLETE (9311324, live)
 ```
 
 ### CURRENT STATE — production-ready today
@@ -852,25 +852,56 @@ behaviour (12 e2e + 17 core) · Protection behaviour (10 e2e) · V1 regression p
   that is a product decision or an oversight is not recorded anywhere.
 - **Business-value ratings in §10.** Engineering judgement, not measured.
 
+### CONFIRMED FROM PRODUCTION — 2026-08-17
+
+Added after the audit. This resolves what was UNKNOWN item 1 (**the migration has applied**) and
+narrows item 2, which survives below as the only open production question. Both checks were
+read-only; no production data was created, modified, or read beyond HTTP status codes.
+
+1. **The production API is live on the merged M5.10 build.** An unauthenticated
+   `GET /api/households/:id/retirement` against the production host returned
+   `{"message":"Unauthorized","statusCode":401}`. 401 — rather than 404 — means the route is
+   *mapped in the running process*, because an unmatched path is rejected by Nest's router before
+   any guard runs. `JwtAuthGuard` is the first global guard (`apps/api/src/app.module.ts:56`) and
+   `household-retirement.controller.ts` carries no `@Public()`. The discriminator was validated
+   against this build before being relied on: the built `apps/api/dist/main.js` answers **401** on
+   `/api/households/probe/retirement` and **404** on `/api/households/probe/retirement-does-not-exist`.
+   It is also test-pinned at `apps/api/test/household-retirement.e2e-spec.ts:299`.
+2. **Therefore the `RetirementPlan` migration has applied in production.** `railway.json` runs
+   `prisma migrate deploy && node apps/api/dist/main.js`. The `&&` is load-bearing: the process
+   cannot be serving unless `migrate deploy` exited 0 for the migration set of the build that is
+   serving — which includes `20260814171645_add_retirement_plan`. Corroborated by
+   `verify-production.yml` [run 32033832053](https://github.com/dipankarnath2458/LifeCapitalOS/actions/runs/32033832053)
+   the same day: `GET /api/health — status=ok` **and** `database reachable from the API`, so this is
+   a live database rather than a booted app with a dead one.
+
+**Method note, worth keeping.** Neither fact was directly observable: `/api/health` returns no build
+identity (`{status, db, timestamp}` — and it answers `200` even with the database unreachable), and
+Swagger is disabled in production, so route introspection is closed. Build identity had to be
+inferred from an auth-status discriminator. **A `commit`/`version` field on `/api/health`, plus this
+probe added to `scripts/verify-deployment.mjs`, would make it a direct observation.** Not
+implemented — it is a code change awaiting a decision.
+
 ### UNKNOWN — requires further investigation
 
-1. **Whether the M5.10 migration has actually applied in production.** `railway.json` applies
-   migrations on deploy, and M5.9's equivalent was verified working, but **this audit performed no
-   production check** — the sandbox cannot reach the Railway host (documented in
-   `.github/workflows/verify-production.yml`). *Requires:* the read-only column query, or the
-   401-vs-404 probe on `/api/households/probe/retirement`.
-2. **Whether any real household has a `RetirementPlan` row.** No production read was performed.
-3. **What M4 definition B ("AI agent fleet & orchestration") was meant to contain.**
+1. **Whether any real household has a `RetirementPlan` row.** No production data read was
+   performed. Two read-only routes to the answer exist and neither needs database access:
+   `GET /api/admin/audit?action=household.retirement.upsert` (every plan write logs that action —
+   `household-retirement.service.ts:147-156`, field names only, no values), whose rows carry
+   `actorId` so a founder test can be told apart from a real family; or
+   `SELECT count(*), min("createdAt") FROM "RetirementPlan";`. `prisma/seed.ts` never creates a
+   plan and there is no audit pruning, so an empty audit result implies no rows.
+2. **What M4 definition B ("AI agent fleet & orchestration") was meant to contain.**
    `docs/blueprint/09_ROADMAP.md:67` names it; no design document was ever written. Whether M5.7
    satisfies its intent is **UNKNOWN**.
-4. **Why `docs/blueprint/05_DATA_MODEL.md:413` assigns notifications and email to M4.** A third
+3. **Why `docs/blueprint/05_DATA_MODEL.md:413` assigns notifications and email to M4.** A third
    conflicting definition with no corresponding models or code. **UNKNOWN — requires further
    investigation.**
-5. **Whether PRs #4, #5, #8 (second series) and #1–#5, #24+ (first series) exist.** The merge log
+4. **Whether PRs #4, #5, #8 (second series) and #1–#5, #24+ (first series) exist.** The merge log
    skips them; whether they were closed unmerged or never opened is not determinable from the local
    clone.
-6. **The intended owner of the V1 retirement decision at Module 10.** `V1_RETIREMENT_PLAN.md`
+5. **The intended owner of the V1 retirement decision at Module 10.** `V1_RETIREMENT_PLAN.md`
    describes the mechanics; no document states the acceptance criteria for retiring V1.
-7. **Whether the M4 `ScoreCard` seam should be revived or deleted.** It is unused for consumers but
+6. **Whether the M4 `ScoreCard` seam should be revived or deleted.** It is unused for consumers but
    still live in the advisor dashboard. Its fate is tied to the Module 10 decision and is not
    recorded.
