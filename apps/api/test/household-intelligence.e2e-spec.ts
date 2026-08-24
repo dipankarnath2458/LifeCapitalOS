@@ -141,7 +141,8 @@ describe('Household financial intelligence e2e', () => {
     // Provenance ties back to the immutable snapshot + reused score model.
     expect(res.body.meta.snapshotId).toBeDefined();
     expect(res.body.meta.schemaVersion).toBe(1);
-    expect(res.body.meta.scoreModelVersion).toBe('fhs-1.0.0');
+    // `fhs-2.0.0` since M5.12 — the model gained Protection and Retirement.
+    expect(res.body.meta.scoreModelVersion).toBe('fhs-2.0.0');
     expect(res.body.meta.engineVersion).toMatch(/^m5-fil-/);
     // Composed sections present.
     expect(res.body.netWorth.available).toBe(true);

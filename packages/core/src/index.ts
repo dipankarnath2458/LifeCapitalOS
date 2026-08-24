@@ -18,6 +18,7 @@ export * from './finance/financialSimulation.js';
 export * from './finance/aiGrounding.js';
 export * from './finance/fx.js';
 export * from './finance/goals.js';
+export * from './finance/healthFacts.js';
 export * from './finance/insurance.js';
 export * from './finance/tax.js';
 

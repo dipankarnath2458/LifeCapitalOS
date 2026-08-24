@@ -11,6 +11,7 @@ import { emergencyFundTarget, analyzeLifeInsuranceGap } from './insurance.js';
 import { computeRetirement, retirementStatus, type RetirementStatus } from './retirement.js';
 import { analyzeAllocation, type AssetClass, type RiskTolerance } from './assetAllocation.js';
 import { computeEarlyWarning, type EarlyWarningInput } from '../scoring/earlyWarning.js';
+import { deriveHealthFacts } from './healthFacts.js';
 
 /**
  * Financial Intelligence Layer (M5) — the single reusable **derived read-model** over the
@@ -317,7 +318,11 @@ const dependentsOf = (p: FinancialSnapshotPayload): number =>
   (p.members ?? []).filter((m) => m.isDependent).length;
 
 /** Oldest non-dependent member age, else any member age — the retirement subject. */
-const primaryAgeOf = (p: FinancialSnapshotPayload): number | null => {
+/**
+ * Whose retirement the household's projection is for: the oldest non-dependant. Exported since
+ * M5.12 so the score derives it the same way rather than inventing a second definition.
+ */
+export const primaryAgeOf = (p: FinancialSnapshotPayload): number | null => {
   const withAge = (p.members ?? []).filter((m) => m.ageYears != null);
   if (withAge.length === 0) return null;
   const adults = withAge.filter((m) => !m.isDependent);
@@ -357,8 +362,15 @@ export function computeHouseholdFinancialIntelligence(
   if (!input.assumptions?.insurance) missing.push('insurancePolicies');
   if (!input.assumptions?.retirement) missing.push('retirementAssumptions');
 
-  // --- Wealth Health™ (M3-1, verbatim) + explanation/recommendations (M3-2) ---
-  const health = computeFinancialHealthScore(p, input.healthModel);
+  // --- Wealth Health™ (M3-1) + explanation/recommendations (M3-2) ---
+  // M5.12: the score now also reads protection and retirement, which are not in the frozen
+  // payload. They arrive as the same module-owned assumptions this function already receives,
+  // turned into scalars by the one shared derivation — never re-derived here.
+  const healthFacts = deriveHealthFacts(p, input.assumptions, {
+    primaryAgeYears: primaryAge,
+    currency,
+  });
+  const health = computeFinancialHealthScore(p, input.healthModel, healthFacts);
   const explanation = explainFinancialHealth(health, p);
   const healthConfidence = confidenceFrom(explanation.confidence);
 

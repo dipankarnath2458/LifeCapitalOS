@@ -26,12 +26,16 @@ export type ReasonCode =
   | 'STRONG_SAVINGS'
   | 'STRONG_LIQUIDITY'
   | 'STRONG_DIVERSIFICATION'
+  | 'STRONG_PROTECTION'
+  | 'STRONG_RETIREMENT'
   | 'NEGATIVE_NET_WORTH'
   | 'WEAK_SOLVENCY'
   | 'HIGH_DEBT_BURDEN'
   | 'LOW_SAVINGS_RATE'
   | 'INSUFFICIENT_EMERGENCY_FUND'
   | 'HIGH_CONCENTRATION'
+  | 'PROTECTION_GAP'
+  | 'RETIREMENT_SHORTFALL'
   | 'NO_INCOME_DATA'
   | 'NO_EXPENSE_DATA'
   | 'NO_ASSET_DATA';
@@ -116,6 +120,8 @@ const STRENGTH_CODE: Record<CategoryKey, ReasonCode> = {
   savings: 'STRONG_SAVINGS',
   liquidity: 'STRONG_LIQUIDITY',
   diversification: 'STRONG_DIVERSIFICATION',
+  protection: 'STRONG_PROTECTION',
+  retirement: 'STRONG_RETIREMENT',
 };
 
 /** Weakness reason code (net worth splits on negative vs merely weak). */
@@ -131,6 +137,10 @@ function weaknessCode(c: CategoryScore, payload?: FinancialSnapshotPayload): Rea
       return 'INSUFFICIENT_EMERGENCY_FUND';
     case 'diversification':
       return 'HIGH_CONCENTRATION';
+    case 'protection':
+      return 'PROTECTION_GAP';
+    case 'retirement':
+      return 'RETIREMENT_SHORTFALL';
   }
 }
 
@@ -165,6 +175,18 @@ const REC_TEMPLATE: Record<CategoryKey, RecTemplate> = {
     title: 'Diversify across asset classes',
     description: (c) => c.reason,
     action: 'Spread holdings across equity, debt, gold and cash toward target weights.',
+  },
+  // M5.12. Both categories are only ever scored when the family has told us something, so a
+  // recommendation here always refers to a fact they gave us, never to a silence.
+  protection: {
+    title: 'Close the protection gap',
+    description: (c) => c.reason,
+    action: 'Take term cover to the recommended multiple of income, and hold health cover for every member.',
+  },
+  retirement: {
+    title: 'Get retirement on track',
+    description: (c) => c.reason,
+    action: 'Raise the monthly contribution, or revisit the retirement age or the income the plan targets.',
   },
 };
 

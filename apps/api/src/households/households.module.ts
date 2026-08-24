@@ -27,6 +27,7 @@ import { HouseholdSimulationController } from './household-simulation.controller
 import { HouseholdSimulationService } from './household-simulation.service';
 import { HouseholdIntelligenceController } from './household-intelligence.controller';
 import { HouseholdIntelligenceService } from './household-intelligence.service';
+import { HouseholdAssumptionsService } from './household-assumptions.service';
 import { HouseholdGoalsController } from './household-goals.controller';
 import { HouseholdProtectionController } from './household-protection.controller';
 import { HouseholdRetirementController } from './household-retirement.controller';
@@ -75,6 +76,7 @@ import { BillingModule } from '../billing/billing.module';
     HouseholdHealthExplanationService,
     HouseholdSimulationService,
     HouseholdIntelligenceService,
+    HouseholdAssumptionsService,
     HouseholdGoalsService,
     HouseholdProtectionService,
     HouseholdRetirementService,
