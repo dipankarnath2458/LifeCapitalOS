@@ -7,8 +7,15 @@ import { FinancialSnapshotPayload } from './financialSnapshot.js';
  * an immutable snapshot payload only and never mutates anything.
  */
 
-/** Version of the scoring model (weights + anchors). Bumped when tuning changes. */
-export const FINANCIAL_HEALTH_MODEL_VERSION = 'fhs-1.0.0';
+/**
+ * Version of the scoring model (weights + anchors). Bumped when tuning changes.
+ *
+ * `fhs-2.0.0` (M5.12) adds Protection and Retirement. See
+ * `docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md`. Stored scores keep the version they were
+ * computed under and are never recomputed, so a household's history spans both models — which is
+ * why the score timeline marks where the model changed rather than drawing one continuous line.
+ */
+export const FINANCIAL_HEALTH_MODEL_VERSION = 'fhs-2.0.0';
 
 export type HealthBand = 'at_risk' | 'needs_attention' | 'fair' | 'good' | 'excellent';
 
@@ -17,7 +24,9 @@ export type CategoryKey =
   | 'debt_burden'
   | 'savings'
   | 'liquidity'
-  | 'diversification';
+  | 'diversification'
+  | 'protection'
+  | 'retirement';
 
 /** A monotonic piecewise-linear map from a metric value to a 0..100 sub-score. */
 export interface Anchor {
@@ -37,15 +46,30 @@ export interface FinancialHealthModel {
   anchors: Record<string, Anchor[]>;
 }
 
-/** The default, documented model. Anchors are explainable and tunable per version. */
+/**
+ * The default, documented model. Anchors are explainable and tunable per version.
+ *
+ * **M5.12 weights.** The five original categories are scaled by exactly 0.7 and the 30 points
+ * released are split evenly between Protection and Retirement. Scaling all five by the *same*
+ * factor is deliberate: a household that has recorded neither has both new categories omitted
+ * (§ `computeFinancialHealthScore`), and renormalising the remaining 70 restores the original
+ * proportions exactly — so their score is unchanged from `fhs-1.0.0` to the integer. Only
+ * families who actually told us something see their number move.
+ *
+ * The 15/15 split is the product decision here, and it is data: changing it is an edit to this
+ * object plus a version bump, not a change to any logic. For reference V1's separate engine
+ * (`scoring/scores.ts`) weights protection at 20.
+ */
 export const DEFAULT_FINANCIAL_HEALTH_MODEL: FinancialHealthModel = {
   version: FINANCIAL_HEALTH_MODEL_VERSION,
   categories: [
-    { key: 'net_worth', label: 'Net Worth & Solvency', weight: 25 },
-    { key: 'debt_burden', label: 'Debt Burden', weight: 25 },
-    { key: 'savings', label: 'Savings', weight: 20 },
-    { key: 'liquidity', label: 'Emergency Liquidity', weight: 20 },
-    { key: 'diversification', label: 'Diversification', weight: 10 },
+    { key: 'net_worth', label: 'Net Worth & Solvency', weight: 17.5 },
+    { key: 'debt_burden', label: 'Debt Burden', weight: 17.5 },
+    { key: 'savings', label: 'Savings', weight: 14 },
+    { key: 'liquidity', label: 'Emergency Liquidity', weight: 14 },
+    { key: 'diversification', label: 'Diversification', weight: 7 },
+    { key: 'protection', label: 'Protection', weight: 15 },
+    { key: 'retirement', label: 'Retirement Readiness', weight: 15 },
   ],
   anchors: {
     // Savings rate (ratio): higher is better.
@@ -90,6 +114,21 @@ export const DEFAULT_FINANCIAL_HEALTH_MODEL: FinancialHealthModel = {
       { x: 0.5, score: 60 },
       { x: 0.75, score: 100 },
     ],
+    // Life cover held as a fraction of the cover `analyzeLifeInsuranceGap` recommends: higher is
+    // better, and being over-covered is not better than being covered.
+    coverRatio: [
+      { x: 0, score: 0 },
+      { x: 0.5, score: 55 },
+      { x: 1, score: 100 },
+    ],
+    // Retirement readiness: projected corpus at retirement over the corpus required. Reaching
+    // the target scores full marks; there is no extra credit for a surplus.
+    retirementReadiness: [
+      { x: 0, score: 0 },
+      { x: 0.5, score: 50 },
+      { x: 0.8, score: 80 },
+      { x: 1, score: 100 },
+    ],
   },
 };
 
@@ -129,6 +168,39 @@ export interface CategoryScore {
   suggestion: string;
 }
 
+/**
+ * Facts the snapshot does not carry, for the categories that need them (M5.12).
+ *
+ * The snapshot payload is frozen and neither of these is a kernel fact — they are module-owned
+ * assumptions, stated by the family. Built by `deriveHealthFacts`, which composes the existing
+ * calculators; nothing here is computed by the scorer.
+ *
+ * **`null` and `undefined` both mean "not known", and a category with unknown facts is OMITTED
+ * from the score rather than scored zero.** Scoring an unrecorded family as uninsured would
+ * assert an absence nobody told us — the #67 defect, this time lowering the number a family is
+ * judged by. Omission renormalises the remaining weights, so the result is the honest one: we
+ * scored what we know.
+ */
+export interface HealthFacts {
+  protection?: {
+    /** Term life cover held, over the cover recommended for this family. `null` = not stated. */
+    coverRatio: number | null;
+    /** `null` = not stated. */
+    hasHealthInsurance: boolean | null;
+  } | null;
+  retirement?: {
+    /**
+     * Projected corpus at retirement over the corpus required, ≥ 0.
+     *
+     * Present ONLY when the family has stated a retirement plan. The intelligence layer falls
+     * back to documented default assumptions so it can always show something; judging a family's
+     * headline number against assumptions they never gave us is a different matter. Defaults
+     * inform, they do not judge.
+     */
+    readiness: number;
+  } | null;
+}
+
 export interface FinancialHealthScore {
   modelVersion: string;
   overall: number; // 0..100
@@ -148,6 +220,7 @@ const pct1 = (r: number) => Math.round(r * 1000) / 10;
 export function computeFinancialHealthScore(
   payload: FinancialSnapshotPayload,
   model: FinancialHealthModel = DEFAULT_FINANCIAL_HEALTH_MODEL,
+  facts: HealthFacts = {},
 ): FinancialHealthScore {
   const a = model.anchors;
   const { netWorth, debt, cashflowSummary, assets, assetAllocation } = payload;
@@ -168,11 +241,13 @@ export function computeFinancialHealthScore(
 
   // --- category sub-scores ---
   const categories: CategoryScore[] = [];
-  const weightOf = (k: CategoryKey) => model.categories.find((c) => c.key === k)!;
+  // `undefined` when this model does not carry the category at all — a caller may deliberately
+  // score against an older model, and that must not throw.
+  const weightOf = (k: CategoryKey) => model.categories.find((c) => c.key === k);
 
   // Net Worth & Solvency
   {
-    const c = weightOf('net_worth');
+    const c = weightOf('net_worth')!;
     const solvencyScore =
       netWorth.netWorthMinor < 0 ? 0 : interpolate(a.solvency!, netWorth.solvencyRatio);
     const score = round(solvencyScore);
@@ -196,7 +271,7 @@ export function computeFinancialHealthScore(
 
   // Debt Burden (combine DTI + debt-to-assets; DTI dropped when income is 0)
   {
-    const c = weightOf('debt_burden');
+    const c = weightOf('debt_burden')!;
     const dtiScore = dti === null ? null : interpolate(a.dti!, dti);
     const dtaScore = interpolate(a.debtToAssets!, debtToAssets);
     const score = round(dtiScore === null ? dtaScore : (dtiScore + dtaScore) / 2);
@@ -226,7 +301,7 @@ export function computeFinancialHealthScore(
 
   // Savings
   {
-    const c = weightOf('savings');
+    const c = weightOf('savings')!;
     const score = round(interpolate(a.savingsRate!, savingsRate));
     categories.push({
       key: c.key,
@@ -248,7 +323,7 @@ export function computeFinancialHealthScore(
 
   // Emergency Liquidity
   {
-    const c = weightOf('liquidity');
+    const c = weightOf('liquidity')!;
     const score = round(interpolate(a.liquidityMonths!, liquidityMonths));
     const months = Math.round(liquidityMonths * 10) / 10;
     categories.push({
@@ -269,7 +344,7 @@ export function computeFinancialHealthScore(
 
   // Diversification
   {
-    const c = weightOf('diversification');
+    const c = weightOf('diversification')!;
     const score = round(interpolate(a.diversification!, diversification));
     const top = [...assetAllocation].sort((x, y) => y.pct - x.pct)[0];
     categories.push({
@@ -288,6 +363,71 @@ export function computeFinancialHealthScore(
           ? 'Well diversified across asset classes.'
           : 'Spread holdings across more asset classes to reduce concentration.',
     });
+  }
+
+  // Protection (M5.12) — scored ONLY when the family has told us something. See `HealthFacts`.
+  {
+    const c = weightOf('protection');
+    const f = facts.protection;
+    const coverScore = f?.coverRatio == null ? null : interpolate(a.coverRatio!, f.coverRatio);
+    const healthScore = f?.hasHealthInsurance == null ? null : f.hasHealthInsurance ? 100 : 0;
+    // Two sub-scores, each dropped when unstated — the same shape Debt Burden uses when income
+    // is missing. Both unstated means the category itself is unknown, and it is omitted.
+    const parts = [coverScore, healthScore].filter((x): x is number => x !== null);
+    if (c && parts.length > 0) {
+      const score = round(parts.reduce((s2, x) => s2 + x, 0) / parts.length);
+      const ratioPct = f?.coverRatio == null ? null : pct1(Math.min(1, f.coverRatio));
+      categories.push({
+        key: c.key,
+        label: c.label,
+        weight: c.weight,
+        score,
+        band: bandOf(score),
+        metric: {
+          name: 'coverRatio',
+          value: f?.coverRatio == null ? 0 : Math.round(f.coverRatio * 100) / 100,
+          unit: 'ratio',
+        },
+        reason:
+          ratioPct === null
+            ? f?.hasHealthInsurance
+              ? 'Health cover is in place; life cover has not been recorded.'
+              : 'No health cover recorded, and life cover has not been recorded.'
+            : `Life cover is ${ratioPct}% of what this family would need` +
+              (f?.hasHealthInsurance === null
+                ? '.'
+                : f?.hasHealthInsurance
+                  ? ', and health cover is in place.'
+                  : ', and there is no health cover.'),
+        suggestion:
+          score >= 90
+            ? 'Protection looks adequate — review it when income or dependants change.'
+            : 'Close the protection gap before it is needed: term cover first, then health.',
+      });
+    }
+  }
+
+  // Retirement Readiness (M5.12) — scored ONLY when the family has stated a plan.
+  {
+    const c = weightOf('retirement');
+    const f = facts.retirement;
+    if (c && f) {
+      const score = round(interpolate(a.retirementReadiness!, f.readiness));
+      const readinessPct = Math.round(Math.min(1, Math.max(0, f.readiness)) * 100);
+      categories.push({
+        key: c.key,
+        label: c.label,
+        weight: c.weight,
+        score,
+        band: bandOf(score),
+        metric: { name: 'retirementReadiness', value: Math.round(f.readiness * 100) / 100, unit: 'ratio' },
+        reason: `On the current plan you reach ${readinessPct}% of the corpus this retirement needs.`,
+        suggestion:
+          score >= 90
+            ? 'Retirement is on track — revisit if income or expenses change materially.'
+            : 'Increase monthly contributions, or revisit the retirement age or target income.',
+      });
+    }
   }
 
   // --- weighted overall (skip categories with zero effective weight) ---

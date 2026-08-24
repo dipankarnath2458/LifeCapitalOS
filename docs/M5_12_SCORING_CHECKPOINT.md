@@ -1,6 +1,9 @@
 # Architecture checkpoint before M5.12 — Wealth Health Score v2
 
-> **Status:** checkpoint only. **No M5.12 code has been written.**
+> **Status: SUPERSEDED — M5.12 is implemented.** This document is kept as the record of what was
+> known *before* the milestone, and of the design boundary it was held to. The decisions it
+> recommended were followed; see `docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md` for what was
+> actually built, and note that §1–§3 below describe `fhs-1.0.0`, which is now history.
 > **Written at:** `8de6932` (M5.11 merged into the working branch, not yet into `main`).
 > Every figure below was read from source at that commit, not from memory or a roadmap.
 

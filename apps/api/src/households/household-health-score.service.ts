@@ -2,7 +2,10 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { FinancialHealthScore, Prisma } from '@prisma/client';
 import {
   computeFinancialHealthScore,
+  deriveHealthFacts,
   FINANCIAL_HEALTH_MODEL_VERSION,
+  primaryAgeOf,
+  type CurrencyCode,
   type FinancialSnapshotPayload,
 } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +13,7 @@ import { AuditService } from '../common/audit.service';
 import { AuthUser } from '../common/decorators';
 import { FirmContext } from '../firms/firm-context.decorators';
 import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
+import { HouseholdAssumptionsService } from './household-assumptions.service';
 
 /**
  * Financial Health Score (M3-1). A **consumer** of the Financial Kernel: it reads an
@@ -24,6 +28,7 @@ export class HouseholdHealthScoreService {
     private readonly prisma: PrismaService,
     private readonly snapshots: HouseholdFinancialSnapshotService,
     private readonly audit: AuditService,
+    private readonly assumptions: HouseholdAssumptionsService,
   ) {}
 
   private serialize(s: FinancialHealthScore) {
@@ -55,9 +60,24 @@ export class HouseholdHealthScoreService {
     return this.snapshots.latest(householdId);
   }
 
-  /** Compute the score from a snapshot's payload (pure core). */
-  private score(payload: FinancialSnapshotPayload) {
-    return computeFinancialHealthScore(payload);
+  /**
+   * Compute the score from a snapshot's payload (pure core).
+   *
+   * M5.12: Protection and Retirement are scored too, and neither is in the frozen payload. They
+   * are module-owned facts the family stated, loaded through the one shared resolver and turned
+   * into scalars by the one shared derivation — so this service and the intelligence layer cannot
+   * report different scores for the same household.
+   *
+   * A household that has recorded neither has both categories omitted, and the remaining weights
+   * renormalise to exactly the `fhs-1.0.0` proportions: their number does not move.
+   */
+  private async score(householdId: string, payload: FinancialSnapshotPayload, currency: string) {
+    const assumptions = await this.assumptions.resolve(householdId);
+    const facts = deriveHealthFacts(payload, assumptions, {
+      primaryAgeYears: primaryAgeOf(payload),
+      currency: (currency || 'INR') as CurrencyCode,
+    });
+    return computeFinancialHealthScore(payload, undefined, facts);
   }
 
   /**
@@ -69,7 +89,11 @@ export class HouseholdHealthScoreService {
     if (!snap) {
       return { available: false as const, reason: 'no snapshot captured' };
     }
-    const result = this.score(snap.payload as unknown as FinancialSnapshotPayload);
+    const result = await this.score(
+      householdId,
+      snap.payload as unknown as FinancialSnapshotPayload,
+      snap.currency,
+    );
     return {
       available: true as const,
       live: true as const,
@@ -100,7 +124,11 @@ export class HouseholdHealthScoreService {
         'No Financial Snapshot exists for this household — capture one first.',
       );
     }
-    const result = this.score(snap.payload as unknown as FinancialSnapshotPayload);
+    const result = await this.score(
+      householdId,
+      snap.payload as unknown as FinancialSnapshotPayload,
+      snap.currency,
+    );
     const row = await this.prisma.financialHealthScore.create({
       data: {
         householdId,
@@ -137,20 +165,37 @@ export class HouseholdHealthScoreService {
     return row ? this.serialize(row) : null;
   }
 
-  /** Persisted score history, oldest→newest (headline figures for trend). */
+  /**
+   * Persisted score history, oldest→newest (headline figures for trend).
+   *
+   * Each point carries the model version it was computed under, and since M5.12 the first point
+   * under a **new** version is flagged. Stored scores are immutable records and are never
+   * recomputed, so a household's history legitimately spans two definitions of "health": when
+   * `fhs-1.0.0` became `fhs-2.0.0` the score moved for families who had recorded protection or a
+   * retirement plan. Drawn as one continuous line that step reads as a change in their finances
+   * rather than a change in what we measure, so the boundary is marked and a chart can break or
+   * annotate the line there.
+   */
   async timeline(householdId: string) {
     const rows = await this.prisma.financialHealthScore.findMany({
       where: { householdId },
       orderBy: { computedAt: 'asc' },
     });
-    return rows.map((r) => ({
-      id: r.id,
-      snapshotId: r.snapshotId,
-      overall: r.overall,
-      band: r.band,
-      scoreModelVersion: r.scoreModelVersion,
-      computedAt: r.computedAt,
-    }));
+    let previousVersion: string | null = null;
+    return rows.map((r) => {
+      const modelChanged = previousVersion !== null && previousVersion !== r.scoreModelVersion;
+      previousVersion = r.scoreModelVersion;
+      return {
+        id: r.id,
+        snapshotId: r.snapshotId,
+        overall: r.overall,
+        band: r.band,
+        scoreModelVersion: r.scoreModelVersion,
+        /** True on the first point scored under a different model than the point before it. */
+        modelChanged,
+        computedAt: r.computedAt,
+      };
+    });
   }
 
   /** A specific persisted score, scoped to the household. */

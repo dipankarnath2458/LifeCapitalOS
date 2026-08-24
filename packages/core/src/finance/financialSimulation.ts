@@ -1,6 +1,7 @@
 import { FinancialSnapshotPayload } from './financialSnapshot.js';
 import {
   computeFinancialHealthScore,
+  type HealthFacts,
   type FinancialHealthModel,
   type FinancialHealthScore,
 } from './financialHealth.js';
@@ -291,6 +292,15 @@ export interface SimulationOptions {
   model?: FinancialHealthModel;
   /** Extend/override the default registry to add scenario types without changing the engine. */
   registry?: Record<string, ScenarioTransform>;
+  /**
+   * Protection and retirement facts for the score (M5.12).
+   *
+   * Applied identically to the baseline and to every virtual payload, because no scenario in the
+   * registry changes a family's insurance cover or their retirement plan. Omitting them here
+   * would score the baseline with those categories and the virtual without — or vice versa — and
+   * every reported delta would carry that difference rather than the scenario's effect.
+   */
+  facts?: HealthFacts;
 }
 
 /** Apply scenarios to a fresh copy of the payload (input never mutated). */
@@ -328,9 +338,10 @@ function overallDeltaFor(
   scenario: SimulationScenario,
   registry: Record<string, ScenarioTransform>,
   model?: FinancialHealthModel,
+  facts?: HealthFacts,
 ): number {
   const virtual = applyScenarios(baseline, [scenario], registry);
-  return computeFinancialHealthScore(virtual, model).overall - baseOverall;
+  return computeFinancialHealthScore(virtual, model, facts).overall - baseOverall;
 }
 
 /**
@@ -345,10 +356,11 @@ export function simulateFinancialWhatIf(
 ): SimulationResult {
   const registry = { ...DEFAULT_SCENARIO_REGISTRY, ...(opts.registry ?? {}) };
   const model = opts.model;
+  const facts = opts.facts;
 
-  const baselineScore: FinancialHealthScore = computeFinancialHealthScore(baseline, model);
+  const baselineScore: FinancialHealthScore = computeFinancialHealthScore(baseline, model, facts);
   const virtual = applyScenarios(baseline, request.scenarios, registry);
-  const virtualScore = computeFinancialHealthScore(virtual, model);
+  const virtualScore = computeFinancialHealthScore(virtual, model, facts);
   const virtualExplanation = explainFinancialHealth(virtualScore, virtual);
 
   const beforeByKey = new Map(baselineScore.categories.map((c) => [c.key, c]));
@@ -391,7 +403,7 @@ export function simulateFinancialWhatIf(
   // Which single requested action helps the most (each simulated alone).
   let bestSingleAction: BestSingleAction | null = null;
   for (const scenario of request.scenarios) {
-    const d = overallDeltaFor(baseline, baselineScore.overall, scenario, registry, model);
+    const d = overallDeltaFor(baseline, baselineScore.overall, scenario, registry, model, facts);
     if (!bestSingleAction || d > bestSingleAction.overallDelta) {
       bestSingleAction = {
         scenario,

@@ -148,11 +148,17 @@ describe('Household financial health score e2e', () => {
     expect(res.body.available).toBe(true);
     expect(res.body.live).toBe(true);
     expect(res.body.id).toBeUndefined(); // not persisted
-    expect(res.body.scoreModelVersion).toBe('fhs-1.0.0');
+    expect(res.body.scoreModelVersion).toBe('fhs-2.0.0');
     expect(res.body.overall).toBeGreaterThanOrEqual(0);
     expect(res.body.overall).toBeLessThanOrEqual(100);
-    // Explainability: 5 categories, each with a metric, reason, and suggestion.
+    // Explainability: every scored category carries a metric, reason and suggestion.
+    //
+    // Five, not seven, and that is the assertion (M5.12): this household has recorded neither
+    // protection nor a retirement plan, so those categories are OMITTED rather than scored zero,
+    // and the remaining weights renormalise to the `fhs-1.0.0` proportions. Telling us nothing
+    // must not lower a family's number.
     expect(res.body.categories).toHaveLength(5);
+    expect((res.body.categories as { key: string }[]).map((c) => c.key)).not.toContain('protection');
     for (const c of res.body.categories) {
       expect(c.reason.length).toBeGreaterThan(0);
       expect(c.suggestion.length).toBeGreaterThan(0);

@@ -30,8 +30,9 @@ Six things an audit surfaces that a roadmap does not:
    Family, Goals and charts — exactly one migration landed, `20260806153040_add_login_attempt_lockout`,
    and it belongs to the **auth kernel**, not to any of those features. No consumer feature in that
    span added a table or a column. Confirmed by `ls apps/api/prisma/migrations`.
-3. **The Wealth Health Score ignores both Protection and Retirement**, and always has. Verified in
-   code, not inferred: `financialHealth.ts:44-48` weights exactly five categories.
+3. **The Wealth Health Score ignored both Protection and Retirement** for its whole life —
+   verified in code, not inferred: `fhs-1.0.0` weighted exactly five categories. **Closed in
+   M5.12** (`fhs-2.0.0`), which is the last of this audit's three headline gaps to be fixed.
 4. **Two full generations of product coexist by design.** V1 (May–June 2026, retail `userId`-keyed)
    is still live at `/dashboard`; V2 (July–August 2026, household-keyed) is primary at `/household`.
 5. **Three of the eighteen capabilities audited in §6 do not exist in any form** — Estate & Legacy,
@@ -223,6 +224,21 @@ refactored onto it, removing a duplicated month calculation that existed twice i
 score model is now pinned by test so M5.12 cannot change it accidentally.
 Design: `docs/M5_11_GOALS_SIGNAL_ARCHITECTURE.md`. **No migration. No kernel contract change. No
 score change.**
+
+---
+
+#### M5.12 — Wealth Health Score v2 · **COMPLETE, UNMERGED** (2026-08-24)
+
+Closes Gap 2 (§7), the last of the three gaps this audit opened with. The score gains
+**Protection** and **Retirement Readiness**; `FINANCIAL_HEALTH_MODEL_VERSION` becomes
+`fhs-2.0.0`. The five original categories were scaled by exactly 0.7 and the released 30 points
+split evenly, which buys the property that matters: a household that has recorded neither has both
+categories **omitted** — never scored zero — and the remaining weights renormalise to the original
+proportions, so **its score is unchanged to the integer**. Only families who told us something see
+a change. Module-owned facts reach the scorer through `HouseholdAssumptionsService` (extracted so
+the score and the intelligence layer cannot diverge) and `deriveHealthFacts`, which composes the
+existing calculators and invents no maths. Design:
+`docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md`. **No migration. No kernel contract change.**
 
 ---
 
@@ -562,7 +578,7 @@ Admin console, Onboarding, Wealth Health Check.
   a goal *does* move a figure while the snapshot and score stay untouched, and the parity spec
   asserts both paths raise the same goal signal. Nothing is excluded from parity any more.
 
-### Gap 2 — The score ignores Protection and Retirement · **REAL, CONFIRMED**
+### Gap 2 — The score ignores Protection and Retirement · **CLOSED in M5.12**
 
 - **Verified:** `financialHealth.ts:44-48` — five categories, no protection, no retirement.
   V1's separate engine (`core/scoring/scores.ts:60`) **does** weight protection at 20%, so the two
@@ -577,6 +593,11 @@ Admin console, Onboarding, Wealth Health Check.
   the five categories, their weights, the version, and the *absence* of protection and retirement,
   so M5.12 must change them on purpose.
 - **Before the next milestone?** It deserves to be **its own milestone**, not a side effect.
+- **Fixed (M5.12), as its own milestone.** Both categories are now scored, at 15 each, with the
+  original five scaled by 0.7. Unknown is omitted rather than zeroed, so no family is marked down
+  for a question nobody asked — and a household that has recorded nothing scores exactly what it
+  scored under `fhs-1.0.0`. The V1/V2 disagreement about protection narrows but does not vanish:
+  V1 weights it 20, V2 now 15.
 
 ### Gap 3 — `usingDefaultAssumptions` · **REAL, BUT NOT AS DESCRIBED**
 

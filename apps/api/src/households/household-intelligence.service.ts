@@ -9,9 +9,7 @@ import {
 } from '@lcos/core';
 import { CryptoService } from '../common/crypto.service';
 import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
-import { HouseholdProtectionService } from './household-protection.service';
-import { RetirementPlanService } from './retirement-plan.service';
-import { HouseholdGoalsService } from './household-goals.service';
+import { HouseholdAssumptionsService } from './household-assumptions.service';
 
 /**
  * Financial Intelligence Layer (M5) — the single reusable consumer of the Financial
@@ -28,9 +26,7 @@ export class HouseholdIntelligenceService {
   constructor(
     private readonly snapshots: HouseholdFinancialSnapshotService,
     private readonly crypto: CryptoService,
-    private readonly protection: HouseholdProtectionService,
-    private readonly retirementPlans: RetirementPlanService,
-    private readonly goals: HouseholdGoalsService,
+    private readonly assumptions: HouseholdAssumptionsService,
   ) {}
 
   /**
@@ -104,38 +100,15 @@ export class HouseholdIntelligenceService {
   }
 
   /**
-   * Module-owned inputs the snapshot does not carry (M5.9).
+   * Module-owned inputs the snapshot does not carry.
    *
-   * Loaded **here** rather than at each call site, and that placement is the fix. The M5.9
-   * defect was not a missing table — it was that `current()` accepted an `assumptions` argument
-   * and every caller forgot to pass it, so `assumptions.insurance` was permanently `undefined`
-   * and the layer reported protection it had never been given. Two call sites, both wrong, for
-   * as long as the layer has existed.
-   *
-   * Resolving inside the service makes that class of omission impossible: a new consumer gets
-   * the household's real inputs by calling `current()`, with nothing to remember. It is also
-   * what `M5_FINANCIAL_INTELLIGENCE_LAYER.md` describes — *"load module-owned assumptions
-   * (retirement/insurance) if any"* — rather than the call-site wiring sketched in §3 of the
-   * M5.9 note.
-   *
-   * Returns `undefined` when nothing is known, which the layer reads as "not asked".
-   * M5.10 adds retirement here, and M5.11 goals — which is what the note anticipated: a new
-   * module-owned input is one more entry in this method, not a change at any call site.
+   * Extracted into `HouseholdAssumptionsService` in M5.12, because the Wealth Health Score now
+   * needs the same inputs from a different service. The reasoning that put the resolution in one
+   * place is unchanged and is documented there: the M5.9 defect was not a missing table, it was
+   * that every call site had to remember, and none of them did.
    */
-  private async resolveAssumptions(
-    householdId: string,
-  ): Promise<IntelligenceAssumptions | undefined> {
-    const [insurance, retirement, goals] = await Promise.all([
-      this.protection.assumptionsFor(householdId),
-      this.retirementPlans.assumptionsFor(householdId),
-      this.goals.assumptionsFor(householdId),
-    ]);
-    if (!insurance && !retirement && !goals) return undefined;
-    return {
-      ...(insurance ? { insurance } : {}),
-      ...(retirement ? { retirement } : {}),
-      ...(goals ? { goals } : {}),
-    };
+  private resolveAssumptions(householdId: string): Promise<IntelligenceAssumptions | undefined> {
+    return this.assumptions.resolve(householdId);
   }
 
   /** Exposed for callers/tests that want the active composing-engine version. */

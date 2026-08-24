@@ -203,14 +203,30 @@ describe('financial snapshot contract', () => {
  * shown to a family. M5.12 is expected to fail these tests and rewrite them on purpose.
  */
 describe('the health score model is what we think it is', () => {
-  it('scores exactly five categories, with these weights', () => {
+  it('scores exactly seven categories, with these weights', () => {
+    // Rewritten in M5.12, which is what this pin was planted for: the M5.11 version asserted
+    // five categories precisely so that adding any could not happen quietly.
     expect(DEFAULT_FINANCIAL_HEALTH_MODEL.categories).toEqual([
-      { key: 'net_worth', label: 'Net Worth & Solvency', weight: 25 },
-      { key: 'debt_burden', label: 'Debt Burden', weight: 25 },
-      { key: 'savings', label: 'Savings', weight: 20 },
-      { key: 'liquidity', label: 'Emergency Liquidity', weight: 20 },
-      { key: 'diversification', label: 'Diversification', weight: 10 },
+      { key: 'net_worth', label: 'Net Worth & Solvency', weight: 17.5 },
+      { key: 'debt_burden', label: 'Debt Burden', weight: 17.5 },
+      { key: 'savings', label: 'Savings', weight: 14 },
+      { key: 'liquidity', label: 'Emergency Liquidity', weight: 14 },
+      { key: 'diversification', label: 'Diversification', weight: 7 },
+      { key: 'protection', label: 'Protection', weight: 15 },
+      { key: 'retirement', label: 'Retirement Readiness', weight: 15 },
     ]);
+  });
+
+  it('scaled the original five by exactly 0.7 — the property the renormalisation rests on', () => {
+    // Not decoration. Because all five were scaled by the SAME factor, a household with neither
+    // new category has them omitted and the remaining 70 renormalises to the original
+    // proportions — so their score does not move. If someone re-weights one of the five without
+    // the others, that guarantee silently dies and this test is where it is caught.
+    const ORIGINAL = { net_worth: 25, debt_burden: 25, savings: 20, liquidity: 20, diversification: 10 };
+    for (const [key, before] of Object.entries(ORIGINAL)) {
+      const after = DEFAULT_FINANCIAL_HEALTH_MODEL.categories.find((c) => c.key === key)!.weight;
+      expect(after).toBeCloseTo(before * 0.7, 10);
+    }
   });
 
   it('weights sum to 100 — a category cannot be added without taking weight from another', () => {
@@ -218,19 +234,19 @@ describe('the health score model is what we think it is', () => {
     expect(total).toBe(100);
   });
 
-  it('does NOT score protection or retirement, and that is a known gap, not an oversight', () => {
-    // Recorded as an assertion because it is a real product limitation: a family can be entirely
-    // uninsured and badly behind on retirement and still score well. Both now have real data
-    // (M5.9, M5.10); making them count is M5.12's decision, and this test is where it starts.
+  it('DOES score protection and retirement — the M5.11 gap, inverted', () => {
+    // The exact assertion this replaces read `not.toContain`. It was written to fail the day the
+    // gap closed rather than let it close silently, and this is that day.
     const keys = DEFAULT_FINANCIAL_HEALTH_MODEL.categories.map((c) => c.key);
-    expect(keys).not.toContain('protection');
-    expect(keys).not.toContain('retirement');
+    expect(keys).toContain('protection');
+    expect(keys).toContain('retirement');
   });
 
-  it('pins the model version, which re-bands every stored score when it changes', () => {
+  it('pins the model version — changing it changes what "health" means', () => {
     expect(DEFAULT_FINANCIAL_HEALTH_MODEL.version).toBe(FINANCIAL_HEALTH_MODEL_VERSION);
-    expect(FINANCIAL_HEALTH_MODEL_VERSION).toBe('fhs-1.0.0');
+    expect(FINANCIAL_HEALTH_MODEL_VERSION).toBe('fhs-2.0.0');
   });
+
 });
 
 describe('financial health score', () => {
@@ -276,7 +292,7 @@ describe('financial health score', () => {
     const r = computeFinancialHealthScore(strong);
     expect(r.overall).toBeGreaterThanOrEqual(75);
     expect(r.band === 'good' || r.band === 'excellent').toBe(true);
-    expect(r.modelVersion).toBe('fhs-1.0.0');
+    expect(r.modelVersion).toBe(FINANCIAL_HEALTH_MODEL_VERSION);
     // Every category carries a metric, a reason and a suggestion (traceability).
     expect(r.categories).toHaveLength(5);
     for (const c of r.categories) {
@@ -494,7 +510,7 @@ describe('financial health score', () => {
       expect(r.metadata.simulationEngineVersion).toBe('sim-1.0.0');
       expect(r.metadata.deterministic).toBe(true);
       expect(r.metadata.snapshotId).toBe('snap_1');
-      expect(r.metadata.scoreModelVersion).toBe('fhs-1.0.0');
+      expect(r.metadata.scoreModelVersion).toBe(FINANCIAL_HEALTH_MODEL_VERSION);
     });
   });
 });
