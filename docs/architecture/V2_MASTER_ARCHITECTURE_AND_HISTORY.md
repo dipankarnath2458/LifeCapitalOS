@@ -6,6 +6,12 @@
 > roadmap claims. Every non-obvious assertion carries evidence. §13 classifies confidence and lists
 > what could not be established.
 >
+> **Addendum, 2026-08-24.** Sections 7 and 13 and the §1.2 timeline have been extended past the
+> audited commit to record work completed since: `f001925` (production build identity) and
+> `8de6932` (M5.11, Goals become a signal), both on
+> `claude/life-capital-module-1-roadmap-8ulqh1` and **not yet merged**. Everything else remains as
+> audited at `9311324`.
+>
 > **Path shorthand used in tables:** `core/…` = `packages/core/src/…`; a bare
 > `household-*.service.ts` = `apps/api/src/households/…`; a bare `components/*.tsx` =
 > `apps/web/src/components/…`. Paths given in full elsewhere are literal.
@@ -30,9 +36,10 @@ Six things an audit surfaces that a roadmap does not:
    is still live at `/dashboard`; V2 (July–August 2026, household-keyed) is primary at `/household`.
 5. **Three of the eighteen capabilities audited in §6 do not exist in any form** — Estate & Legacy,
    Tax Planning, Document Vault. Each appears in blueprint documents; none has code. A further
-   **four are built but not reachable or not consequential for a family**: Budget and What-if have
-   no V2 consumer surface, Goals has one but moves no figure, and Asset Allocation analyses without
-   recommending.
+   **three are built but not reachable or not consequential for a family**: Budget and What-if have
+   no V2 consumer surface, and Asset Allocation analyses without recommending. (Goals was a fourth
+   at the time of the audit — it had a surface that moved no figure. M5.11 closed that; see §7
+   Gap 1.)
 6. **One of the three "known gaps" is not shaped the way it was reported.** Gap 3 is real but
    narrower and located elsewhere than stated. §7 gives the corrected version.
 
@@ -194,6 +201,28 @@ PR #66 (design), #67 (hotfix), **#68** (`94c9650`) implementation.
 
 PR #69 (design, `df3bac9`), **PR #70 merge commit `9311324`**, implementation commit `132c072`.
 **Database:** `20260814171645_add_retirement_plan`.
+
+---
+
+#### M5.10a — Production build identity · **COMPLETE, UNMERGED** (2026-08-24)
+
+Commit `f001925`. Remediates the method problem this audit hit in §13: production could not name
+its own build. `/api/health` reports `commit`; `scripts/verify-deployment.mjs` gained a Build
+identity section with control-first route probes; `apps/api/test/deployment-identity.e2e-spec.ts`
+pins the behaviour the external check depends on. **No migration. No schema change.**
+
+---
+
+#### M5.11 — Goals become a signal · **COMPLETE, UNMERGED** (2026-08-24)
+
+Commit `8de6932`. Closes Gap 1 (§7) and Gap 4. Goals reach the Financial Intelligence Layer as a
+module-owned assumption — `HouseholdGoalsService.assumptionsFor()` → `resolveAssumptions()` →
+`EarlyWarningInput.goalSlippage` — the same route Protection (M5.9) and Retirement (M5.10) take.
+The slippage definition was consolidated into `@lcos/core` (`planGoalAsOf`) and both V1 call sites
+refactored onto it, removing a duplicated month calculation that existed twice in the API. The
+score model is now pinned by test so M5.12 cannot change it accidentally.
+Design: `docs/M5_11_GOALS_SIGNAL_ARCHITECTURE.md`. **No migration. No kernel contract change. No
+score change.**
 
 ---
 
@@ -484,9 +513,9 @@ Judged on merged code, not roadmap position.
 | **Financial Health Score** | Complete | M3-1/M3-2 | `core/finance/financialHealth.ts` | Yes — but blind to protection & retirement |
 | **Protection / Insurance** | Complete | M5.9 | `household-protection.service.ts`, `/household/protection` | Yes — verified in production |
 | **Retirement Planning** | Complete | M5.10 | `retirement-plan.service.ts`, `household-retirement.service.ts`, `/household/retirement` | **Yes — verified in production 2026-08-17** (§13); one open question: whether any household has yet saved a plan |
-| **Goals** | **PARTIAL** | M5.8 | `household-goals.service.ts`, `/household/goals` | CRUD yes — **moves no figure**. §7 Gap 1 |
+| **Goals** | Complete | M5.8 + **M5.11** | `household-goals.service.ts`, `/household/goals` | Yes — CRUD, and since M5.11 a goal behind schedule raises a risk signal (Gap 1 closed). Still outside the score |
 | **Asset Allocation** | Complete (read-only) | M5 | `core/finance/assetAllocation.ts`; dashboard panel + donut | Yes — analysis only, no rebalancing |
-| **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — 6 signal keys, of which **5 fire for a V2 household**; `goal_slippage` is accepted and never supplied (Gap 1) |
+| **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — all 6 signals now fire for a V2 household; `goal_slippage` was supplied from M5.11 (before it, the signal was emitted but permanently green, telling families with goals to *"add goals"*) |
 | **What-if Simulation** | Complete | M3-3 | `core/finance/financialSimulation.ts`, `household-simulation.service.ts` | Yes — **advisor surface only**, no V2 consumer page |
 | **AI Family CFO** | Complete | M5.7 + M5.10 | `household-ai.service.ts`, `/household/coach` | Yes — coach gated on the `ai_recommendations` entitlement |
 | **Estate & Legacy** | **NOT BUILT** | — | none | No |
@@ -503,7 +532,7 @@ Admin console, Onboarding, Wealth Health Check.
 
 ## 7. The three gaps — verified, and one corrected
 
-### Gap 1 — Goals move no figure · **REAL, CONFIRMED**
+### Gap 1 — Goals move no figure · **CLOSED in M5.11**
 
 - **Verified:** `grep -c "goals" packages/core/src/finance/financialSnapshot.ts` → **0**. The
   payload has no goals section.
@@ -521,10 +550,17 @@ Admin console, Onboarding, Wealth Health Check.
 - **Tests exposing it:** `household-goals.e2e-spec.ts:192` asserts
   `snap.body.payload.goals` is `undefined`; `early-warning-parity.e2e-spec.ts:314` documents that
   V2 carries no goal-derived signal. Both **fail** the day it closes — deliberate tripwires.
-- **Recommended fix:** a `GoalsPlanService` exposing `assumptionsFor()`, feeding a `goalSlippage`
-  array through `assumptions` into `EarlyWarningInput` (which **already accepts `goalSlippage`** —
-  `earlyWarning.ts:22`). `core/finance/goals.ts::planGoal` already computes the gap.
-- **Before the next milestone?** **Yes** — it is the cheapest remaining gap and the seam exists.
+- **Sharper still, on re-reading the engine:** the Goal Progress signal was emitted for V2
+  households all along — permanently green, with the detail *"Add goals to track progress."* A
+  family who had added goals and was badly behind on them was being told to add goals.
+- **Fixed (M5.11):** `HouseholdGoalsService.assumptionsFor()` feeds slippage through
+  `resolveAssumptions()` into `EarlyWarningInput`. No migration, no kernel change, no score change.
+  The definition of slippage moved into `@lcos/core` (`planGoalAsOf`) and both V1 call sites were
+  refactored onto it, so the two generations cannot drift. See
+  `docs/M5_11_GOALS_SIGNAL_ARCHITECTURE.md`.
+- **Both tripwires fired and were rewritten deliberately**, not deleted: the goals e2e now asserts
+  a goal *does* move a figure while the snapshot and score stay untouched, and the parity spec
+  asserts both paths raise the same goal signal. Nothing is excluded from parity any more.
 
 ### Gap 2 — The score ignores Protection and Retirement · **REAL, CONFIRMED**
 
@@ -536,8 +572,10 @@ Admin console, Onboarding, Wealth Health Check.
 - **Owner:** M3-1 (`financialHealth.ts`) — a scoring-model change, not a planning change.
 - **Cost:** adding a category re-weights the model, requiring a `FINANCIAL_HEALTH_MODEL_VERSION`
   bump (currently `fhs-1.0.0`) which **re-bands every stored score**.
-- **Tests exposing it:** none directly. Both M5.9 and M5.10 measured it (protection: score
-  unchanged 90→90) but **no test pins the category list**. This is itself a gap — see Gap 4.
+- **Tests exposing it:** none directly, until M5.11. Both M5.9 and M5.10 measured it (protection:
+  score unchanged 90→90) but no test pinned the category list — Gap 4. `finance.test.ts` now pins
+  the five categories, their weights, the version, and the *absence* of protection and retirement,
+  so M5.12 must change them on purpose.
 - **Before the next milestone?** It deserves to be **its own milestone**, not a side effect.
 
 ### Gap 3 — `usingDefaultAssumptions` · **REAL, BUT NOT AS DESCRIBED**
@@ -765,7 +803,7 @@ M5.5   Consumer activation               provisioning · onboarding · Wealth Ch
 M5.6   Household Dashboard               /household — the V2 consumer home           COMPLETE
 M5.x   V2 primary                        consumers → /household; V1 preserved        COMPLETE
 M5.7   AI Family CFO                     native coach, allow-listed grounding        COMPLETE
-M5.8   Family · Goals · Charts · Parity   native surfaces; DOB unlocks retirement     COMPLETE (Goals PARTIAL)
+M5.8   Family · Goals · Charts · Parity   native surfaces; DOB unlocks retirement     COMPLETE
 M5.9   Protection / Insurance             per-member cover → assumptions.insurance    COMPLETE
 M5.10  Retirement Planning                RetirementPlan → assumptions.retirement     COMPLETE (9311324, live)
 ```
@@ -779,7 +817,7 @@ AI Family CFO · the Advisor Workspace · Admin · V1 intact as the rollback pat
 
 ### OPEN
 
-Goals move no figure (Gap 1) · the score ignores protection and retirement (Gap 2) ·
+The score ignores goals, protection and retirement (Gap 2) ·
 `usingDefaultAssumptions` is binary, not per-field (Gap 3) · nothing pins the score model (Gap 4) ·
 Budget and What-if have no consumer surface (Gap 5) · the snapshot cannot see account `type`
 (Gap 6) · `/onboarding/status` remains a rate-limit pressure point (Gap 7) ·
@@ -840,7 +878,27 @@ the 30-day schema-free span · 221 commits · merge commit `9311324` for M5.10.
 
 Kernel contract freeze (`kernelContract.test.ts`) · the goals and parity tripwires · M5.10
 behaviour (12 e2e + 17 core) · Protection behaviour (10 e2e) · V1 regression pins in
-`retirement.test.ts` and `earlyWarning.test.ts`.
+`retirement.test.ts` and `earlyWarning.test.ts` · the score model's five categories, weights,
+version and the absence of protection/retirement (`finance.test.ts`, added M5.11).
+
+**Full validation run, 2026-08-24, at `8de6932`:**
+
+| Suite | Result |
+|---|---|
+| Repo typecheck (`pnpm lint` — `tsc --noEmit` × 4 packages) | 4/4 pass |
+| `@lcos/core` (vitest) | **166/166** pass, 12 files |
+| API unit (jest) | **72/72** pass, 8 suites |
+| API e2e (jest, `--runInBand`) | **239/239** pass, 33 suites |
+
+Two suites (`password-reset`, `auth-flows`) fail in a sandbox without
+`SANDBOX_RETURN_SECRETS=true`, which CI sets (`ci.yml:32`); with it they pass. That is an
+environment prerequisite, not a product failure, and was diagnosed separately before being
+dismissed.
+
+**Deployment-verification false-positive tests (not part of CI, run by hand at `f001925`):** an
+unreachable API produces `WARN … did not answer` and a non-zero exit rather than a pass; a stub
+that answers 401 on every path is rejected with *"the route probe is not a valid check"* and no
+milestone conclusion is drawn.
 
 ### INFERRED
 
@@ -875,33 +933,53 @@ read-only; no production data was created, modified, or read beyond HTTP status 
    the same day: `GET /api/health — status=ok` **and** `database reachable from the API`, so this is
    a live database rather than a booted app with a dead one.
 
-**Method note, worth keeping.** Neither fact was directly observable: `/api/health` returns no build
-identity (`{status, db, timestamp}` — and it answers `200` even with the database unreachable), and
-Swagger is disabled in production, so route introspection is closed. Build identity had to be
-inferred from an auth-status discriminator. **A `commit`/`version` field on `/api/health`, plus this
-probe added to `scripts/verify-deployment.mjs`, would make it a direct observation.** Not
-implemented — it is a code change awaiting a decision.
+**Method note, and what was done about it.** Neither fact was directly observable at the time:
+`/api/health` returned no build identity (`{status, db, timestamp}` — and it answers `200` even
+with the database unreachable), and Swagger is disabled in production, so route introspection is
+closed. Build identity had to be *inferred* from an auth-status discriminator.
 
-### UNKNOWN — requires further investigation
+**Remediated in `f001925`.** `/api/health` now reports `commit` — the short SHA from
+`RAILWAY_GIT_COMMIT_SHA` (Railway injects it; no platform variable was changed) with a
+`GIT_COMMIT_SHA` fallback, and `null` when neither is present, so an unidentifiable build cannot
+pass for a stale one. `scripts/verify-deployment.mjs` gained a **Build identity** section that
+reads that field, optionally asserts it against `--expect-commit`, and probes the M5.8/M5.9/M5.10
+routes — **with the control path probed first**, so that a deployment which authenticated every
+path (making a missing route indistinguishable from an unauthorised one) fails the section instead
+of producing three meaningless passes. Verified locally against all four branches, plus two
+false-positive cases: an unreachable API warns and exits non-zero rather than passing, and a
+catch-all stub that answers 401 everywhere is rejected outright. The next production run of
+`verify-production.yml` answers "is the merged build live?" directly rather than by inference.
 
-1. **Whether any real household has a `RetirementPlan` row.** No production data read was
-   performed. Two read-only routes to the answer exist and neither needs database access:
+### BLOCKED — pending user verification
+
+1. **Whether any real household has a `RetirementPlan` row.** *Attempted 2026-08-24 and could not
+   be performed from this session*: the assistant holds no authenticated production session, and
+   the organisation's egress policy rejects both production hosts outright
+   (`connect_rejected … lifecapitalos-api-production.up.railway.app:443` and
+   `www.lifecapitalos.com:443`). Obtaining access was explicitly out of bounds — no seeding, no
+   role change, no guessed account, no privilege escalation — so the item stands as **pending user
+   verification** rather than unknown for want of investigation. Two read-only routes to the
+   answer exist and neither needs database access, and both require a session the user already
+   has:
    `GET /api/admin/audit?action=household.retirement.upsert` (every plan write logs that action —
    `household-retirement.service.ts:147-156`, field names only, no values), whose rows carry
    `actorId` so a founder test can be told apart from a real family; or
    `SELECT count(*), min("createdAt") FROM "RetirementPlan";`. `prisma/seed.ts` never creates a
    plan and there is no audit pruning, so an empty audit result implies no rows.
-2. **What M4 definition B ("AI agent fleet & orchestration") was meant to contain.**
+
+### UNKNOWN — requires further investigation
+
+1. **What M4 definition B ("AI agent fleet & orchestration") was meant to contain.**
    `docs/blueprint/09_ROADMAP.md:67` names it; no design document was ever written. Whether M5.7
    satisfies its intent is **UNKNOWN**.
-3. **Why `docs/blueprint/05_DATA_MODEL.md:413` assigns notifications and email to M4.** A third
+2. **Why `docs/blueprint/05_DATA_MODEL.md:413` assigns notifications and email to M4.** A third
    conflicting definition with no corresponding models or code. **UNKNOWN — requires further
    investigation.**
-4. **Whether PRs #4, #5, #8 (second series) and #1–#5, #24+ (first series) exist.** The merge log
+3. **Whether PRs #4, #5, #8 (second series) and #1–#5, #24+ (first series) exist.** The merge log
    skips them; whether they were closed unmerged or never opened is not determinable from the local
    clone.
-5. **The intended owner of the V1 retirement decision at Module 10.** `V1_RETIREMENT_PLAN.md`
+4. **The intended owner of the V1 retirement decision at Module 10.** `V1_RETIREMENT_PLAN.md`
    describes the mechanics; no document states the acceptance criteria for retiring V1.
-6. **Whether the M4 `ScoreCard` seam should be revived or deleted.** It is unused for consumers but
+5. **Whether the M4 `ScoreCard` seam should be revived or deleted.** It is unused for consumers but
    still live in the advisor dashboard. Its fate is tied to the Module 10 decision and is not
    recorded.

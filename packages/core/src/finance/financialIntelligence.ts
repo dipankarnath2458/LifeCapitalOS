@@ -96,6 +96,18 @@ export interface IntelligenceAssumptions {
     hasTermCover: boolean;
     hasHealthInsurance: boolean;
   };
+  /**
+   * The family's goals, as how far behind schedule each one is, in [0,1] (M5.11).
+   *
+   * Module-owned like insurance and retirement: the frozen snapshot carries no goals, so they
+   * reach the layer as an assumption rather than through the kernel. `undefined` means the
+   * goals module was never consulted; an **empty array** means it was, and the family has no
+   * goals. The early-warning engine says different things about those two, which is the whole
+   * reason the distinction is preserved instead of defaulting to `[]`.
+   */
+  goals?: {
+    slippage: number[];
+  };
   risk?: RiskTolerance;
   emergencyFundMonths?: number;
 }
@@ -625,6 +637,13 @@ export function computeHouseholdFinancialIntelligence(
     hasTermCover: input.assumptions?.insurance?.hasTermCover ?? null,
     hasHealthInsurance: input.assumptions?.insurance?.hasHealthInsurance ?? null,
     dependents,
+    // M5.11. Until now this was the one `EarlyWarningInput` field the household path never
+    // supplied, so every family — however far behind — was told "Add goals to track progress",
+    // including the ones who had added them. Left `undefined` when the module reports no goals,
+    // because that message is the right one for a family who genuinely has none.
+    ...(input.assumptions?.goals?.slippage?.length
+      ? { goalSlippage: input.assumptions.goals.slippage }
+      : {}),
   };
   const warning = computeEarlyWarning(ewInput);
   const severityFromLight = (s: StatusLight): Severity => (s === 'red' ? 'high' : s === 'yellow' ? 'medium' : 'low');

@@ -52,6 +52,60 @@ export interface GoalPlan {
   currency: CurrencyCode;
 }
 
+/** Average month length used to convert a target DATE into a planning horizon. */
+const DAYS_PER_MONTH = 30.44;
+
+/**
+ * Whole months from `from` until `to`, floored at 1.
+ *
+ * Extracted in M5.11 because this line existed twice, character for character, in
+ * `apps/api/src/goals/goals.module.ts` and `apps/api/src/common/financial-snapshot.service.ts`
+ * — the retail goal list and the retail early-warning input, each with its own private copy of
+ * how long a family has left. A third copy was about to be written for households. The floor at
+ * 1 keeps an overdue or same-day goal fundable in principle rather than dividing by zero: it is
+ * measured as needing its whole remaining gap this month, which is what being out of time means.
+ */
+export function monthsUntil(from: Date, to: Date): number {
+  return Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24 * DAYS_PER_MONTH)));
+}
+
+/**
+ * How far behind its funding schedule a goal is, as a fraction of the target in [0, 1].
+ *
+ * The gap is what remains AFTER today's savings are grown to the target date, so this answers
+ * "how much of this goal is currently unfunded", not "how much have you saved". A goal with no
+ * target cannot be behind, and returns 0 rather than dividing by zero.
+ *
+ * This is the definition the Wealth Early Warning System bands (≥0.15 yellow, ≥0.30 red), and it
+ * is deliberately the same number V1 has always fed it — M5.11 moved it here rather than
+ * inventing a household-specific one, so the two generations cannot drift apart.
+ */
+export function goalSlippage(plan: GoalPlan, targetAmountMinor: number): number {
+  if (targetAmountMinor <= 0) return 0;
+  return Math.min(1, Math.max(0, plan.gap.minor / targetAmountMinor));
+}
+
+export interface DatedGoalInput extends Omit<GoalInput, 'monthsRemaining'> {
+  targetDate: Date;
+}
+
+/**
+ * Plan a goal from its target DATE rather than a month count, and report how far behind it is.
+ *
+ * The single entry point for "where does this goal stand right now", used by the retail list,
+ * the retail early-warning input and the household intelligence layer. `now` is injected — this
+ * package never reads a clock.
+ */
+export function planGoalAsOf(
+  goal: DatedGoalInput,
+  now: Date,
+): { plan: GoalPlan; monthsRemaining: number; slippage: number } {
+  const { targetDate, ...rest } = goal;
+  const monthsRemaining = monthsUntil(now, targetDate);
+  const plan = planGoal({ ...rest, monthsRemaining });
+  return { plan, monthsRemaining, slippage: goalSlippage(plan, goal.targetAmountMinor) };
+}
+
 export function planGoal(input: GoalInput): GoalPlan {
   const months = Math.max(1, Math.round(input.monthsRemaining));
   const annualReturn =

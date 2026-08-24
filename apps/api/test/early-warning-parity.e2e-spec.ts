@@ -33,11 +33,15 @@ import { AppModule } from '../src/app.module';
  * The distinction that survives is asserted separately below: a household that has recorded
  * nothing must still produce no signal at all.
  *
- * ## The one signal that cannot match
+ * ## Goals: the last excluded signal, closed in M5.11
  *
- * **Goals.** V1's input carries `goalSlippage`; the layer's input **omits it entirely**, because
- * the Financial Snapshot has no goals section. No goal-derived signal can appear in V2's `risk`,
- * and that gap is asserted explicitly so it fails the day goals reach the snapshot.
+ * **Goals** were the one signal that could not match. V1's input carries `goalSlippage`; the
+ * layer's input omitted it entirely, because the Financial Snapshot has no goals section — so no
+ * goal-derived signal could appear in V2's `risk`, however far behind a family was. That gap was
+ * asserted here explicitly so it would fail the day it closed, and it now has: goals reach the
+ * layer as a module-owned assumption (the same route protection took), and both paths compute
+ * slippage with the same `@lcos/core` function. Goals are inside the parity assertion below, and
+ * nothing is excluded from it any more.
  */
 describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
   let app: INestApplication;
@@ -75,6 +79,23 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
   const MONTHLY_INCOME = 300000;
   const MONTHLY_EXPENSES = 75000;
   const DEPENDANTS = 2;
+  /**
+   * One goal, stated identically on both paths (M5.11). Badly underfunded on purpose: a goal
+   * both paths agree is *fine* would pass this test even if one of them had stopped looking.
+   */
+  const GOAL = {
+    name: 'New home',
+    type: 'home_purchase' as const,
+    currency: 'INR',
+    targetAmountMinor: rupees(5000000),
+    currentAmountMinor: rupees(200000),
+    expectedAnnualReturnPct: 10,
+  };
+  const goalTargetDate = () => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 3);
+    return d.toISOString();
+  };
 
   async function consumer() {
     const email = `parity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@example.com`;
@@ -112,6 +133,12 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
       isLiability: false,
     });
     expect(account.status).toBe(201);
+
+    const goal = await http()
+      .post('/api/goals')
+      .set(auth(token))
+      .send({ ...GOAL, targetDate: goalTargetDate() });
+    expect(goal.status).toBe(201);
   }
 
   /** The V2 household path: household cash account, cashflow, dependants, snapshot. */
@@ -165,6 +192,14 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
       expect(res.status).toBe(200);
     }
 
+    // The same goal the retail profile states (M5.11). Goals are module-owned, so this does not
+    // reach the snapshot — it reaches the layer through `resolveAssumptions`.
+    const goal = await http()
+      .post(`/api/households/${householdId}/goals`)
+      .set(auth(token))
+      .send({ ...GOAL, targetDate: goalTargetDate() });
+    expect(goal.status).toBe(201);
+
     const snap = await http()
       .post(`/api/households/${householdId}/financial-snapshot`)
       .set(auth(token))
@@ -172,14 +207,13 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     expect(snap.status).toBe(201);
   }
 
-  /** Signals that can only ever come from goals, which the snapshot does not carry. */
-  const GOAL_SIGNALS = ['goal_slippage', 'goals', 'goal'];
-  const isGoalSignal = (key: string) => GOAL_SIGNALS.some((g) => key.includes(g));
-  // Insurance is NO LONGER excluded — see the history at the top of this file. Goals remain the
-  // only incomparable signal.
-  const incomparable = (key: string) => isGoalSignal(key);
+  // Nothing is excluded from parity any more (M5.11). Insurance rejoined the comparison in
+  // M5.9 and goals in M5.11; the helper is kept as a deliberate no-op so that re-excluding a
+  // signal has to be an edit someone makes on purpose, with a reason, rather than a filter that
+  // quietly grows.
+  const incomparable = (_key: string) => false;
 
-  it('reports the same non-goal signals on both paths, insurance included', async () => {
+  it('reports the same signals on both paths — nothing excluded any more', async () => {
     const { token, householdId } = await consumer();
     await seedRetail(token);
     await seedHousehold(token, householdId);
@@ -207,6 +241,10 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     expect(v2Signals).toEqual(v1Signals);
     // A vacuous pass would be two empty arrays. These figures deliberately trip signals.
     expect(v1Signals.length).toBeGreaterThan(0);
+    // And specifically the two that were once excluded, so this cannot silently narrow back to
+    // the subset it used to compare.
+    expect(v1Signals.join(' ')).toContain('insurance');
+    expect(v1Signals.join(' ')).toContain('goal_slippage');
   });
 
   it('agrees on the headline traffic light and the red/amber counts', async () => {
@@ -311,19 +349,41 @@ describe('Early-warning parity: V1 retail vs V2 household (e2e)', () => {
     expect(v2.body.insurance.available).toBe(false);
   });
 
-  it('documents the goal gap: V2 carries no goal-derived signal', async () => {
-    // Asserted rather than left as a comment, so that when goals reach the snapshot this test
-    // fails and forces the parity claim to be revisited.
+  it('the goal gap is closed: both paths raise the same goal signal (M5.11)', async () => {
+    // The inverse of the assertion this replaced. Both paths are given the same goal and must
+    // now agree that the family is behind on it — V2 through the module-owned assumption, V1
+    // through the retail snapshot input, both via the same core function.
     const { token, householdId } = await consumer();
     await seedRetail(token);
     await seedHousehold(token, householdId);
 
+    const [v1, v2] = await Promise.all([
+      http().get('/api/insights/early-warning').set(auth(token)),
+      http().get(`/api/households/${householdId}/intelligence/current`).set(auth(token)),
+    ]);
+
+    const v1Goal = (v1.body.signals as { key: string; status: string }[]).find(
+      (s) => s.key === 'goal_slippage',
+    );
+    const v2Goal = (v2.body.risk.data.topRisks as { key: string; severity: string }[]).find(
+      (r) => r.key === 'goal_slippage',
+    );
+
+    expect(v1Goal?.status).toBe('red');
+    expect(v2Goal?.severity).toBe('high');
+  });
+
+  it('a household with no goals is silent, and says so in the same words as V1', async () => {
+    // The distinction the whole assumption plumbing exists to preserve: "no goals" is not
+    // "on track". Neither path may raise a signal, and neither may claim the family is fine.
+    const { token, householdId } = await consumer();
     const v2 = await http()
       .get(`/api/households/${householdId}/intelligence/current`)
       .set(auth(token));
-    const goalRisks = (v2.body.risk.data.topRisks as { key: string }[]).filter((r) =>
-      isGoalSignal(r.key),
-    );
-    expect(goalRisks).toHaveLength(0);
+
+    if (v2.body.risk?.data) {
+      const keys = (v2.body.risk.data.topRisks as { key: string }[]).map((r) => r.key);
+      expect(keys).not.toContain('goal_slippage');
+    }
   });
 });

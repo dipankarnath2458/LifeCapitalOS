@@ -11,6 +11,7 @@ import { CryptoService } from '../common/crypto.service';
 import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
 import { HouseholdProtectionService } from './household-protection.service';
 import { RetirementPlanService } from './retirement-plan.service';
+import { HouseholdGoalsService } from './household-goals.service';
 
 /**
  * Financial Intelligence Layer (M5) — the single reusable consumer of the Financial
@@ -29,6 +30,7 @@ export class HouseholdIntelligenceService {
     private readonly crypto: CryptoService,
     private readonly protection: HouseholdProtectionService,
     private readonly retirementPlans: RetirementPlanService,
+    private readonly goals: HouseholdGoalsService,
   ) {}
 
   /**
@@ -117,18 +119,23 @@ export class HouseholdIntelligenceService {
    * M5.9 note.
    *
    * Returns `undefined` when nothing is known, which the layer reads as "not asked".
-   * M5.10 adds retirement here, which is what the note anticipated: a new module-owned input is
-   * one more entry in this method, not a change at any call site.
+   * M5.10 adds retirement here, and M5.11 goals — which is what the note anticipated: a new
+   * module-owned input is one more entry in this method, not a change at any call site.
    */
   private async resolveAssumptions(
     householdId: string,
   ): Promise<IntelligenceAssumptions | undefined> {
-    const [insurance, retirement] = await Promise.all([
+    const [insurance, retirement, goals] = await Promise.all([
       this.protection.assumptionsFor(householdId),
       this.retirementPlans.assumptionsFor(householdId),
+      this.goals.assumptionsFor(householdId),
     ]);
-    if (!insurance && !retirement) return undefined;
-    return { ...(insurance ? { insurance } : {}), ...(retirement ? { retirement } : {}) };
+    if (!insurance && !retirement && !goals) return undefined;
+    return {
+      ...(insurance ? { insurance } : {}),
+      ...(retirement ? { retirement } : {}),
+      ...(goals ? { goals } : {}),
+    };
   }
 
   /** Exposed for callers/tests that want the active composing-engine version. */

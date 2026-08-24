@@ -149,10 +149,11 @@ describe('Household goals (e2e)', () => {
     expect((await http().get(`/api/households/${householdId}/goals`)).status).toBe(401);
   });
 
-  it('a goal changes no figure — the snapshot carries no goals', async () => {
-    // Stated as a test because "native goals" reads like "goals now count", and they do not.
-    // When goals reach the snapshot this fails, which is the point: the parity gap in
-    // early-warning-parity.e2e-spec.ts and this assertion must be revisited together.
+  it('a goal now moves a figure — without touching the kernel or the score (M5.11)', async () => {
+    // This test used to assert the opposite, and failing was its purpose: M5.8 shipped goals
+    // that changed nothing, and the assertion was written so that closing the gap could not
+    // pass silently. M5.11 closes it. What survives unchanged is deliberate and still pinned
+    // below — the snapshot payload is frozen, and what "health" means is a separate decision.
     const { token, householdId } = await newConsumer('goal_nofigure');
     const cash = await http()
       .post(`/api/households/${householdId}/accounts`)
@@ -189,8 +190,80 @@ describe('Household goals (e2e)', () => {
       .get(`/api/households/${householdId}/intelligence/current`)
       .set(auth(token));
 
+    const goalRisk = (res: { body: { risk: { data: { topRisks: { key: string }[] } } } }) =>
+      res.body.risk.data.topRisks.find((r) => r.key === 'goal_slippage');
+
+    // Before: no goals, so nothing to be behind on.
+    expect(goalRisk(before)).toBeUndefined();
+    // After: a ₹2,00,00,000 goal with nothing saved is entirely unfunded, and says so.
+    expect(goalRisk(after)).toMatchObject({ key: 'goal_slippage', severity: 'high' });
+
+    // Still true, and still deliberate:
+    // 1. the frozen snapshot payload gained no goals section (ADR-012, schemaVersion 1);
     expect(snap.body.payload.goals).toBeUndefined();
+    // 2. the Wealth Health Score is unmoved — adding a category re-bands every score a family
+    //    has already been shown, which is M5.12's decision to make, not this milestone's.
     expect(after.body.wealthHealth.data.overall).toBe(before.body.wealthHealth.data.overall);
-    expect(after.body.risk.data.topRisks).toEqual(before.body.risk.data.topRisks);
+  });
+
+  it('funding the goal clears the signal — it tracks the family, not the row', async () => {
+    // The failure mode this guards against is a signal that fires once a goal exists and never
+    // stops, which is indistinguishable from a working one until a family fixes something.
+    const { token, householdId } = await newConsumer('goal_clears');
+    await http()
+      .post(`/api/households/${householdId}/accounts`)
+      .set(auth(token))
+      .send({
+        name: 'Cash & savings',
+        type: 'bank',
+        assetClass: 'cash',
+        currency: 'INR',
+        balanceMinor: rupees(900000),
+        isLiability: false,
+      });
+    await http().post(`/api/households/${householdId}/financial-snapshot`).set(auth(token)).send({});
+
+    const created = await addGoal(token, householdId, { targetAmountMinor: rupees(1000000) });
+    const goalId = created.body.id as string;
+    const risks = async () =>
+      (
+        await http().get(`/api/households/${householdId}/intelligence/current`).set(auth(token))
+      ).body.risk.data.topRisks.map((r: { key: string }) => r.key);
+
+    expect(await risks()).toContain('goal_slippage');
+
+    // Fund it fully. The gap closes, so the signal must go green and drop out of topRisks.
+    const funded = await http()
+      .patch(`/api/households/${householdId}/goals/${goalId}`)
+      .set(auth(token))
+      .send({ currentAmountMinor: rupees(1000000) });
+    expect(funded.status).toBe(200);
+    expect(funded.body.plan.slippage).toBe(0);
+
+    expect(await risks()).not.toContain('goal_slippage');
+  });
+
+  it('the goals list reports where each goal stands, computed server-side', async () => {
+    // The web page renders these; it must never compute them. V1's RetirementCalculator doing
+    // arithmetic in React is the pattern this project keeps moving away from.
+    const { token, householdId } = await newConsumer('goal_plan');
+    await addGoal(token, householdId, {
+      targetAmountMinor: rupees(1000000),
+      currentAmountMinor: 0,
+    });
+
+    const [goal] = (await goals(token, householdId)).body;
+    expect(goal.plan).toMatchObject({
+      monthsRemaining: expect.any(Number),
+      gapMinor: expect.any(Number),
+      monthlySipRequiredMinor: expect.any(Number),
+      progress: expect.any(Number),
+      slippage: expect.any(Number),
+    });
+    // Nothing saved yet: the whole target is unfunded, and a real SIP is required to close it.
+    expect(goal.plan.slippage).toBe(1);
+    expect(goal.plan.gapMinor).toBeGreaterThan(0);
+    expect(goal.plan.monthlySipRequiredMinor).toBeGreaterThan(0);
+    expect(goal.plan.monthsRemaining).toBeGreaterThanOrEqual(1);
   });
 });

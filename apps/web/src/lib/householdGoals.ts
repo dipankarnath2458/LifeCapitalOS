@@ -9,9 +9,10 @@ import { apiDelete, apiGet, apiPatch, apiPost } from './api';
  * than living only on the retail `userId` path. `Goal` already carried `householdId` and `firmId`
  * from M1b, so this needed an API, not a schema change.
  *
- * **Goals still move no figure.** The Financial Snapshot has no goals section, so a goal changes
- * nothing in the dashboard, the score or the AI grounding. Said plainly because "native goals"
- * reads like "goals now count", and they do not — see §3 of the design note.
+ * **Goals now move a figure (M5.11).** A goal that is behind its funding schedule raises a Goal
+ * Progress signal in the household's risk section, which the dashboard already renders and the AI
+ * coach can already cite. The Financial Snapshot still carries no goals and the Wealth Health
+ * Score still ignores them — both deliberate; see `docs/M5_11_GOALS_SIGNAL_ARCHITECTURE.md`.
  *
  * No arithmetic here. Amounts are minor units; the client formats and never derives.
  *
@@ -20,6 +21,23 @@ import { apiDelete, apiGet, apiPatch, apiPost } from './api';
  * and tripped the API's rate limiter during the smoke suite. The caller resolves it once, with
  * `resolveHouseholdId` or straight from `DashboardState`.
  */
+
+/**
+ * Where a goal stands, as the planning service computed it (M5.11).
+ *
+ * Every figure here came from the API. The page renders them and derives nothing — the same rule
+ * the retirement surface follows, and the one V1's in-React calculator broke.
+ */
+export interface GoalPlan {
+  monthsRemaining: number;
+  projectedCurrentMinor: number;
+  gapMinor: number;
+  monthlySipRequiredMinor: number;
+  /** Saved so far as a fraction of target, in [0,1]. */
+  progress: number;
+  /** Unfunded fraction of the target after growth, in [0,1]. Bands: ≥0.15 watch, ≥0.30 behind. */
+  slippage: number;
+}
 
 export interface HouseholdGoal {
   id: string;
@@ -31,6 +49,18 @@ export interface HouseholdGoal {
   currentAmountMinor: number;
   targetDate: string;
   expectedAnnualReturnPct: number;
+  plan: GoalPlan;
+}
+
+/**
+ * How a goal's standing is described to a family. Presentation only — the bands are the warning
+ * engine's (`earlyWarning.ts`), restated here so the page and the risk signal cannot disagree
+ * about what "behind" means.
+ */
+export function goalStanding(plan: GoalPlan): { label: string; tone: 'good' | 'watch' | 'bad' } {
+  if (plan.slippage >= 0.3) return { label: 'Behind schedule', tone: 'bad' };
+  if (plan.slippage >= 0.15) return { label: 'Worth watching', tone: 'watch' };
+  return { label: 'On track', tone: 'good' };
 }
 
 export interface GoalInput {

@@ -10,6 +10,7 @@ import {
   computeFinancialHealthScore,
   interpolate,
   DEFAULT_FINANCIAL_HEALTH_MODEL,
+  FINANCIAL_HEALTH_MODEL_VERSION,
 } from './financialHealth.js';
 import { explainFinancialHealth } from './financialHealthExplanation.js';
 import { applyScenarios, simulateFinancialWhatIf } from './financialSimulation.js';
@@ -186,6 +187,49 @@ describe('financial snapshot contract', () => {
   it('up-converts as identity within the same schema version', () => {
     const payload = { netWorth: { netWorthMinor: 100 } } as never;
     expect(upgradePayload(payload, 1, 1)).toBe(payload);
+  });
+});
+
+/**
+ * The score model itself, pinned (M5.11).
+ *
+ * The Wealth Health Score is the product's headline number, and until now **nothing asserted
+ * what it is made of**. Two milestones have already measured that it ignores them — M5.9 watched
+ * a household record no insurance at all and score 90 → 90, M5.10 the same for retirement — and
+ * in both cases the finding rested on a manual observation that no test would repeat.
+ *
+ * This block is the tripwire for that. It does not argue the weights are right; it makes changing
+ * them a deliberate act, taken together with the version bump that re-bands every score already
+ * shown to a family. M5.12 is expected to fail these tests and rewrite them on purpose.
+ */
+describe('the health score model is what we think it is', () => {
+  it('scores exactly five categories, with these weights', () => {
+    expect(DEFAULT_FINANCIAL_HEALTH_MODEL.categories).toEqual([
+      { key: 'net_worth', label: 'Net Worth & Solvency', weight: 25 },
+      { key: 'debt_burden', label: 'Debt Burden', weight: 25 },
+      { key: 'savings', label: 'Savings', weight: 20 },
+      { key: 'liquidity', label: 'Emergency Liquidity', weight: 20 },
+      { key: 'diversification', label: 'Diversification', weight: 10 },
+    ]);
+  });
+
+  it('weights sum to 100 — a category cannot be added without taking weight from another', () => {
+    const total = DEFAULT_FINANCIAL_HEALTH_MODEL.categories.reduce((s, c) => s + c.weight, 0);
+    expect(total).toBe(100);
+  });
+
+  it('does NOT score protection or retirement, and that is a known gap, not an oversight', () => {
+    // Recorded as an assertion because it is a real product limitation: a family can be entirely
+    // uninsured and badly behind on retirement and still score well. Both now have real data
+    // (M5.9, M5.10); making them count is M5.12's decision, and this test is where it starts.
+    const keys = DEFAULT_FINANCIAL_HEALTH_MODEL.categories.map((c) => c.key);
+    expect(keys).not.toContain('protection');
+    expect(keys).not.toContain('retirement');
+  });
+
+  it('pins the model version, which re-bands every stored score when it changes', () => {
+    expect(DEFAULT_FINANCIAL_HEALTH_MODEL.version).toBe(FINANCIAL_HEALTH_MODEL_VERSION);
+    expect(FINANCIAL_HEALTH_MODEL_VERSION).toBe('fhs-1.0.0');
   });
 });
 
