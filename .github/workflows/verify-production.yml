@@ -24,6 +24,10 @@ on:
         description: 'Domain email is sent FROM (checks SPF/DKIM/DMARC). Blank to skip.'
         required: false
         default: 'lifecapitalos.com'
+      expect_commit:
+        description: 'Commit the deployment should be serving. Blank reports the build instead of asserting it.'
+        required: false
+        default: ''
 
 jobs:
   verify:
@@ -41,6 +45,7 @@ jobs:
             --api "${{ inputs.api_url }}" \
             --web "${{ inputs.web_url }}" \
             --email-domain "${{ inputs.email_domain }}" \
+            --expect-commit "${{ inputs.expect_commit }}" \
             --env production
 
       - name: Summary
