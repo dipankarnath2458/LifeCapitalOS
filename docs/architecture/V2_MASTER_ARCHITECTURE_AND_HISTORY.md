@@ -484,9 +484,9 @@ Judged on merged code, not roadmap position.
 | **Financial Health Score** | Complete | M3-1/M3-2 | `core/finance/financialHealth.ts` | Yes — but blind to protection & retirement |
 | **Protection / Insurance** | Complete | M5.9 | `household-protection.service.ts`, `/household/protection` | Yes — verified in production |
 | **Retirement Planning** | Complete | M5.10 | `retirement-plan.service.ts`, `household-retirement.service.ts`, `/household/retirement` | **Yes — verified in production 2026-08-17** (§13); one open question: whether any household has yet saved a plan |
-| **Goals** | **PARTIAL** | M5.8 | `household-goals.service.ts`, `/household/goals` | CRUD yes — **moves no figure**. §7 Gap 1 |
+| **Goals** | Complete | M5.8 + **M5.11** | `household-goals.service.ts`, `/household/goals` | Yes — CRUD, and since M5.11 a goal behind schedule raises a risk signal (Gap 1 closed). Still outside the score |
 | **Asset Allocation** | Complete (read-only) | M5 | `core/finance/assetAllocation.ts`; dashboard panel + donut | Yes — analysis only, no rebalancing |
-| **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — 6 signal keys, of which **5 fire for a V2 household**; `goal_slippage` is accepted and never supplied (Gap 1) |
+| **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — all 6 signals now fire for a V2 household; `goal_slippage` was supplied from M5.11 (before it, the signal was emitted but permanently green, telling families with goals to *"add goals"*) |
 | **What-if Simulation** | Complete | M3-3 | `core/finance/financialSimulation.ts`, `household-simulation.service.ts` | Yes — **advisor surface only**, no V2 consumer page |
 | **AI Family CFO** | Complete | M5.7 + M5.10 | `household-ai.service.ts`, `/household/coach` | Yes — coach gated on the `ai_recommendations` entitlement |
 | **Estate & Legacy** | **NOT BUILT** | — | none | No |
@@ -503,7 +503,7 @@ Admin console, Onboarding, Wealth Health Check.
 
 ## 7. The three gaps — verified, and one corrected
 
-### Gap 1 — Goals move no figure · **REAL, CONFIRMED**
+### Gap 1 — Goals move no figure · **CLOSED in M5.11**
 
 - **Verified:** `grep -c "goals" packages/core/src/finance/financialSnapshot.ts` → **0**. The
   payload has no goals section.
@@ -521,10 +521,17 @@ Admin console, Onboarding, Wealth Health Check.
 - **Tests exposing it:** `household-goals.e2e-spec.ts:192` asserts
   `snap.body.payload.goals` is `undefined`; `early-warning-parity.e2e-spec.ts:314` documents that
   V2 carries no goal-derived signal. Both **fail** the day it closes — deliberate tripwires.
-- **Recommended fix:** a `GoalsPlanService` exposing `assumptionsFor()`, feeding a `goalSlippage`
-  array through `assumptions` into `EarlyWarningInput` (which **already accepts `goalSlippage`** —
-  `earlyWarning.ts:22`). `core/finance/goals.ts::planGoal` already computes the gap.
-- **Before the next milestone?** **Yes** — it is the cheapest remaining gap and the seam exists.
+- **Sharper still, on re-reading the engine:** the Goal Progress signal was emitted for V2
+  households all along — permanently green, with the detail *"Add goals to track progress."* A
+  family who had added goals and was badly behind on them was being told to add goals.
+- **Fixed (M5.11):** `HouseholdGoalsService.assumptionsFor()` feeds slippage through
+  `resolveAssumptions()` into `EarlyWarningInput`. No migration, no kernel change, no score change.
+  The definition of slippage moved into `@lcos/core` (`planGoalAsOf`) and both V1 call sites were
+  refactored onto it, so the two generations cannot drift. See
+  `docs/M5_11_GOALS_SIGNAL_ARCHITECTURE.md`.
+- **Both tripwires fired and were rewritten deliberately**, not deleted: the goals e2e now asserts
+  a goal *does* move a figure while the snapshot and score stay untouched, and the parity spec
+  asserts both paths raise the same goal signal. Nothing is excluded from parity any more.
 
 ### Gap 2 — The score ignores Protection and Retirement · **REAL, CONFIRMED**
 
@@ -536,8 +543,10 @@ Admin console, Onboarding, Wealth Health Check.
 - **Owner:** M3-1 (`financialHealth.ts`) — a scoring-model change, not a planning change.
 - **Cost:** adding a category re-weights the model, requiring a `FINANCIAL_HEALTH_MODEL_VERSION`
   bump (currently `fhs-1.0.0`) which **re-bands every stored score**.
-- **Tests exposing it:** none directly. Both M5.9 and M5.10 measured it (protection: score
-  unchanged 90→90) but **no test pins the category list**. This is itself a gap — see Gap 4.
+- **Tests exposing it:** none directly, until M5.11. Both M5.9 and M5.10 measured it (protection:
+  score unchanged 90→90) but no test pinned the category list — Gap 4. `finance.test.ts` now pins
+  the five categories, their weights, the version, and the *absence* of protection and retirement,
+  so M5.12 must change them on purpose.
 - **Before the next milestone?** It deserves to be **its own milestone**, not a side effect.
 
 ### Gap 3 — `usingDefaultAssumptions` · **REAL, BUT NOT AS DESCRIBED**
@@ -765,7 +774,7 @@ M5.5   Consumer activation               provisioning · onboarding · Wealth Ch
 M5.6   Household Dashboard               /household — the V2 consumer home           COMPLETE
 M5.x   V2 primary                        consumers → /household; V1 preserved        COMPLETE
 M5.7   AI Family CFO                     native coach, allow-listed grounding        COMPLETE
-M5.8   Family · Goals · Charts · Parity   native surfaces; DOB unlocks retirement     COMPLETE (Goals PARTIAL)
+M5.8   Family · Goals · Charts · Parity   native surfaces; DOB unlocks retirement     COMPLETE
 M5.9   Protection / Insurance             per-member cover → assumptions.insurance    COMPLETE
 M5.10  Retirement Planning                RetirementPlan → assumptions.retirement     COMPLETE (9311324, live)
 ```
@@ -779,7 +788,7 @@ AI Family CFO · the Advisor Workspace · Admin · V1 intact as the rollback pat
 
 ### OPEN
 
-Goals move no figure (Gap 1) · the score ignores protection and retirement (Gap 2) ·
+The score ignores goals, protection and retirement (Gap 2) ·
 `usingDefaultAssumptions` is binary, not per-field (Gap 3) · nothing pins the score model (Gap 4) ·
 Budget and What-if have no consumer surface (Gap 5) · the snapshot cannot see account `type`
 (Gap 6) · `/onboarding/status` remains a rate-limit pressure point (Gap 7) ·

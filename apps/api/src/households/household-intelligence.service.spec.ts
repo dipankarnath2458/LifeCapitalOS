@@ -71,9 +71,13 @@ const fakeProtection = (insurance?: unknown) =>
 const fakeRetirementPlans = (retirement?: unknown) =>
   ({ assumptionsFor: async () => retirement }) as any;
 
+/** Module-owned goals (M5.11). `undefined` = this household has no goals, which is not the
+ *  same as having goals it is on track for — see `HouseholdGoalsService.assumptionsFor`. */
+const fakeGoals = (goals?: unknown) => ({ assumptionsFor: async () => goals }) as any;
+
 describe('HouseholdIntelligenceService', () => {
   it('composes the canonical intelligence object from the latest snapshot', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans(), fakeGoals());
     const res = await svc.current(household);
     expect(res.available).toBe(true);
     if (res.available) {
@@ -86,7 +90,7 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('resolves the family name only at the decrypted boundary (object stays PII-light otherwise)', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans(), fakeGoals());
     const res = await svc.current(household);
     if (res.available) {
       expect(res.household.name).toBe('Sharma Family');
@@ -95,13 +99,13 @@ describe('HouseholdIntelligenceService', () => {
   });
 
   it('honours an explicit snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans(), fakeGoals());
     const res = await svc.current(household, 'snap_1');
     expect(res.available).toBe(true);
   });
 
   it('404s an unknown snapshotId', async () => {
-    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans());
+    const svc = new HouseholdIntelligenceService(fakeSnapshots(), fakeCrypto, fakeProtection(), fakeRetirementPlans(), fakeGoals());
     await expect(svc.current(household, 'nope')).rejects.toThrow();
   });
 
@@ -111,9 +115,75 @@ describe('HouseholdIntelligenceService', () => {
       fakeCrypto,
       fakeProtection(),
       fakeRetirementPlans(),
+      fakeGoals(),
     );
     const res = await svc.current(household);
     expect(res.available).toBe(false);
     if (!res.available) expect(res.reason).toBe('no snapshot captured');
+  });
+
+  /**
+   * M5.11. The defect this guards against is not arithmetic — it is a module-owned input that
+   * no call site remembers to load. It happened to insurance (M5.9), and `resolveAssumptions`
+   * exists so it cannot happen again; these tests hold that promise for goals specifically.
+   */
+  describe('goals reach the layer without any caller remembering to pass them', () => {
+    const goalRisk = (res: any) =>
+      res.risk.data.topRisks.find((r: { key: string }) => r.key === 'goal_slippage');
+
+    it('a goal that is badly behind becomes a risk signal', async () => {
+      const svc = new HouseholdIntelligenceService(
+        fakeSnapshots(),
+        fakeCrypto,
+        fakeProtection(),
+        fakeRetirementPlans(),
+        fakeGoals({ slippage: [0.62] }),
+      );
+      const res: any = await svc.current(household);
+
+      expect(res.available).toBe(true);
+      expect(goalRisk(res)).toMatchObject({ severity: 'high' });
+      expect(goalRisk(res).detail).toContain('62%');
+    });
+
+    it('a household on track raises nothing — the signal is a finding, not a fixture', async () => {
+      const svc = new HouseholdIntelligenceService(
+        fakeSnapshots(),
+        fakeCrypto,
+        fakeProtection(),
+        fakeRetirementPlans(),
+        fakeGoals({ slippage: [0.02, 0.05] }),
+      );
+      const res: any = await svc.current(household);
+      // Green signals are filtered out of topRisks; the absence IS the pass here.
+      expect(goalRisk(res)).toBeUndefined();
+    });
+
+    it('a household with no goals is not reported as on track', async () => {
+      // `undefined`, not `[]`. Both produce no risk, but only one of them means "we looked and
+      // there is nothing to be behind on" — and the engine's message differs accordingly.
+      const svc = new HouseholdIntelligenceService(
+        fakeSnapshots(),
+        fakeCrypto,
+        fakeProtection(),
+        fakeRetirementPlans(),
+        fakeGoals(undefined),
+      );
+      const res: any = await svc.current(household);
+      expect(goalRisk(res)).toBeUndefined();
+    });
+
+    it('an explicit assumptions argument still overrides the loaded ones', async () => {
+      // The escape hatch the AI grounding path and tests use must keep working.
+      const svc = new HouseholdIntelligenceService(
+        fakeSnapshots(),
+        fakeCrypto,
+        fakeProtection(),
+        fakeRetirementPlans(),
+        fakeGoals({ slippage: [0.9] }),
+      );
+      const res: any = await svc.current(household, undefined, { goals: { slippage: [0.0] } });
+      expect(goalRisk(res)).toBeUndefined();
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Injectable, Module, Param, Post } from '@nestjs/common';
 import { ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
-import { planGoal, type CurrencyCode } from '@lcos/core';
+import { planGoalAsOf, type CurrencyCode } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser } from '../common/decorators';
 
@@ -25,9 +25,6 @@ class CreateGoalDto {
   @ApiProperty({ default: 10 }) @IsOptional() @IsNumber() expectedAnnualReturnPct = 10;
 }
 
-const monthsBetween = (from: Date, to: Date) =>
-  Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
-
 @Injectable()
 class GoalsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -37,13 +34,19 @@ class GoalsService {
     const rows = await this.prisma.goal.findMany({ where: { userId }, orderBy: { targetDate: 'asc' } });
     const now = new Date();
     return rows.map((g) => {
-      const plan = planGoal({
-        targetAmountMinor: Number(g.targetAmountMinor),
-        currentAmountMinor: Number(g.currentAmountMinor),
-        monthsRemaining: monthsBetween(now, g.targetDate),
-        expectedAnnualReturnPct: g.expectedAnnualReturnPct,
-        currency: g.currency as CurrencyCode,
-      });
+      // The horizon and the plan come from `@lcos/core` (M5.11). This file used to carry its
+      // own copy of the month arithmetic, identical to the one in the early-warning input —
+      // two definitions of how long a family had left, in the same process.
+      const { plan } = planGoalAsOf(
+        {
+          targetAmountMinor: Number(g.targetAmountMinor),
+          currentAmountMinor: Number(g.currentAmountMinor),
+          targetDate: g.targetDate,
+          expectedAnnualReturnPct: g.expectedAnnualReturnPct,
+          currency: g.currency as CurrencyCode,
+        },
+        now,
+      );
       return {
         id: g.id,
         name: g.name,

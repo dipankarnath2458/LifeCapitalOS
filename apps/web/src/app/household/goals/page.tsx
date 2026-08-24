@@ -22,6 +22,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
 import {
   addGoal,
+  goalStanding,
   GOAL_TYPES,
   listGoals,
   removeGoal,
@@ -50,6 +51,16 @@ const BLANK = { name: '', type: 'custom', target: '', saved: '', targetDate: '' 
 
 /** Rupees as typed → minor units. The only unit conversion this page performs. */
 const toMinor = (v: string) => Math.round((parseFloat(v) || 0) * 100);
+
+/**
+ * Tone for a goal's standing. Text carries the meaning; colour only reinforces it — the same
+ * accessibility rule M4 set for the pending score state.
+ */
+const STANDING_TONE: Record<'good' | 'watch' | 'bad', string> = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  watch: 'text-amber-600 dark:text-amber-400',
+  bad: 'text-rose-600 dark:text-rose-400',
+};
 
 export default function GoalsPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -268,6 +279,26 @@ export default function GoalsPage() {
                       {formatMoney(g.currentAmountMinor, g.currency)} of{' '}
                       {formatMoney(g.targetAmountMinor, g.currency)} · by{' '}
                       {g.targetDate.slice(0, 10)}
+                    </Text>
+                    {/*
+                      Where the goal actually stands (M5.11). Both figures came from the API —
+                      the same numbers that raise the family's Goal Progress signal, so the page
+                      and the risk card cannot tell them different things. The status is stated
+                      in words as well as tone, because colour alone is not a message.
+                    */}
+                    <Text muted className="mt-1 block text-xs" data-testid="goal-standing">
+                      <span className={STANDING_TONE[goalStanding(g.plan).tone]}>
+                        {goalStanding(g.plan).label}
+                      </span>
+                      {g.plan.gapMinor > 0 ? (
+                        <>
+                          {' · '}
+                          {formatMoney(g.plan.gapMinor, g.currency)} still to fund ·{' '}
+                          {formatMoney(g.plan.monthlySipRequiredMinor, g.currency)}/month
+                        </>
+                      ) : (
+                        ' · fully funded at today’s growth'
+                      )}
                     </Text>
                   </div>
                   <div className="flex gap-2">

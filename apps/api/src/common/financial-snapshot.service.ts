@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   allocationFromValues,
   computeRetirement,
-  planGoal,
+  planGoalAsOf,
   type Allocation,
   type AssetClass,
   type CurrencyCode,
@@ -67,9 +67,6 @@ export interface FinancialSnapshot {
   retirementCorpusGapMinor: number;
 }
 
-const monthsBetween = (from: Date, to: Date) =>
-  Math.max(1, Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
-
 function ageFromDob(dob: Date | null | undefined): number {
   if (!dob) return DEFAULT_AGE;
   const ms = Date.now() - new Date(dob).getTime();
@@ -117,19 +114,23 @@ export class FinancialSnapshotService {
       .reduce((s, a) => s + Number(a.balanceMinor), 0);
     const monthlyDebtPayment = debts.reduce((s, d) => s + Number(d.minimumPaymentMinor), 0);
 
-    // Goal slippage: shortfall as a fraction of target after projected growth.
+    // Goal slippage: shortfall as a fraction of target after projected growth. The definition
+    // moved into `@lcos/core` in M5.11 so the household path feeds the warning engine the same
+    // number this one does; the arithmetic is unchanged.
     const now = new Date();
-    const goalSlippage = goals.map((g) => {
-      const months = monthsBetween(now, g.targetDate);
-      const plan = planGoal({
-        targetAmountMinor: Number(g.targetAmountMinor),
-        currentAmountMinor: Number(g.currentAmountMinor),
-        monthsRemaining: months,
-        expectedAnnualReturnPct: g.expectedAnnualReturnPct,
-        currency: g.currency as CurrencyCode,
-      });
-      return Number(g.targetAmountMinor) > 0 ? plan.gap.minor / Number(g.targetAmountMinor) : 0;
-    });
+    const goalSlippage = goals.map(
+      (g) =>
+        planGoalAsOf(
+          {
+            targetAmountMinor: Number(g.targetAmountMinor),
+            currentAmountMinor: Number(g.currentAmountMinor),
+            targetDate: g.targetDate,
+            expectedAnnualReturnPct: g.expectedAnnualReturnPct,
+            currency: g.currency as CurrencyCode,
+          },
+          now,
+        ).slippage,
+    );
 
     const age = ageFromDob(profile?.dateOfBirth);
     const existingLifeCover = Number(profile?.termLifeCoverMinor ?? 0);

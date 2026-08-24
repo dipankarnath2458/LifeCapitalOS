@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Goal, GoalType } from '@prisma/client';
+import { planGoalAsOf, type CurrencyCode } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/audit.service';
 import { AuthUser } from '../common/decorators';
@@ -31,11 +32,16 @@ import { CreateHouseholdGoalDto, UpdateHouseholdGoalDto } from './household-goal
  * Supporting advisor-created goals properly means relaxing `Goal.userId` to nullable, which is a
  * schema change and a separate decision.
  *
- * ## What goals do NOT do
+ * ## What goals do — and still do not — move (M5.11)
  *
- * They move no figure. The Financial Snapshot has no goals section, so a goal changes nothing in
- * the dashboard, the health score or the AI grounding. See §3 of the architecture note for what
- * closing that gap would cost and why it is deliberately still open.
+ * A goal now reaches the Financial Intelligence Layer as a **module-owned assumption**, the same
+ * route Protection (M5.9) and Retirement (M5.10) take, and produces a Goal Progress signal in the
+ * early-warning report. `assumptionsFor` below is the whole of that seam.
+ *
+ * The Financial Snapshot still has no goals section, and the Wealth Health Score still does not
+ * count goals. Both are deliberate: the snapshot payload is frozen at `schemaVersion 1`, and
+ * changing what "health" means re-bands every score already shown to a family — a decision of
+ * its own, not a side effect of this one.
  */
 @Injectable()
 export class HouseholdGoalsService {
@@ -44,7 +50,27 @@ export class HouseholdGoalsService {
     private readonly audit: AuditService,
   ) {}
 
-  private serialize(g: Goal) {
+  /**
+   * Where a goal stands right now. One call into the core planner — the same one the retail
+   * list and the early-warning input use — so the figure a family reads on the goals page is
+   * arithmetically the figure that raises their risk signal. No arithmetic here, and none in
+   * the page that renders it.
+   */
+  private planOf(g: Goal, now: Date) {
+    return planGoalAsOf(
+      {
+        targetAmountMinor: Number(g.targetAmountMinor),
+        currentAmountMinor: Number(g.currentAmountMinor),
+        targetDate: g.targetDate,
+        expectedAnnualReturnPct: g.expectedAnnualReturnPct,
+        currency: g.currency as CurrencyCode,
+      },
+      now,
+    );
+  }
+
+  private serialize(g: Goal, now = new Date()) {
+    const { plan, monthsRemaining, slippage } = this.planOf(g, now);
     return {
       id: g.id,
       householdId: g.householdId,
@@ -55,6 +81,19 @@ export class HouseholdGoalsService {
       currentAmountMinor: Number(g.currentAmountMinor),
       targetDate: g.targetDate,
       expectedAnnualReturnPct: g.expectedAnnualReturnPct,
+      /**
+       * Additive (M5.11), and shaped like the retail `/goals` list so the two generations
+       * describe a goal the same way. Existing fields are untouched.
+       */
+      plan: {
+        monthsRemaining,
+        projectedCurrentMinor: plan.projectedCurrentMinor.minor,
+        gapMinor: plan.gap.minor,
+        monthlySipRequiredMinor: plan.monthlySipRequired.minor,
+        progress: plan.progress,
+        /** Unfunded fraction of the target in [0,1] — what the warning engine bands. */
+        slippage,
+      },
     };
   }
 
@@ -87,7 +126,55 @@ export class HouseholdGoalsService {
       where: { householdId },
       orderBy: { targetDate: 'asc' },
     });
-    return rows.map((g) => this.serialize(g));
+    // One clock for the whole list: two goals read in the same request must be measured from
+    // the same instant, or an identical pair could report different horizons.
+    const now = new Date();
+    return rows.map((g) => this.serialize(g, now));
+  }
+
+  /**
+   * Goals as a module-owned input to the Financial Intelligence Layer (M5.11).
+   *
+   * The layer is given slippage per goal — not the goals themselves — because that is the only
+   * thing the early-warning engine consumes, and a family's goal names have no business in an
+   * AI-grounding payload.
+   *
+   * Returns `undefined` when this household has no goals, which the layer passes on as "not
+   * asked" and the engine renders as *"Add goals to track progress"*. An empty array would be a
+   * different claim — "we looked, and you have none to be behind on" — and reads identically to
+   * a family with three goals they are on track for. Callers must not substitute one for the
+   * other; this is the same distinction M5.9 drew for insurance, where `false` and `null` were
+   * conflated and the product asserted an absence it had never been told.
+   */
+  async assumptionsFor(householdId: string): Promise<{ slippage: number[] } | undefined> {
+    const rows = await this.prisma.goal.findMany({
+      where: { householdId },
+      select: {
+        targetAmountMinor: true,
+        currentAmountMinor: true,
+        targetDate: true,
+        expectedAnnualReturnPct: true,
+        currency: true,
+      },
+    });
+    if (rows.length === 0) return undefined;
+
+    const now = new Date();
+    return {
+      slippage: rows.map(
+        (g) =>
+          planGoalAsOf(
+            {
+              targetAmountMinor: Number(g.targetAmountMinor),
+              currentAmountMinor: Number(g.currentAmountMinor),
+              targetDate: g.targetDate,
+              expectedAnnualReturnPct: g.expectedAnnualReturnPct,
+              currency: g.currency as CurrencyCode,
+            },
+            now,
+          ).slippage,
+      ),
+    };
   }
 
   async create(
