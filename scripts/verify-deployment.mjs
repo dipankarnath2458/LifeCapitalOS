@@ -10,10 +10,12 @@
  * Usage:
  *   node scripts/verify-deployment.mjs \
  *     --api https://lifecapitalos-api-production.up.railway.app \
- *     --web https://lifecapitalos.com
+ *     --web https://lifecapitalos.com \
+ *     [--expect-commit <sha>]
  *
  * Exits non-zero if any FAIL is recorded. WARNs do not fail the run.
- * Read-only: it sends no request that creates data or sends email.
+ * Read-only: it sends no request that creates data or sends email. The route probes below
+ * are unauthenticated GETs read for their status code alone; they reach no data.
  */
 
 const args = process.argv.slice(2);
@@ -25,6 +27,10 @@ function arg(name, fallback = null) {
 const API = (arg('api') ?? process.env.VERIFY_API_URL ?? '').replace(/\/+$/, '');
 const WEB = (arg('web') ?? process.env.VERIFY_WEB_URL ?? '').replace(/\/+$/, '');
 const EXPECT_PROD = arg('env', 'production') === 'production';
+// Optional: the commit the deployment is expected to be serving. Given, a mismatch FAILS;
+// omitted, the build is only reported. Left optional deliberately — a routine check run
+// during a deploy window should not go red merely because the rollout is still in progress.
+const EXPECT_COMMIT = (arg('expect-commit') ?? process.env.VERIFY_EXPECT_COMMIT ?? '').trim();
 // Optional: the domain email is sent FROM. When given, the sending DNS records are checked.
 const EMAIL_DOMAIN = arg('email-domain') ?? process.env.VERIFY_EMAIL_DOMAIN ?? '';
 
@@ -87,6 +93,62 @@ try {
   else if (health) pass('database reachable from the API');
 } catch (err) {
   fail('GET /api/health', err.message);
+}
+
+/* -------------------------------------------------------- build identity */
+// "Is the merged code actually live?" had no direct answer until this section existed:
+// /api/health named no build, Swagger is off in production, and the only available signal
+// was whether an authenticated route answered 401 or 404. Both halves are checked here —
+// what the build says about itself, and what its routing table proves independently.
+section('Build identity');
+
+if (!health) {
+  warn('build identity', 'skipped — /api/health did not answer');
+} else if (!health.commit) {
+  warn(
+    'the API does not report a commit',
+    'no RAILWAY_GIT_COMMIT_SHA or GIT_COMMIT_SHA in its environment — build identity is unknown',
+  );
+} else if (!EXPECT_COMMIT) {
+  pass('the API reports its build', `commit=${health.commit}`);
+} else if (EXPECT_COMMIT.slice(0, 7) === health.commit.slice(0, 7)) {
+  pass('the running build is the expected commit', health.commit);
+} else {
+  fail(
+    'the running build is NOT the expected commit',
+    `serving ${health.commit}, expected ${EXPECT_COMMIT.slice(0, 7)} — the deploy is pending or failed`,
+  );
+}
+
+// A route the build HAS answers 401 without a token, because the global JwtAuthGuard runs.
+// A route it does NOT have 404s from the router before any guard is reached. That gap is
+// what turns an auth response into a build check — and it only holds while a missing route
+// really does 404, which is why the control is probed first and a failure there voids the
+// rest instead of quietly reporting three passes that prove nothing.
+const MILESTONE_ROUTES = [
+  ['/api/households/probe/goals', 'M5.8 Goals'],
+  ['/api/households/probe/protection', 'M5.9 Protection'],
+  ['/api/households/probe/retirement', 'M5.10 Retirement'],
+];
+try {
+  const control = await get(`${API}/api/households/probe/__no_such_route__`);
+  if (control.status !== 404) {
+    fail(
+      'the route probe is not a valid check',
+      `the control path answered ${control.status}, expected 404 — missing routes are indistinguishable from unauthorised ones, so no conclusion can be drawn`,
+    );
+  } else {
+    pass('control path 404s', 'a missing route is distinguishable from an unauthorised one');
+    for (const [path, label] of MILESTONE_ROUTES) {
+      const res = await get(`${API}${path}`);
+      if (res.status === 401) pass(`${label} is in the running build`);
+      else if (res.status === 404) {
+        fail(`${label} is MISSING from the running build`, 'the live build predates this milestone');
+      } else warn(`${label} probe`, `HTTP ${res.status} — expected 401`);
+    }
+  }
+} catch (err) {
+  warn('milestone route probes', err.message);
 }
 
 /* ------------------------------------------------------- security headers */

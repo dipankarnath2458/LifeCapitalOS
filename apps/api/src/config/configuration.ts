@@ -4,6 +4,16 @@ export interface AppConfig {
   port: number;
   nodeEnv: string;
   /**
+   * Which build is running, surfaced on `/api/health`.
+   *
+   * Confirming that a merged milestone is actually live used to require inferring it from
+   * whether an authenticated route answered 401 or 404, because nothing the deployment
+   * exposes names its own build. Railway injects `RAILWAY_GIT_COMMIT_SHA` into the service
+   * environment; other platforms set `GIT_COMMIT_SHA`. `null` when neither is present —
+   * "unknown" is reported as unknown, never as a plausible-looking placeholder.
+   */
+  build: { commit: string | null };
+  /**
    * When true, one-time secrets (OTP codes, password-reset tokens) are returned in
    * API responses for local testing. Opt-in ONLY (SANDBOX_RETURN_SECRETS=true) — never
    * derived from NODE_ENV, so a misconfigured deploy cannot leak them. Forced off in
@@ -78,6 +88,15 @@ export default (): AppConfig => {
   return {
     port: parseInt(process.env.PORT ?? '4000', 10),
     nodeEnv,
+    // Short SHA only: enough to identify a build against `git log`, and the smallest thing
+    // that answers "is the merged code live?". Whitespace-trimmed because a value pasted
+    // into a platform variable often carries a trailing newline.
+    build: {
+      commit:
+        (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? '')
+          .trim()
+          .slice(0, 7) || null,
+    },
     // Opt-in only, and never in production.
     returnDevSecrets: process.env.SANDBOX_RETURN_SECRETS === 'true' && nodeEnv !== 'production',
     corsOrigins,

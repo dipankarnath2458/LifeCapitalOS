@@ -128,6 +128,40 @@ describe('configuration()', () => {
     expect(configuration().email.provider).toBe('resend');
   });
 
+  // Build identity. The point of `commit` is to answer "is the merged code live?" directly
+  // rather than by inference, so the one thing it must never do is invent an answer: an
+  // absent SHA has to stay absent, or a deployment that reports no build would be
+  // indistinguishable from one reporting a stale build.
+  it('reports no commit when the platform supplies none — never a placeholder', () => {
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    delete process.env.GIT_COMMIT_SHA;
+    expect(configuration().build.commit).toBeNull();
+  });
+
+  it('shortens the platform SHA to something matchable against git log', () => {
+    process.env.RAILWAY_GIT_COMMIT_SHA = '931132441a07cce05c459a85f80e3be87bd1e7a3';
+    expect(configuration().build.commit).toBe('9311324');
+  });
+
+  it('prefers Railway’s variable but works on any platform that sets GIT_COMMIT_SHA', () => {
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    process.env.GIT_COMMIT_SHA = 'abcdef1234567890';
+    expect(configuration().build.commit).toBe('abcdef1');
+
+    process.env.RAILWAY_GIT_COMMIT_SHA = '1234567890abcdef';
+    expect(configuration().build.commit).toBe('1234567');
+  });
+
+  it('treats a blank or whitespace-only value as absent, not as a build called ""', () => {
+    // A value pasted into a platform variable arrives with a trailing newline more often
+    // than not, and `''.slice(0, 7)` is a falsy string that would serialise as `commit: ""`.
+    process.env.RAILWAY_GIT_COMMIT_SHA = '  \n';
+    expect(configuration().build.commit).toBeNull();
+    process.env.RAILWAY_GIT_COMMIT_SHA = '';
+    delete process.env.GIT_COMMIT_SHA;
+    expect(configuration().build.commit).toBeNull();
+  });
+
   it('never returns one-time secrets in production, even when the flag is set', () => {
     process.env.NODE_ENV = 'production';
     process.env.SANDBOX_RETURN_SECRETS = 'true';
