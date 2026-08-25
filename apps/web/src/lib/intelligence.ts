@@ -89,6 +89,27 @@ export interface OpportunityData {
   longTerm: { key: string; title: string; rationale: string; estimatedImpact: Severity }[];
 }
 
+/** Where a figure came from (M5.14, Gap 3). Mirrors `FieldSource` in `@lcos/core`. */
+export type FieldSource = 'stated' | 'derived' | 'default';
+
+export interface ResolvedField<T = number> {
+  value: T;
+  source: FieldSource;
+}
+
+/** Every retirement assumption the projection used, each with its provenance (M5.14). */
+export interface ResolvedRetirementAssumptions {
+  retirementAge: ResolvedField;
+  yearsInRetirement: ResolvedField;
+  desiredAnnualIncomeMinor: ResolvedField;
+  currentCorpusMinor: ResolvedField;
+  inflationRatePct: ResolvedField;
+  preRetirementReturnPct: ResolvedField;
+  postRetirementReturnPct: ResolvedField;
+  /** `null` when never stated — the one figure with no honest default. */
+  monthlyContributionMinor: ResolvedField | null;
+}
+
 export interface RetirementData {
   currentCorpusMinor: number;
   requiredCorpusMinor: number;
@@ -96,7 +117,14 @@ export interface RetirementData {
   readinessPct: number;
   onTrack: boolean;
   monthlySipRequiredMinor: number;
+  /**
+   * True when ANY assumption below is ours rather than the family's.
+   *
+   * Kept for compatibility, but the dashboard should read `assumptions` instead: this cannot
+   * say *which* figure was assumed, which is exactly what Gap 3 was.
+   */
   usingDefaultAssumptions: boolean;
+  assumptions: ResolvedRetirementAssumptions;
 }
 
 export interface InsuranceData {

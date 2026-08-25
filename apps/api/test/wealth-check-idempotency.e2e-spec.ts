@@ -452,11 +452,16 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     await runCheck(token, householdId, FULL);
     const twice = await intelligence(token, householdId);
 
-    // The corpus proxy is reconciled net worth. Doubling assets doubled it before.
+    // The property under test is idempotency: doubling assets doubled the corpus before, and
+    // this asserts a second run changes nothing. That is unaffected by M5.14 and still holds.
     expect(twice.body.retirement.data.currentCorpusMinor).toBe(
       once.body.retirement.data.currentCorpusMinor,
     );
-    expect(twice.body.retirement.data.currentCorpusMinor).toBe(rupees(1800000 - 350000));
+    // The figure itself changed deliberately in M5.14: the corpus is now investable assets
+    // (cash + investments), not reconciled net worth. The home is not retirement money, and a
+    // mortgage is a claim on income rather than on the retirement pot — so ₹3L of property is
+    // excluded and the ₹3.5L loan is no longer netted off.
+    expect(twice.body.retirement.data.currentCorpusMinor).toBe(rupees(500000 + 1000000));
   });
 
   it('14 — AI grounding still receives the reconciled net worth', async () => {

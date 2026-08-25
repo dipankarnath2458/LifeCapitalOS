@@ -119,6 +119,34 @@ export const reconciledNetWorthMinor = (p: FinancialSnapshotPayload): number =>
   p.netWorth.netWorthMinor - (p.debt?.totalOutstandingMinor ?? 0);
 
 /**
+ * The assets a family could actually retire on — everything except the roof over their head.
+ *
+ * ## Why this is not reconciled net worth (M5.14)
+ *
+ * Nobody sells the family home to buy groceries at seventy. Counting it as retirement corpus
+ * funds a projection with an asset that will never be spent, and for a homeowning household that
+ * is not a rounding error: on a family holding ₹80,00,000 of property against ₹20,00,000 of
+ * investments, reconciled net worth reports **four times** the corpus this does.
+ *
+ * M5.10 established this as the right definition (Decision 1 of its architecture) and implemented
+ * it in `RetirementPlanService.investableCorpusMinor` — but only there. The intelligence layer
+ * kept its own fallback of reconciled net worth, so a family **without a stated plan** saw one
+ * corpus on `/household` and a different one on `/household/retirement`. Same household, same
+ * moment, two numbers, and nothing on either screen to say why.
+ *
+ * It lives here for the same reason `reconciledNetWorthMinor` does: it has more than one caller,
+ * and a second copy is how the two drifted apart in the first place.
+ *
+ * A **selection, not a calculation** — it sums the snapshot's own allocation and drops
+ * `real_estate`. It never returns a negative: debt is not netted off here, because the projection
+ * treats a mortgage as a claim on income rather than on the retirement pot.
+ */
+export const investableCorpusMinor = (p: FinancialSnapshotPayload): number =>
+  (p.assetAllocation ?? [])
+    .filter((a) => a.assetClass !== 'real_estate')
+    .reduce((sum, a) => sum + a.baseValueMinor, 0);
+
+/**
  * Deterministic canonicalization: recursively sort object keys so the same logical
  * payload always serializes to the same string (a stable checksum input). Arrays keep
  * their order (order is meaningful in the payload).

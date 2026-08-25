@@ -29,6 +29,7 @@ import {
   toneFor,
   type DashboardState,
   type HouseholdIntelligence,
+  type ResolvedRetirementAssumptions,
   type Section,
 } from '@/lib/intelligence';
 import {
@@ -81,6 +82,49 @@ function Panel<T>({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Names the figures in the retirement projection that are OURS, not the family's (M5.14, Gap 3).
+ *
+ * Three provenances, and only one of them warrants a caveat:
+ *
+ * - `stated`  — they told us. Nothing to say.
+ * - `derived` — computed from figures they recorded. Also theirs; saying "standard assumptions"
+ *               about their own corpus was the understating half of Gap 3.
+ * - `default` — our documented convention, which they never chose. This is the only one worth
+ *               a family's attention, and now it is named rather than implied.
+ *
+ * Renders nothing when every figure is theirs — silence is the correct output for a complete plan.
+ */
+function AssumedFrom({ assumptions }: { assumptions: ResolvedRetirementAssumptions }) {
+  const LABELS: Record<string, string> = {
+    retirementAge: 'the age you retire',
+    yearsInRetirement: 'how long you plan for',
+    inflationRatePct: 'inflation',
+    preRetirementReturnPct: 'investment growth before retirement',
+    postRetirementReturnPct: 'investment growth after',
+    currentCorpusMinor: 'your retirement savings',
+    desiredAnnualIncomeMinor: 'the income you want',
+  };
+
+  const ours = Object.entries(assumptions)
+    .filter(([, f]) => f !== null && f.source === 'default')
+    .map(([key]) => LABELS[key] ?? key);
+
+  if (ours.length === 0) return null;
+
+  const list =
+    ours.length === 1
+      ? ours[0]
+      : `${ours.slice(0, -1).join(', ')} and ${ours[ours.length - 1]}`;
+
+  return (
+    <Text muted className="block text-xs" data-testid="retirement-assumed">
+      We assumed {list}. Everything else comes from your own figures — set your plan to replace
+      what we assumed.
+    </Text>
   );
 }
 
@@ -445,11 +489,12 @@ export default function HouseholdDashboardPage() {
                   </Badge>
                 </div>
                 <Figure label="Monthly SIP needed" value={money(r.monthlySipRequiredMinor)} />
-                {r.usingDefaultAssumptions && (
-                  <Text muted className="block text-xs">
-                    Based on standard assumptions — add your retirement plans to refine this.
-                  </Text>
-                )}
+                {/* Gap 3 (M5.14). This used to be one blanket sentence shown whenever the family
+                    had no plan row — so a family who had stated their retirement age and target
+                    income saw the identical message to one who had stated nothing, and figures
+                    derived from their OWN recorded data were described as our assumptions.
+                    Now it names only what is actually ours. */}
+                <AssumedFrom assumptions={r.assumptions} />
               </div>
             )}
           </Panel>
