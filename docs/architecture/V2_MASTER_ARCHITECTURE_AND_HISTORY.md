@@ -205,7 +205,7 @@ PR #69 (design, `df3bac9`), **PR #70 merge commit `9311324`**, implementation co
 
 ---
 
-#### M5.10a — Production build identity · **COMPLETE, UNMERGED** (2026-08-24)
+#### M5.10a — Production build identity · **COMPLETE, MERGED** (PR #71, `c68b1f5`)
 
 Commit `f001925`. Remediates the method problem this audit hit in §13: production could not name
 its own build. `/api/health` reports `commit`; `scripts/verify-deployment.mjs` gained a Build
@@ -214,7 +214,7 @@ pins the behaviour the external check depends on. **No migration. No schema chan
 
 ---
 
-#### M5.11 — Goals become a signal · **COMPLETE, UNMERGED** (2026-08-24)
+#### M5.11 — Goals become a signal · **COMPLETE, MERGED** (PR #72, `0ace61a`)
 
 Commit `8de6932`. Closes Gap 1 (§7) and Gap 4. Goals reach the Financial Intelligence Layer as a
 module-owned assumption — `HouseholdGoalsService.assumptionsFor()` → `resolveAssumptions()` →
@@ -227,7 +227,7 @@ score change.**
 
 ---
 
-#### M5.12 — Wealth Health Score v2 · **COMPLETE, UNMERGED** (2026-08-24)
+#### M5.12 — Wealth Health Score v2 · **COMPLETE, MERGED** (PR #73, `96b4f3b`)
 
 Closes Gap 2 (§7), the last of the three gaps this audit opened with. The score gains
 **Protection** and **Retirement Readiness**; `FINANCIAL_HEALTH_MODEL_VERSION` becomes
@@ -971,22 +971,47 @@ false-positive cases: an unreachable API warns and exits non-zero rather than pa
 catch-all stub that answers 401 everywhere is rejected outright. The next production run of
 `verify-production.yml` answers "is the merged build live?" directly rather than by inference.
 
-### BLOCKED — pending user verification
+### CLOSED FROM PRODUCTION — 2026-08-25
 
-1. **Whether any real household has a `RetirementPlan` row.** *Attempted 2026-08-24 and could not
-   be performed from this session*: the assistant holds no authenticated production session, and
-   the organisation's egress policy rejects both production hosts outright
-   (`connect_rejected … lifecapitalos-api-production.up.railway.app:443` and
-   `www.lifecapitalos.com:443`). Obtaining access was explicitly out of bounds — no seeding, no
-   role change, no guessed account, no privilege escalation — so the item stands as **pending user
-   verification** rather than unknown for want of investigation. Two read-only routes to the
-   answer exist and neither needs database access, and both require a session the user already
-   has:
-   `GET /api/admin/audit?action=household.retirement.upsert` (every plan write logs that action —
-   `household-retirement.service.ts:147-156`, field names only, no values), whose rows carry
-   `actorId` so a founder test can be told apart from a real family; or
-   `SELECT count(*), min("createdAt") FROM "RetirementPlan";`. `prisma/seed.ts` never creates a
-   plan and there is no audit pruning, so an empty audit result implies no rows.
+1. **Whether any real household has a `RetirementPlan` row — YES. Confirmed in production.**
+
+   *History, preserved.* Attempted 2026-08-24 and **could not** be performed from the assistant's
+   session: it holds no authenticated production session, and the organisation's egress policy
+   rejects both production hosts outright (`connect_rejected …
+   lifecapitalos-api-production.up.railway.app:443` and `www.lifecapitalos.com:443`). Obtaining
+   access was out of bounds — no seeding, no role change, no guessed account, no privilege
+   escalation — so the item stood as *pending user verification* rather than unknown for want of
+   investigation.
+
+   *Closed 2026-08-25*, and by a shorter route than the audit query: the founder supplied the live
+   consumer dashboard for the household **"The Bhuyan"**, whose Wealth Health card renders
+   **Retirement Readiness 55/100** as a scored category (₹1,01,421 monthly SIP needed; ₹2.84cr
+   balance sheet). That category cannot be rendered without a stored plan, and the chain is closed
+   in merged code rather than inferred from the screen:
+
+   - `financialHealth.ts:412-414` — the retirement category is pushed only `if (c && f)`, where
+     `f = facts.retirement`;
+   - `healthFacts.ts:101` — `retirementFacts` returns `null` unless `assumptions.retirement` is
+     defined;
+   - `retirement-plan.service.ts:165-167` — `assumptionsFor` returns `undefined` when `!plan`;
+   - `retirement-plan.service.ts:72-74` — `find()` is
+     `prisma.retirementPlan.findUnique({ where: { householdId } })`.
+
+   **So retirement scoring is exercised by real production data, not only by fixtures.** No
+   production data was read beyond what the founder's own dashboard displays, and none was
+   modified.
+
+   *The same screen independently confirmed the milestone's riskiest guarantee under real data:*
+   only **six** categories are scored and **Protection is absent rather than zero** ("No insurance
+   details recorded yet, so protection cannot be assessed"; completeness note: "We have 83% of the
+   picture. Still missing: insurancePolicies"). A family that has told us nothing about insurance
+   is not marked down for it — the #67 lesson holding in production.
+
+   **What this does not establish.** It proves *at least one* plan exists; it gives no count, and
+   it does not distinguish a household belonging to an external customer from the founder's own —
+   consumer households each live in their own firm, so the advisor view does not separate them. If
+   either matters, `GET /api/admin/audit?action=household.retirement.upsert` (rows carry `actorId`)
+   or `SELECT count(*), min("createdAt") FROM "RetirementPlan";` answers it read-only.
 
 ### UNKNOWN — requires further investigation
 
