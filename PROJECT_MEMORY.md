@@ -25,9 +25,14 @@
   (awaiting approval).
 - **M3-1 Financial Health Score (implemented, first kernel consumer):** design in
   [`M3_FINANCIAL_HEALTH_DESIGN.md`](./docs/architecture/M3_FINANCIAL_HEALTH_DESIGN.md). Pure core
-  `computeFinancialHealthScore(payload, model)` in `@lcos/core/finance/financialHealth.ts` (model
-  `fhs-1.0.0`): 5 weighted categories (net_worth 25, debt_burden 25, savings 20, liquidity 20, diversification
-  10), each a monotonic piecewise-linear anchor map → explainable sub-score with metric/reason/suggestion;
+  `computeFinancialHealthScore(payload, model, facts)` in `@lcos/core/finance/financialHealth.ts`.
+  **Current model `fhs-2.0.0` (M5.12): 7 weighted categories — net_worth 17.5, debt_burden 17.5, savings 14,
+  liquidity 14, diversification 7, protection 15, retirement 15 (total 100).** The five originals are the
+  `fhs-1.0.0` weights (25/25/20/20/10) scaled by exactly **0.7**, which is load-bearing: a household that has
+  recorded neither protection nor a retirement plan has those categories **omitted** (never scored zero), and
+  renormalising the remaining 70 restores the original proportions, so its score is unchanged from
+  `fhs-1.0.0` to the integer. Each category is a monotonic piecewise-linear anchor map → explainable
+  sub-score with metric/reason/suggestion;
   overall bands at_risk/needs_attention/fair/good/excellent. **Deterministic, no IO/clock/random.** NOTE:
   the kernel's `netWorth.solvencyRatio` is **net worth ÷ assets** (≤1), not assets÷liabilities — anchors set
   accordingly. Service `HouseholdHealthScoreService` depends **only** on `HouseholdFinancialSnapshotService`
