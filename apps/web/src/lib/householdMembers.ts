@@ -1,5 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from './api';
-import { getOnboardingStatus } from './household';
+import { resolveHousehold, type UnavailableReason } from './household';
 
 /**
  * Household members — the V2 family client (M5.8 PR 1).
@@ -54,20 +54,55 @@ export interface MemberInput {
 /** True when this member has a sign-in — the row the API will not let you delete. */
 export const hasPortalLogin = (m: HouseholdMemberRecord) => m.userId !== null;
 
-async function householdId(token: string): Promise<string | null> {
-  const status = await getOnboardingStatus(token);
-  return status?.householdId ?? null;
+/**
+ * The family list, or why it cannot be shown (Gap 7).
+ *
+ * `null` used to mean both "you have no household" and "we could not find out", so a throttled
+ * `/onboarding/status` showed a family with members an invitation to onboard.
+ */
+export type MembersResult =
+  | { kind: 'ready'; members: HouseholdMemberRecord[] }
+  | { kind: 'none' }
+  | { kind: 'unavailable'; reason: UnavailableReason };
+
+/**
+ * The id for a write.
+ *
+ * Writes still throw, as they always did — a button press that cannot proceed is an error the
+ * caller already handles. What changed is that the throw now says *which* failure it was, so a
+ * page can tell "set up your household first" apart from "we could not reach us just now".
+ */
+async function householdIdForWrite(token: string): Promise<string> {
+  const resolution = await resolveHousehold(token);
+  if (resolution.kind === 'resolved') return resolution.householdId;
+  throw new HouseholdUnavailableError(resolution.kind === 'none' ? 'none' : resolution.reason);
 }
 
-export async function listMembers(token: string): Promise<HouseholdMemberRecord[] | null> {
-  const id = await householdId(token);
-  if (!id) return null;
-  return apiGet<HouseholdMemberRecord[]>(`/households/${id}/members`, token);
+export class HouseholdUnavailableError extends Error {
+  readonly reason: 'none' | UnavailableReason;
+
+  constructor(reason: 'none' | UnavailableReason) {
+    super(reason === 'none' ? 'No household' : `Household unavailable: ${reason}`);
+    this.name = 'HouseholdUnavailableError';
+    this.reason = reason;
+  }
+}
+
+export async function listMembers(token: string): Promise<MembersResult> {
+  const resolution = await resolveHousehold(token);
+  if (resolution.kind === 'unavailable') {
+    return { kind: 'unavailable', reason: resolution.reason };
+  }
+  if (resolution.kind === 'none') return { kind: 'none' };
+  const members = await apiGet<HouseholdMemberRecord[]>(
+    `/households/${resolution.householdId}/members`,
+    token,
+  );
+  return { kind: 'ready', members };
 }
 
 export async function addMember(token: string, input: MemberInput): Promise<HouseholdMemberRecord> {
-  const id = await householdId(token);
-  if (!id) throw new Error('No household');
+  const id = await householdIdForWrite(token);
   return apiPost<HouseholdMemberRecord>(`/households/${id}/members`, body(input), token);
 }
 
@@ -76,14 +111,12 @@ export async function updateMember(
   memberId: string,
   input: Partial<MemberInput>,
 ): Promise<HouseholdMemberRecord> {
-  const id = await householdId(token);
-  if (!id) throw new Error('No household');
+  const id = await householdIdForWrite(token);
   return apiPatch<HouseholdMemberRecord>(`/households/${id}/members/${memberId}`, body(input), token);
 }
 
 export async function removeMember(token: string, memberId: string): Promise<void> {
-  const id = await householdId(token);
-  if (!id) throw new Error('No household');
+  const id = await householdIdForWrite(token);
   await apiDelete(`/households/${id}/members/${memberId}`, token);
 }
 

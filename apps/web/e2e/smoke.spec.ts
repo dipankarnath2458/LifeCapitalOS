@@ -1021,6 +1021,154 @@ test.describe('V2 primary / V1 safety net', () => {
   });
 });
 
+/**
+ * Gap 7 — a throttled lookup must never be shown as "you have no household".
+ *
+ * `/onboarding/status` is the most-called route in the product and is rate limited per route per
+ * IP. When it answered 429, `resolveHouseholdId` returned `null` — the same value it returns for
+ * a family who has never onboarded — and six consumer surfaces rendered "Let's set up your
+ * household first" to families whose households were fully populated.
+ *
+ * The unit suite proves the resolver keeps the three states apart. These prove the *pages* do,
+ * which is where the family actually meets the bug. Each intercepts the real endpoint and forces
+ * the failure, so what is under test is the rendered screen, not a mock's return value.
+ */
+test.describe('a throttled household lookup is not an empty household', () => {
+  /** Forces every household-status lookup to answer 429, exactly as the limiter does. */
+  async function throttleStatus(page: Page): Promise<void> {
+    await page.route('**/api/onboarding/status', (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({ statusCode: 429, message: 'ThrottlerException: Too Many Requests' }),
+      }),
+    );
+  }
+
+  const SURFACES = [
+    '/household/goals',
+    '/household/retirement',
+    '/household/protection',
+    '/household/family',
+  ];
+
+  for (const path of SURFACES) {
+    test(`${path} says it could not load, rather than inviting them to onboard`, async ({
+      page,
+      request,
+    }) => {
+      const consumer = await createAccount(request);
+      await asReturningConsumer(page, request, consumer);
+      await signIn(page, consumer, PASSWORD);
+
+      // Sign-in caches the id, and a cached id is a correct answer — so clear it first, or the
+      // page would never consult the endpoint this test is throttling and would pass vacuously.
+      await page.evaluate(() => sessionStorage.clear());
+      await throttleStatus(page);
+      await page.goto(path);
+
+      const unavailable = page.getByTestId('household-unavailable');
+      await expect(unavailable).toBeAttached();
+      await expect(unavailable).toHaveAttribute('data-reason', 'rate-limited');
+
+      // The whole point: the onboarding invitation must NOT be what they see.
+      await expect(page.getByText(/set up your household first/i)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Get started' })).toHaveCount(0);
+      // And they are offered a way forward that does not involve re-onboarding.
+      await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    });
+  }
+
+  test('the Wealth Health Check refuses to open a blank form over figures it could not read', async ({
+    page,
+    request,
+  }) => {
+    // The most dangerous instance. A failed prefill used to leave every field empty; pressing
+    // "See my score" then wrote those blanks over a household that had figures all along.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.evaluate(() => sessionStorage.clear());
+    await throttleStatus(page);
+    await page.goto('/wealth-health');
+
+    await expect(page.getByTestId('household-unavailable')).toBeAttached();
+    // No submittable form, so no way to overwrite what we could not read.
+    await expect(page.getByLabel('Cash & savings (₹)')).toHaveCount(0);
+  });
+
+  test('a consumer typing /app is not stranded in the Advisor Workspace', async ({
+    page,
+    request,
+  }) => {
+    // `own?.hasOwnHousehold` read false on a 429, so the redirect never fired and a consumer
+    // landed in the Advisor Workspace looking at their own household as though it were a client's.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await throttleStatus(page);
+    await page.goto('/app');
+
+    await expect(page.getByText(/could not load your workspace/i)).toBeVisible();
+    await expect(page.getByText(/Advisor workspace/)).toHaveCount(0);
+  });
+
+  test('a family who genuinely has no household still gets the onboarding invitation', async ({
+    page,
+    request,
+  }) => {
+    // The other half of the contract. Separating the states is only correct if the real
+    // "no household" case is untouched — otherwise the fix has broken onboarding to fix an error.
+    const consumer = await createAccount(request);
+    await signIn(page, consumer, PASSWORD);
+    await page.waitForURL(/\/onboarding$/);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  });
+});
+
+/**
+ * Gap 7, the other half: the amplification that made the limit reachable at all.
+ *
+ * The session cache existed, but only one of the seven call sites used it — and two of those
+ * re-resolved once per *operation*, so adding a family member re-asked whether the family had a
+ * household. Routing every caller through the one resolver is the fix; raising the limit would
+ * have hidden the amplification instead of removing it.
+ */
+test.describe('household resolution does not amplify requests', () => {
+  test('a five-surface session costs at most one status call after sign-in', async ({
+    page,
+    request,
+  }) => {
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    // Count only what happens AFTER sign-in has settled, which is the navigation a real session
+    // spends most of its time doing.
+    let statusCalls = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/onboarding/status')) statusCalls += 1;
+    });
+
+    for (const path of [
+      '/household',
+      '/household/goals',
+      '/household/retirement',
+      '/household/protection',
+      '/household/family',
+    ]) {
+      await page.goto(path);
+      await page.waitForSelector('h1');
+    }
+
+    // Before the fix this was one call per surface, plus one per family operation. The cache is
+    // populated at sign-in, so a settled session should now spend none at all.
+    expect(statusCalls).toBeLessThanOrEqual(1);
+  });
+});
+
 test.describe('dark mode is readable', () => {
   /**
    * A defect that shipped in M5.5/M5.6 and was invisible to every test: the V2 consumer

@@ -81,8 +81,8 @@ export const GOAL_TYPES = [
   'custom',
 ] as const;
 
-/** Re-exported so goals callers keep their import; it now lives beside `getOnboardingStatus`. */
-export { resolveHouseholdId } from './household';
+/** Re-exported so goals callers keep their import; the resolver itself lives in `household.ts`. */
+export { resolveHousehold } from './household';
 
 export async function listGoals(token: string, householdId: string): Promise<HouseholdGoal[]> {
   return apiGet<HouseholdGoal[]>(`/households/${householdId}/goals`, token);

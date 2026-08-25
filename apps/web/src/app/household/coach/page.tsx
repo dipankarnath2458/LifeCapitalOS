@@ -44,11 +44,15 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 
 type Screen =
   | { kind: 'loading' }
   | { kind: 'ready'; answer: Extract<AiAnswer, { available: true }> }
   | { kind: 'needs-check'; reason: string }
+  /** Gap 7: we could not find out whether they have a household. Never shown as "no household". */
+  | { kind: 'unavailable'; reason: UnavailableReason }
   | { kind: 'error' };
 
 /** A turn in the visible conversation. `ai: false` turns are labelled in the UI. */
@@ -104,9 +108,12 @@ export default function CoachPage() {
     setToken(t);
     loadInsights(t)
       .then((res) => {
-        if (!res) return setScreen({ kind: 'needs-check', reason: 'no household yet' });
-        if (!res.available) return setScreen({ kind: 'needs-check', reason: res.reason });
-        setScreen({ kind: 'ready', answer: res });
+        // Gap 7: a failed lookup used to arrive here as `null` and render "no household yet" —
+        // told to a family whose coach had been answering them all along.
+        if (res.kind === 'unavailable') return setScreen({ kind: 'unavailable', reason: res.reason });
+        if (res.kind === 'none') return setScreen({ kind: 'needs-check', reason: 'no household yet' });
+        if (!res.reply.available) return setScreen({ kind: 'needs-check', reason: res.reply.reason });
+        setScreen({ kind: 'ready', answer: res.reply });
       })
       .catch(() => setScreen({ kind: 'error' }));
   }, []);
@@ -127,8 +134,19 @@ export default function CoachPage() {
     setAsking(true);
     try {
       const res = await askCoach(token, history);
-      if (res?.available) {
-        setTurns((prev) => [...prev, { role: 'assistant', content: res.answer, ai: res.ai }]);
+      // Bound outside the state updater: narrowing a union does not survive into the closure.
+      const reply = res.kind === 'ready' ? res.reply : null;
+      if (reply?.available) {
+        setTurns((prev) => [...prev, { role: 'assistant', content: reply.answer, ai: reply.ai }]);
+      } else if (res.kind === 'unavailable') {
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: 'Things are busy at our end, so that did not get through. Please try again in a moment.',
+            ai: false,
+          },
+        ]);
       }
     } catch (err) {
       // Not entitled is not an error state: the summary above is still theirs to read, so the
@@ -146,6 +164,10 @@ export default function CoachPage() {
     } finally {
       setAsking(false);
     }
+  }
+
+  if (screen.kind === 'unavailable') {
+    return <HouseholdUnavailable subject="your coach" reason={screen.reason} />;
   }
 
   if (screen.kind === 'loading') {
