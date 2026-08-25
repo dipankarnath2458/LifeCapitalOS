@@ -150,11 +150,17 @@ function ConsumerShell({
       {/* The rest of the family's finances. Every one of these is a NATIVE V2 surface as of
           M5.9 — none is a hosted V1 component any more (AI coach M5.7, Family M5.8 PR 1, Goals
           PR 2, Protection M5.9). The V1 originals all still render on `/dashboard`, which stays
-          the recoverable path until Module 10. */}
+          the recoverable path until Module 10.
+
+          Budget and What-if (M5.13) are different in kind from the rest: both engines have
+          existed since M2-4 and M3-3 and had no consumer route at all — Gap 5 — so these two
+          links are the whole of what the milestone gives a family. */}
       <nav aria-label="More of your finances" className="mb-6 flex flex-wrap gap-2">
         {[
           { href: '/household/goals', label: 'Goals' },
           { href: '/household/retirement', label: 'Retirement' },
+          { href: '/household/budget', label: 'Budget' },
+          { href: '/household/what-if', label: 'What if…' },
           { href: '/household/family', label: 'Family' },
           { href: '/household/protection', label: 'Protection' },
           { href: '/household/coach', label: 'AI coach' },

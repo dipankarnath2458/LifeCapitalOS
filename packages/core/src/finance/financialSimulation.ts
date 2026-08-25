@@ -265,7 +265,15 @@ export const DEFAULT_SCENARIO_REGISTRY: Record<ScenarioType, ScenarioTransform> 
     return p;
   },
   improve_insurance: (p, params) => {
-    // Insurance is not yet a scored category (fhs-1.0.0): the premium raises expense.
+    // Models the *premium* only: buying cover raises monthly expense, so this transform can
+    // lower the score and never raise it.
+    //
+    // Since M5.12 protection IS a scored category, but it is scored from `HealthFacts`, which no
+    // scenario transform can reach — a payload transform cannot change what a family has told us
+    // about their cover. So the benefit of getting insured is invisible here while the cost is
+    // not. Until a scenario can carry a fact override, this type must not be offered as an
+    // action a family is invited to try: it would answer "should I get insured?" with a lower
+    // number. Consumer surfaces deliberately omit it (M5.13).
     p.cashflowSummary.expenseMinor += Math.max(0, num(params.monthlyPremiumMinor));
     return p;
   },
