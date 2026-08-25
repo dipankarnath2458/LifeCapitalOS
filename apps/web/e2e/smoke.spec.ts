@@ -45,7 +45,11 @@ async function signIn(page: Page, email: string, password: string): Promise<void
  * therefore provision a household server-side, not just set a localStorage flag: the flag
  * governed the old V1 nudge and no longer decides anything for V2.
  */
-async function asReturningConsumer(page: Page, request: APIRequestContext, email: string): Promise<void> {
+async function asReturningConsumer(
+  page: Page,
+  request: APIRequestContext,
+  email: string,
+): Promise<string> {
   const login = await request.post(`${API_URL}/auth/login`, { data: { email, password: PASSWORD } });
   const { accessToken } = await login.json();
   const res = await request.post(`${API_URL}/onboarding/household`, {
@@ -54,6 +58,29 @@ async function asReturningConsumer(page: Page, request: APIRequestContext, email
   });
   expect(res.ok()).toBeTruthy();
   await page.addInitScript(() => localStorage.setItem('lcos_onboarded', '1'));
+  const { householdId } = await res.json();
+  return householdId as string;
+}
+
+/**
+ * Pre-populates the household-id cache a returning consumer's tab would already hold.
+ *
+ * `/onboarding/status` is rate limited (120/60s per route per IP) and is the most-called
+ * endpoint in the product, because every V2 surface resolves the household id before it can
+ * ask for anything else — see the comment on `resolveHouseholdId` in `lib/household.ts`, which
+ * has already had to be defended twice. This suite is dense enough to reach that ceiling: at 43
+ * journeys it issued 134 status calls and the last four came back 429, which the client turns
+ * into "you have no household" and renders as the onboarding empty state.
+ *
+ * Tests that are about **resolution** must keep paying for it. Tests that are about *rendering*
+ * should not, so this seeds the cache exactly as a real tab does after its first successful
+ * resolve. It removes the request without removing any assertion.
+ */
+async function withCachedHousehold(page: Page, householdId: string): Promise<void> {
+  await page.addInitScript(
+    ([key, id]) => sessionStorage.setItem(key as string, id as string),
+    ['lcos_household_id', householdId],
+  );
 }
 
 /** Registers a fresh account straight through the API. Belongs to no firm by construction. */
@@ -860,6 +887,108 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByTestId('retirement-projection')).toBeVisible();
   });
 
+  test('what-if reaches the consumer, and agrees with the score on their dashboard', async ({
+    page,
+    request,
+  }) => {
+    // M5.13. The M3-3 engine has existed since M3 and no consumer could reach it — Gap 5.
+    //
+    // The assertion that matters is the AGREEMENT: until this milestone the API scored the
+    // simulation baseline without the family's protection and retirement facts, so a family
+    // could read 78 on their dashboard and 90 on this page with nothing to explain the gap.
+    // The API suite proves that at the endpoint; this proves the family actually sees it.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    // State something the score can see, so this household is one the defect would have split.
+    await page.goto('/household/protection');
+    const save = page.locator('[data-testid^="save-"]').first();
+    const memberId = (await save.getAttribute('data-testid'))!.replace('save-', '');
+    await page.getByTestId(`health-${memberId}`).selectOption('no');
+    await page.getByTestId(`term-${memberId}`).selectOption('no');
+    await page.getByTestId(`save-${memberId}`).click();
+    await expect(page.getByTestId('protection-summary')).toBeVisible();
+
+    // The score the family is actually shown on their dashboard. Rendered as `74/100`, so take
+    // the number the same way the other dashboard tests do.
+    await page.goto('/household');
+    const dashboardText = await page.getByTestId('overall-score').innerText();
+    const dashboardScore = dashboardText.split('/')[0]!.trim();
+    expect(Number(dashboardScore)).toBeGreaterThan(0);
+
+    // Reachable by navigation, not only by URL — the silent kind of loss.
+    await page.getByRole('link', { name: 'What if…' }).click();
+    await expect(page).toHaveURL(/\/household\/what-if$/);
+    await expect(page.getByTestId('whatif-non-mutating')).toBeVisible();
+
+    await page.getByTestId('whatif-pick-reduce_expenses').check();
+    await page.getByTestId('whatif-amount-reduce_expenses').fill('20000');
+    await page.getByTestId('whatif-run').click();
+    await expect(page.getByTestId('whatif-summary')).toBeVisible();
+
+    // The "before" on this page IS the number on their dashboard. Read the rendered figure
+    // rather than searching the block for a substring: "74" appears in "74/100" and in a
+    // category score alike, so a substring match would pass without proving anything.
+    await expect(page.getByTestId('whatif-before')).toHaveText(dashboardScore);
+    await expect(page.getByTestId('whatif-categories')).toBeVisible();
+
+    // And it persisted nothing: the dashboard is unchanged after exploring.
+    await page.goto('/household');
+    await expect(page.getByTestId('overall-score')).toHaveText(dashboardText);
+  });
+
+  test('the budget reaches the consumer, and does not invent one they never set', async ({
+    page,
+    request,
+  }) => {
+    // M5.13. The M2-4 engine has existed since M2 with no consumer route.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('900000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+
+    await page.goto('/household');
+    await page.getByRole('link', { name: 'Budget' }).click();
+    await expect(page).toHaveURL(/\/household\/budget$/);
+
+    // No budget set: we say so, rather than showing a budget of zero the family never chose.
+    await expect(page.getByText(/You have not set a budget for this month/i)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Set a budget' }).click();
+    await page.getByTestId('budget-total').fill('80000');
+    await page.getByTestId('budget-category-0').selectOption('living');
+    await page.getByTestId('budget-amount-0').fill('50000');
+    await page.getByTestId('budget-save').click();
+
+    // The month's real spending, aggregated live from the ledger the check wrote — ₹75,000
+    // against a ₹50,000 envelope, so the family is over on that category and over overall.
+    await expect(page.getByTestId('budget-lines')).toBeVisible();
+    await expect(page.getByTestId('budget-lines')).toContainText(/Over by/i);
+    await expect(page.getByTestId('budget-spent')).toContainText('75,000');
+
+    // Survives a reload: envelopes are stored, not held in the page.
+    await page.reload();
+    await expect(page.getByTestId('budget-lines')).toContainText('living');
+  });
+
   test('Plans and Admin survived the move off the V1 dashboard', async ({ page, request }) => {
     // Both were linked ONLY from /dashboard. Without these links the routes still work by
     // URL but nobody can navigate to them — the silent kind of loss.
@@ -914,13 +1043,19 @@ test.describe('dark mode is readable', () => {
     '/household/goals',
     '/household/protection',
     '/household/retirement',
+    '/household/budget',
+    '/household/what-if',
   ];
 
   for (const path of CONSUMER_SURFACES) {
     test(`${path} has readable contrast in dark mode`, async ({ page, request }) => {
       const consumer = await createAccount(request);
       await page.addInitScript(() => localStorage.setItem('lcos-theme', 'dark'));
-      await asReturningConsumer(page, request, consumer);
+      const householdId = await asReturningConsumer(page, request, consumer);
+      // This block asserts contrast, never resolution — so it does not spend a rate-limited
+      // `/onboarding/status` call per path. Without this the tail of the suite is throttled and
+      // the page renders the onboarding empty state, which has no h1 to measure.
+      await withCachedHousehold(page, householdId);
       await signIn(page, consumer, PASSWORD);
       await page.goto(path);
       await page.waitForSelector('h1');
