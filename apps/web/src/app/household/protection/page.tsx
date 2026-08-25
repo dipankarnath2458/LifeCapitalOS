@@ -25,7 +25,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { resolveHouseholdId } from '@/lib/household';
+import { resolveHousehold } from '@/lib/household';
 import {
   loadProtection,
   saveMemberProtection,
@@ -47,6 +47,8 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 
 /** The three states a protection answer can be in, as the family sees them. */
 const UNKNOWN = 'unknown';
@@ -102,6 +104,8 @@ export default function ProtectionPage() {
   const [overview, setOverview] = useState<ProtectionOverview | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
@@ -125,13 +129,21 @@ export default function ProtectionPage() {
       return;
     }
     setToken(t);
-    void resolveHouseholdId(t).then((id) => {
-      if (!id) {
+    void resolveHousehold(t).then((r) => {
+      // Gap 7: three outcomes, not two. "We could not find out" must never be shown as
+      // "you have no household" — that tells a family with a full financial picture to start
+      // over, and it happens whenever `/onboarding/status` is briefly rate limited.
+      if (r.kind === 'unavailable') {
+        setUnavailableReason(r.reason);
+        setError('unavailable');
+        return;
+      }
+      if (r.kind === 'none') {
         setError('needs-onboarding');
         return;
       }
-      setHouseholdId(id);
-      return load(t, id);
+      setHouseholdId(r.householdId);
+      return load(t, r.householdId);
     });
   }, [load]);
 
@@ -174,6 +186,10 @@ export default function ProtectionPage() {
         <LoadingState label="Loading your protection…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your protection details" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {

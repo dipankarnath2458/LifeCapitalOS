@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from './api';
-import { ensureHousehold, getOnboardingStatus } from './household';
+import { ensureHousehold, resolveHousehold, type UnavailableReason } from './household';
 
 /**
  * Wealth Health Check — the client side of the pipeline described in
@@ -146,7 +146,7 @@ const liveFlow = (txs: HouseholdTransaction[], flow: { type: string; category: s
 const toMajor = (minor: number) => Math.round(Number(minor)) / 100;
 
 /**
- * The family's current figures, for prefilling the form. Null when they have no household.
+ * The family's current figures, for prefilling the form.
  *
  * ## Why prefill is half the fix
  *
@@ -164,12 +164,30 @@ const toMajor = (minor: number) => Math.round(Number(minor)) / 100;
  * into one row while the duplicate kept its own balance, and the household's figures would
  * grow again. Repairing already-accumulated households is a separate, explicit decision
  * (see the design note §5); this change stops the accumulation rather than unwinding it.
+ *
+ * ## Gap 7: why this returns a union
+ *
+ * The distinction matters more here than anywhere else in the app. `null` used to mean both
+ * "nothing recorded yet" and "we could not find out", and the page rendered an empty form for
+ * both. An empty form is correct for the first and **dangerous** for the second: the user sees
+ * blanks where their real figures should be, presses "See my score", and the check writes those
+ * blanks over a household that had figures all along.
  */
-export async function loadCurrentFigures(token: string): Promise<WealthHealthInput | null> {
-  const status = await getOnboardingStatus(token);
-  if (!status?.householdId) return null;
+export type CurrentFiguresResult =
+  | { kind: 'ready'; figures: WealthHealthInput }
+  /** No household, or a household with nothing recorded — an empty form is the right answer. */
+  | { kind: 'none' }
+  /** We could not read what they already have. The form must NOT be offered as if it were empty. */
+  | { kind: 'unavailable'; reason: UnavailableReason };
 
-  const { accounts, debts, transactions } = await fetchState(token, status.householdId);
+export async function loadCurrentFigures(token: string): Promise<CurrentFiguresResult> {
+  const resolution = await resolveHousehold(token);
+  if (resolution.kind === 'unavailable') {
+    return { kind: 'unavailable', reason: resolution.reason };
+  }
+  if (resolution.kind === 'none') return { kind: 'none' };
+
+  const { accounts, debts, transactions } = await fetchState(token, resolution.householdId);
   const balance = (name: string) => {
     const row = owned(accounts, name)[0];
     return row ? toMajor(row.balanceMinor) : 0;
@@ -181,14 +199,17 @@ export async function loadCurrentFigures(token: string): Promise<WealthHealthInp
   };
 
   return {
-    cash: balance(OWNED.cash),
-    investments: balance(OWNED.investments),
-    property: balance(OWNED.property),
-    loanOutstanding: loan ? toMajor(Number(loan.outstandingMinor ?? 0)) : 0,
-    loanMonthlyPayment: loan ? toMajor(loan.minimumPaymentMinor) : 0,
-    loanRatePct: loan ? loan.annualInterestRatePct : 0,
-    monthlyIncome: flow(FLOW.income),
-    monthlyExpenses: flow(FLOW.expense),
+    kind: 'ready',
+    figures: {
+      cash: balance(OWNED.cash),
+      investments: balance(OWNED.investments),
+      property: balance(OWNED.property),
+      loanOutstanding: loan ? toMajor(Number(loan.outstandingMinor ?? 0)) : 0,
+      loanMonthlyPayment: loan ? toMajor(loan.minimumPaymentMinor) : 0,
+      loanRatePct: loan ? loan.annualInterestRatePct : 0,
+      monthlyIncome: flow(FLOW.income),
+      monthlyExpenses: flow(FLOW.expense),
+    },
   };
 }
 

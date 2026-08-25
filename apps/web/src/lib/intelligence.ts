@@ -1,5 +1,5 @@
 import { apiGet } from './api';
-import { getOnboardingStatus } from './household';
+import { resolveHousehold } from './household';
 
 /**
  * Financial Intelligence Layer client — the dashboard's only data source.
@@ -176,13 +176,17 @@ export type DashboardState =
  */
 export async function loadDashboard(token: string): Promise<DashboardState> {
   try {
-    const status = await getOnboardingStatus(token);
-    if (!status) return { kind: 'error' };
+    // Gap 7: this function already drew the distinction the shared resolver now enforces for
+    // everyone — a failed lookup is `error`, an absent household is `needs-onboarding`. What
+    // changes here is only that it goes through the resolver, so it reuses the session's
+    // cached id instead of re-asking the most rate-limited route in the product on every load.
+    const resolution = await resolveHousehold(token);
+    if (resolution.kind === 'unavailable') return { kind: 'error' };
     // No household means never onboarded — send them through the guided flow rather than
     // straight at a health check they have no container for.
-    if (!status.householdId) return { kind: 'needs-onboarding' };
+    if (resolution.kind === 'none') return { kind: 'needs-onboarding' };
 
-    const householdId = status.householdId;
+    const householdId = resolution.householdId;
     const res = await apiGet<IntelligenceResponse>(
       `/households/${householdId}/intelligence/current`,
       token,

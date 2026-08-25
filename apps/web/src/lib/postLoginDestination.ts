@@ -1,5 +1,5 @@
 import { apiGet } from './api';
-import { rememberHouseholdId } from './household';
+import { fetchOnboardingStatus, rememberHouseholdId } from './household';
 
 /**
  * Where a user goes after signing in.
@@ -68,13 +68,14 @@ export function chooseDestination(
  * tokens. It falls back to the consumer home, which every authenticated user can load.
  */
 export async function resolvePostLoginDestination(token: string): Promise<string> {
-  const [me, own] = await Promise.all([
+  const [me, status] = await Promise.all([
     apiGet<FirmMembershipSummary>('/firms/me', token).catch(() => null),
-    apiGet<OwnHouseholdSummary & { householdId?: string | null }>(
-      '/onboarding/status',
-      token,
-    ).catch(() => null),
+    // Gap 7: goes through the shared reader so every `/onboarding/status` call in the product
+    // has one implementation. The behaviour here is unchanged — `null` still means "we could
+    // not tell", and `chooseDestination` still deliberately fails toward the consumer home.
+    fetchOnboardingStatus(token),
   ]);
+  const own = status.kind === 'ok' ? status.status : null;
   // Sign-in already fetched the household id, so the first page the user lands on should not
   // fetch it again. `/onboarding/status` is the most-called route in the product — every V2
   // surface needs the id before it can ask for anything else — and it is rate limited per

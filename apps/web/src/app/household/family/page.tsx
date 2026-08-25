@@ -45,6 +45,8 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 
 const RELATIONS = ['self', 'spouse', 'child', 'parent', 'sibling', 'other'] as const;
 
@@ -54,6 +56,8 @@ export default function FamilyPage() {
   const [token, setToken] = useState<string | null>(null);
   const [members, setMembers] = useState<HouseholdMemberRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(BLANK);
   /** The member being edited, or null when adding. */
@@ -61,12 +65,20 @@ export default function FamilyPage() {
 
   const load = useCallback(async (t: string) => {
     try {
-      const rows = await listMembers(t);
-      if (!rows) {
+      const res = await listMembers(t);
+      // Gap 7: three outcomes, not two. `listMembers` used to return null for both "no
+      // household" and "we could not find out", so a throttled lookup showed a family with
+      // members an invitation to set their household up again.
+      if (res.kind === 'unavailable') {
+        setUnavailableReason(res.reason);
+        setError('unavailable');
+        return;
+      }
+      if (res.kind === 'none') {
         setError('needs-onboarding');
         return;
       }
-      setMembers(rows);
+      setMembers(res.members);
       setError(null);
     } catch {
       setError('load');
@@ -139,6 +151,10 @@ export default function FamilyPage() {
         <LoadingState label="Loading your family…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your family" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {

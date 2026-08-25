@@ -1,5 +1,5 @@
 import { apiPost } from './api';
-import { getOnboardingStatus } from './household';
+import { resolveHousehold, type UnavailableReason } from './household';
 
 /**
  * Family CFO client (M5.7) — the V2 consumer AI surface.
@@ -49,30 +49,55 @@ export class NotEntitledError extends Error {
 
 const isForbidden = (err: unknown) => err instanceof Error && / 403$/.test(err.message);
 
-async function householdId(token: string): Promise<string | null> {
-  const status = await getOnboardingStatus(token);
-  return status?.householdId ?? null;
-}
+/**
+ * A coach answer, or why there is none (Gap 7).
+ *
+ * `null` used to mean both "you have no household yet" and "we could not find out", and the page
+ * rendered the first message for both — telling a family with a full financial picture that they
+ * had no household, because `/onboarding/status` was briefly rate limited.
+ */
+export type CoachResult =
+  | { kind: 'ready'; reply: AiAnswer }
+  | { kind: 'none' }
+  | { kind: 'unavailable'; reason: UnavailableReason };
 
 /**
  * The narrative summary. Free to serve — it narrates the same intelligence call the dashboard
  * already makes, so it is never gated.
  */
-export async function loadInsights(token: string): Promise<AiAnswer | null> {
-  const id = await householdId(token);
-  if (!id) return null;
-  return apiPost<AiAnswer>(`/households/${id}/ai/insights`, {}, token);
+export async function loadInsights(token: string): Promise<CoachResult> {
+  const resolution = await resolveHousehold(token);
+  if (resolution.kind !== 'resolved') {
+    return resolution.kind === 'none'
+      ? { kind: 'none' }
+      : { kind: 'unavailable', reason: resolution.reason };
+  }
+  const reply = await apiPost<AiAnswer>(
+    `/households/${resolution.householdId}/ai/insights`,
+    {},
+    token,
+  );
+  return { kind: 'ready', reply };
 }
 
 /**
  * A conversational turn. Throws {@link NotEntitledError} when the user's plan does not include
  * the model-backed coach, so the caller can offer the upgrade rather than render an error.
  */
-export async function askCoach(token: string, messages: CoachMessage[]): Promise<AiAnswer | null> {
-  const id = await householdId(token);
-  if (!id) return null;
+export async function askCoach(token: string, messages: CoachMessage[]): Promise<CoachResult> {
+  const resolution = await resolveHousehold(token);
+  if (resolution.kind !== 'resolved') {
+    return resolution.kind === 'none'
+      ? { kind: 'none' }
+      : { kind: 'unavailable', reason: resolution.reason };
+  }
   try {
-    return await apiPost<AiAnswer>(`/households/${id}/ai/coach`, { messages }, token);
+    const reply = await apiPost<AiAnswer>(
+      `/households/${resolution.householdId}/ai/coach`,
+      { messages },
+      token,
+    );
+    return { kind: 'ready', reply };
   } catch (err) {
     if (isForbidden(err)) throw new NotEntitledError();
     throw err;

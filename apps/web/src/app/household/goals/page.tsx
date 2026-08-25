@@ -26,7 +26,7 @@ import {
   GOAL_TYPES,
   listGoals,
   removeGoal,
-  resolveHouseholdId,
+  resolveHousehold,
   updateGoal,
   type HouseholdGoal,
 } from '@/lib/householdGoals';
@@ -45,6 +45,8 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 
 // 'custom' is the enum's catch-all; there is no 'other'.
 const BLANK = { name: '', type: 'custom', target: '', saved: '', targetDate: '' };
@@ -68,6 +70,8 @@ export default function GoalsPage() {
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [goals, setGoals] = useState<HouseholdGoal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(BLANK);
   const [editing, setEditing] = useState<HouseholdGoal | null>(null);
@@ -88,13 +92,21 @@ export default function GoalsPage() {
       return;
     }
     setToken(t);
-    void resolveHouseholdId(t).then((id) => {
-      if (!id) {
+    void resolveHousehold(t).then((r) => {
+      // Gap 7: three outcomes, not two. "We could not find out" must never be shown as
+      // "you have no household" — that tells a family with a full financial picture to start
+      // over, and it happens whenever `/onboarding/status` is briefly rate limited.
+      if (r.kind === 'unavailable') {
+        setUnavailableReason(r.reason);
+        setError('unavailable');
+        return;
+      }
+      if (r.kind === 'none') {
         setError('needs-onboarding');
         return;
       }
-      setHouseholdId(id);
-      return load(t, id);
+      setHouseholdId(r.householdId);
+      return load(t, r.householdId);
     });
   }, [load]);
 
@@ -152,6 +164,10 @@ export default function GoalsPage() {
         <LoadingState label="Loading your goals…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your goals" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {

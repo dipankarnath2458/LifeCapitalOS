@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { resolveHouseholdId } from '@/lib/household';
+import { resolveHousehold } from '@/lib/household';
 import {
   loadRetirement,
   runWhatIf,
@@ -43,6 +43,8 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 
 const money = (m: number) => formatMoney(m);
 const rupeesToMinor = (v: string) => Math.round((parseFloat(v) || 0) * 100);
@@ -75,6 +77,8 @@ export default function RetirementPage() {
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [data, setData] = useState<RetirementOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<ScenarioOutcome[] | null>(null);
   const [form, setForm] = useState({ age: '', lifeExpectancy: '', income: '', contribution: '' });
@@ -114,13 +118,21 @@ export default function RetirementPage() {
       return;
     }
     setToken(t);
-    void resolveHouseholdId(t).then((id) => {
-      if (!id) {
+    void resolveHousehold(t).then((r) => {
+      // Gap 7: three outcomes, not two. "We could not find out" must never be shown as
+      // "you have no household" — that tells a family with a full financial picture to start
+      // over, and it happens whenever `/onboarding/status` is briefly rate limited.
+      if (r.kind === 'unavailable') {
+        setUnavailableReason(r.reason);
+        setError('unavailable');
+        return;
+      }
+      if (r.kind === 'none') {
         setError('needs-onboarding');
         return;
       }
-      setHouseholdId(id);
-      return load(t, id);
+      setHouseholdId(r.householdId);
+      return load(t, r.householdId);
     });
   }, [load]);
 
@@ -168,6 +180,10 @@ export default function RetirementPage() {
         <LoadingState label="Loading your retirement plan…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your retirement plan" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {

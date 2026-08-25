@@ -29,6 +29,8 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
+import type { UnavailableReason } from '@/lib/household';
 const STEPS = ['What you own', 'What you owe', 'Money in, money out'] as const;
 const TOTAL = STEPS.length;
 /** Bands come from the scoring model; this maps them to the design system's tones only. */
@@ -52,6 +54,12 @@ export default function WealthHealthPage() {
    * vanishes. Two browser tests caught exactly that by typing faster than the network.
    */
   const [hydrating, setHydrating] = useState(true);
+  /**
+   * Gap 7. Set when we could not READ what the family already has, and to why. The form must
+   * not be offered in that state: its blank fields would be written over real figures on submit.
+   * `null` means the prefill succeeded (or they genuinely have nothing), not that it failed.
+   */
+  const [prefillFailed, setPrefillFailed] = useState<UnavailableReason | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<HealthScoreResult | null>(null);
   const [cash, setCash] = useState('');
@@ -73,11 +81,21 @@ export default function WealthHealthPage() {
     // rather than "tell us everything again". A blank field then means "I have none of
     // this" — something the user decided — instead of an empty box they never filled.
     //
-    // A failure here leaves the form empty, which is exactly how it behaved before. It must
-    // never block the check: someone with no figures yet is the common case, not an error.
+    // A family with no figures yet is the common case and still gets an empty form. A family
+    // whose figures we could not READ is not the same thing, and no longer shares that screen:
+    // see the `prefillFailed` branch below.
     loadCurrentFigures(t)
-      .then((figures) => {
-        if (!figures) return;
+      .then((res) => {
+        // Gap 7, and the most dangerous instance of it. A failed prefill used to be
+        // indistinguishable from "you have nothing recorded", so the form opened blank and a
+        // submission wrote those blanks over figures the family already had. An unknown state
+        // must not be offered as an editable zero — say so and let them retry.
+        if (res.kind === 'unavailable') {
+          setPrefillFailed(res.reason);
+          return;
+        }
+        if (res.kind === 'none') return;
+        const figures = res.figures;
         const put = (n: number) => (n > 0 ? String(n) : '');
         setCash(put(figures.cash));
         setInvestments(put(figures.investments));
@@ -188,6 +206,16 @@ export default function WealthHealthPage() {
       </ThemedPage>
     );
   }
+  if (prefillFailed) {
+    return (
+      <HouseholdUnavailable
+        subject="the figures you already have"
+        reason={prefillFailed ?? undefined}
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
   if (hydrating) {
     return (
       <ThemedPage>

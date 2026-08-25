@@ -16,6 +16,33 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
  * no redirect, the caller still sees the thrown error and renders its own message.
  */
 
+/**
+ * A failed response, carrying the status code the caller needs to tell failures apart.
+ *
+ * Every failure used to arrive as a bare `Error` whose only clue was the text
+ * `Request failed: 429`. A caller that wanted to distinguish "you are rate limited" from "you
+ * are forbidden" had to parse that string — `familyCfo.ts` still does, with a regex — and a
+ * caller that did not bother treated every failure as the same thing. That is how a throttled
+ * `/onboarding/status` came to mean "this family has no household" (Gap 7).
+ *
+ * The message is deliberately **byte-identical** to the string thrown before, so existing
+ * message-matching keeps working; `status` is purely additive.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Request failed: ${status}`);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** True when `err` is a failed response carrying this exact status. */
+export function isApiStatus(err: unknown, status: number): boolean {
+  return err instanceof ApiError && err.status === status;
+}
+
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
@@ -24,7 +51,7 @@ async function request<T>(path: string, init: RequestInit, token?: string): Prom
   // No token means the caller is deliberately anonymous — never refresh, never redirect.
   if (!token) {
     const res = await fetch(`${API_URL}${path}`, init);
-    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    if (!res.ok) throw new ApiError(res.status);
     return res.json() as Promise<T>;
   }
 
@@ -33,7 +60,7 @@ async function request<T>(path: string, init: RequestInit, token?: string): Prom
     endSession();
     throw new SessionExpiredError();
   }
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status);
   return res.json() as Promise<T>;
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { getAccessToken, signOut } from '@/lib/session';
+import { fetchOnboardingStatus } from '@/lib/household';
 import { AppContext, type AppContextValue, type FirmSummary } from '@/lib/appContext';
 import { CONSUMER_HOME } from '@/lib/postLoginDestination';
 import { DashboardLayout, Select, EmptyState, ThemeProvider, ThemeScript } from '@/ui';
@@ -31,7 +32,7 @@ const NAV: NavSection[] = [
  * The API enforces firm scope server-side; this is the UX layer.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<'checking' | 'no-firm' | 'ready'>('checking');
+  const [state, setState] = useState<'checking' | 'no-firm' | 'unavailable' | 'ready'>('checking');
   const [ctx, setCtx] = useState<AppContextValue | null>(null);
 
   useEffect(() => {
@@ -42,14 +43,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
     Promise.all([
       apiGet<FirmsMe>('/firms/me', token),
-      apiGet<{ hasOwnHousehold?: boolean }>('/onboarding/status', token).catch(() => null),
+      fetchOnboardingStatus(token),
     ])
       .then(async ([me, own]) => {
         // A consumer belongs to a household as themselves. Since onboarding gives every
         // consumer a personal firm, `firms.length > 0` is true for them too — so gating on
         // firm membership alone let a consumer who typed /app land in the Advisor
         // Workspace. Own-household membership is what actually distinguishes them.
-        if (own?.hasOwnHousehold) {
+        // Gap 7: a failed lookup used to be indistinguishable from "not a consumer", so a
+        // consumer who typed /app during a brief rate limit was never redirected and landed
+        // in the Advisor Workspace looking at their own household as if it were a client's.
+        // We cannot tell who they are, so we say so rather than guessing wrong in silence.
+        if (own.kind === 'unavailable') {
+          setState('unavailable');
+          return;
+        }
+        if (own.status.hasOwnHousehold) {
           window.location.href = CONSUMER_HOME;
           return;
         }
@@ -88,6 +97,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (state === 'checking') {
     return (
       <div className="flex min-h-screen items-center justify-center text-subtle">Loading workspace…</div>
+    );
+  }
+
+  if (state === 'unavailable') {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-lg items-center px-6">
+        <EmptyState
+          title="We could not load your workspace"
+          description="Things are busy at our end, so we could not tell which workspace to open for you. Nothing is wrong with your account — please try again in a moment."
+          action={{ label: 'Try again', onClick: () => window.location.reload() }}
+        />
+      </div>
     );
   }
 
