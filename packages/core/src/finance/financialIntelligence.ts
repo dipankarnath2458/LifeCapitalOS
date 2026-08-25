@@ -1,5 +1,9 @@
 import { CurrencyCode, formatMoney, fromMinor } from '../money/money.js';
-import { FinancialSnapshotPayload, reconciledNetWorthMinor } from './financialSnapshot.js';
+import {
+  FinancialSnapshotPayload,
+  investableCorpusMinor,
+  reconciledNetWorthMinor,
+} from './financialSnapshot.js';
 import {
   computeFinancialHealthScore,
   FINANCIAL_HEALTH_MODEL_VERSION,
@@ -52,6 +56,56 @@ export type Confidence = 'high' | 'medium' | 'low';
 export type Trend = 'up' | 'down' | 'flat' | 'unknown';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type StatusLight = 'green' | 'yellow' | 'red';
+
+/**
+ * Where a figure came from (M5.14, Gap 3).
+ *
+ * - `stated`  — the family told us
+ * - `derived` — computed from their own recorded figures
+ * - `default` — our documented convention, which they never chose
+ *
+ * The vocabulary already existed in `RetirementPlanService`, where the planning surface renders
+ * it per field. It moves here so the intelligence layer and the module cannot disagree about what
+ * "derived" means for the same figure.
+ */
+export type FieldSource = 'stated' | 'derived' | 'default';
+
+export interface ResolvedField<T> {
+  value: T;
+  source: FieldSource;
+}
+
+/**
+ * Every retirement assumption the projection used, each carrying its own provenance.
+ *
+ * ## Why a boolean was not enough (Gap 3)
+ *
+ * The layer reported one flag for the whole projection, computed as `!assumptions?.retirement` —
+ * true when the family had no plan at all. That is wrong in **both** directions:
+ *
+ * - A family who stated only a retirement age was reported as using no defaults, with
+ *   `confidence: 'high'`, while inflation, returns and their income target were all still ours.
+ * - A family who stated nothing was told the whole projection rested on "standard assumptions",
+ *   when their corpus and their income target are **derived from figures they actually recorded**.
+ *
+ * So a single flag both overstated and understated what we know, and no surface could say which
+ * figure was whose. Rule 6 of the architecture — *every important figure carries its provenance* —
+ * is what this restores.
+ *
+ * `monthlyContributionMinor` is `null`, never defaulted: there is no honest convention for what a
+ * family saves, and assuming one would decide the projection's answer for them.
+ */
+export interface ResolvedRetirementAssumptions {
+  retirementAge: ResolvedField<number>;
+  yearsInRetirement: ResolvedField<number>;
+  desiredAnnualIncomeMinor: ResolvedField<number>;
+  currentCorpusMinor: ResolvedField<number>;
+  inflationRatePct: ResolvedField<number>;
+  preRetirementReturnPct: ResolvedField<number>;
+  postRetirementReturnPct: ResolvedField<number>;
+  /** `null` when never stated — the one figure with no honest default. */
+  monthlyContributionMinor: ResolvedField<number> | null;
+}
 
 /** Every section is either available (with data + confidence) or explains why not. */
 export type Section<T> =
@@ -189,7 +243,16 @@ export interface HouseholdFinancialIntelligence {
     readinessPct: number;
     onTrack: boolean;
     monthlySipRequiredMinor: number;
+    /**
+     * True when ANY figure below is our convention rather than the family's own (Gap 3).
+     *
+     * Kept so existing consumers are unaffected, but it is now derived from `assumptions`
+     * instead of from whether a plan row exists. Prefer `assumptions` — this cannot say
+     * *which* figure was assumed, which is the whole reason Gap 3 existed.
+     */
     usingDefaultAssumptions: boolean;
+    /** Every assumption the projection used, each with its provenance (M5.14, Gap 3). */
+    assumptions: ResolvedRetirementAssumptions;
     /** The lifestyle being funded, per year, inflated to retirement (M5.10). */
     inflatedAnnualIncomeMinor: number;
     /** The age the projection retires at, and the age it plans to. */
@@ -490,17 +553,60 @@ export function computeHouseholdFinancialIntelligence(
   } else if (expense <= 0) {
     retirement = { available: false, reason: 'No expenses recorded to size retirement needs.' };
   } else {
-    const usingDefaults = !input.assumptions?.retirement;
-    const ra = input.assumptions?.retirement ?? DEFAULT_INTELLIGENCE_ASSUMPTIONS.retirement;
-    // Reconciled: borrowed money is not retirement corpus. Using the gross figure funded
-    // a family's retirement projection with the balance of their outstanding home loan.
-    const currentCorpus =
-      input.assumptions?.retirement?.currentCorpusMinor ?? Math.max(0, reconciledNetWorthMinor(p));
+    const stated = input.assumptions?.retirement;
+    const d = DEFAULT_INTELLIGENCE_ASSUMPTIONS.retirement;
+    const ra = stated ?? d;
+
+    /** Stated wins; otherwise the fallback, labelled with where the fallback came from. */
+    const field = <T>(
+      value: T | undefined,
+      fallback: T,
+      fallbackSource: FieldSource,
+    ): ResolvedField<T> =>
+      value !== undefined
+        ? { value, source: 'stated' }
+        : { value: fallback, source: fallbackSource };
+
+    // M5.14: the family home is not retirement corpus. This used to fall back to reconciled net
+    // worth, which for a homeowning household reported up to 4× the figure the planning surface
+    // showed for the same family. One definition now, in the snapshot module, used by both.
+    const currentCorpus = stated?.currentCorpusMinor ?? investableCorpusMinor(p);
     // The lifestyle to fund: what the family SAYS they want, else what they spend today. The
-    // fallback is a figure from the snapshot, not a guess.
-    const annualIncomeTarget =
-      input.assumptions?.retirement?.desiredAnnualIncomeMinor ?? expense * 12;
-    const contribution = input.assumptions?.retirement?.monthlyContributionMinor;
+    // fallback is a figure from the snapshot, not a guess — which is why it is `derived`.
+    const annualIncomeTarget = stated?.desiredAnnualIncomeMinor ?? expense * 12;
+    const contribution = stated?.monthlyContributionMinor;
+
+    const resolvedAssumptions: ResolvedRetirementAssumptions = {
+      retirementAge: field(stated?.retirementAge, d.retirementAge, 'default'),
+      yearsInRetirement: field(stated?.yearsInRetirement, d.yearsInRetirement, 'default'),
+      inflationRatePct: field(stated?.inflationRatePct, d.inflationRatePct, 'default'),
+      preRetirementReturnPct: field(
+        stated?.preRetirementReturnPct,
+        d.preRetirementReturnPct,
+        'default',
+      ),
+      postRetirementReturnPct: field(
+        stated?.postRetirementReturnPct,
+        d.postRetirementReturnPct,
+        'default',
+      ),
+      // Both fall back to the family's OWN recorded figures, so their fallback is `derived`,
+      // never `default`. Reporting these as "standard assumptions" understated what we knew.
+      currentCorpusMinor: field(stated?.currentCorpusMinor, investableCorpusMinor(p), 'derived'),
+      desiredAnnualIncomeMinor: field(stated?.desiredAnnualIncomeMinor, expense * 12, 'derived'),
+      // Absent, not defaulted. See the type's note.
+      monthlyContributionMinor:
+        contribution === undefined ? null : { value: contribution, source: 'stated' },
+    };
+
+    /**
+     * Preserved for every existing consumer, but now *computed from* the per-field provenance
+     * rather than from whether a plan row exists. It means what it always claimed to mean: at
+     * least one figure in this projection is a convention of ours rather than a fact of theirs.
+     */
+    const usingDefaults = Object.values(resolvedAssumptions).some(
+      (f) => f !== null && f.source === 'default',
+    );
     const result = computeRetirement({
       currentAge: primaryAge,
       retirementAge: ra.retirementAge,
@@ -527,6 +633,8 @@ export function computeHouseholdFinancialIntelligence(
         onTrack: result.onTrack,
         monthlySipRequiredMinor: result.monthlySipRequired.minor,
         usingDefaultAssumptions: usingDefaults,
+        /** Gap 3: every assumption above, with where it came from. */
+        assumptions: resolvedAssumptions,
         inflatedAnnualIncomeMinor: result.inflatedAnnualExpenses.minor,
         retirementAge: ra.retirementAge,
         planningToAge: ra.retirementAge + ra.yearsInRetirement,

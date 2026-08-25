@@ -2,19 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { RetirementPlan } from '@prisma/client';
 import {
   DEFAULT_INTELLIGENCE_ASSUMPTIONS,
+  investableCorpusMinor,
+  type FieldSource,
   type FinancialSnapshotPayload,
   type IntelligenceAssumptions,
+  type ResolvedField,
 } from '@lcos/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { HouseholdFinancialSnapshotService } from './household-financial-snapshot.service';
 
-/** Where a resolved planning figure came from. Returned to the client, not inferred by it. */
-export type FieldSource = 'stated' | 'derived' | 'default';
-
-export interface ResolvedField<T> {
-  value: T;
-  source: FieldSource;
-}
+/**
+ * `FieldSource` and `ResolvedField` now live in `@lcos/core` and are re-exported here so this
+ * module's existing importers are unaffected (M5.14).
+ *
+ * They moved because the intelligence layer needs the same vocabulary: while it had its own
+ * boolean and this service had per-field provenance, the two could — and did — disagree about
+ * the same family's figures.
+ */
+export type { FieldSource, ResolvedField };
 
 /** Every assumption the projection uses, each with its provenance. */
 export interface ResolvedRetirementAssumptions {
@@ -87,10 +92,9 @@ export class RetirementPlanService {
   private async investableCorpusMinor(householdId: string): Promise<number | null> {
     const snap = await this.snapshots.latest(householdId);
     if (!snap) return null;
-    const payload = snap.payload as unknown as FinancialSnapshotPayload;
-    return payload.assetAllocation
-      .filter((a) => a.assetClass !== 'real_estate')
-      .reduce((sum, a) => sum + a.baseValueMinor, 0);
+    // One definition, shared with the intelligence layer since M5.14 — this used to be a second
+    // copy, and the layer's own fallback disagreed with it for every household without a plan.
+    return investableCorpusMinor(snap.payload as unknown as FinancialSnapshotPayload);
   }
 
   /** Today's annual spend, from the snapshot — the lifestyle a family funds by default. */

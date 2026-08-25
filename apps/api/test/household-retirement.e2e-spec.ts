@@ -170,21 +170,39 @@ describe('Household retirement planning (e2e)', () => {
 
   it('the corpus excludes the family home — decision 1, observable', async () => {
     // ₹40L investments + ₹10L cash + ₹2Cr home. Planning against the house would treat ₹2.5Cr
-    // as retirement money. The layer's own fallback (reconciled net worth) does exactly that,
-    // which is why the plan supplies a corpus derived from the snapshot instead.
+    // as retirement money.
+    //
+    // **Rewritten deliberately in M5.14.** This test used to assert that a household with NO
+    // stated plan saw ₹2.5Cr — the layer's old fallback of reconciled net worth, which includes
+    // the home. M5.10 knew that was wrong and worked around it by having the plan supply a
+    // corrected corpus, so the wart was pinned here as expected behaviour. It meant a family
+    // without a plan read one corpus on /household and another on /household/retirement.
+    //
+    // The layer now uses the same definition as the planning surface, so the home is excluded
+    // on BOTH paths — which is what this test's own name always claimed. The assertion is
+    // strictly stronger than the one it replaces.
     const { token, householdId } = await consumer('ret_corpus');
 
+    const INVESTABLE = rupees(5000000); // ₹40L + ₹10L, home excluded
+
     const before = await intelligence(token, householdId);
-    expect(before.body.retirement.data.currentCorpusMinor).toBe(rupees(25000000)); // includes home
+    expect(before.body.retirement.data.currentCorpusMinor).toBe(INVESTABLE);
+    // Teeth: the home really is in this household, so the equality is not trivially true.
+    expect(before.body.netWorth.data.netWorthMinor).toBeGreaterThan(rupees(20000000));
 
     await plan(token, householdId, { retirementAge: 60 });
 
     const after = await intelligence(token, householdId);
-    expect(after.body.retirement.data.currentCorpusMinor).toBe(rupees(5000000)); // ₹40L + ₹10L
+    expect(after.body.retirement.data.currentCorpusMinor).toBe(INVESTABLE);
     expect((await overview(token, householdId)).body.assumptions.currentCorpusMinor).toEqual({
-      value: rupees(5000000),
+      value: INVESTABLE,
       source: 'derived',
     });
+    // Stating a plan no longer *corrects* the corpus — it was already right. Both surfaces agree
+    // before and after, which is the property M5.14 exists to hold.
+    expect(after.body.retirement.data.currentCorpusMinor).toBe(
+      before.body.retirement.data.currentCorpusMinor,
+    );
   });
 
   it('a stated plan reaches the intelligence layer and moves the figures', async () => {
