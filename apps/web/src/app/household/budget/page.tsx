@@ -29,7 +29,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { resolveHouseholdId } from '@/lib/household';
+import { resolveHousehold, type UnavailableReason } from '@/lib/household';
 import {
   currentMonth,
   loadBudget,
@@ -55,6 +55,7 @@ import {
   Text,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
 
 /** An envelope as the family is editing it, before it becomes minor units. */
 interface DraftLine {
@@ -72,6 +73,8 @@ export default function BudgetPage() {
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [data, setData] = useState<BudgetMonth | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
 
@@ -96,13 +99,20 @@ export default function BudgetPage() {
       return;
     }
     setToken(t);
-    void resolveHouseholdId(t).then((id) => {
-      if (!id) {
+    void resolveHousehold(t).then((r) => {
+      // Gap 7: three outcomes, not two. A throttled lookup must not tell a family with a
+      // household that they have none — see `docs/GAP_7_HOUSEHOLD_RESOLUTION_ARCHITECTURE.md`.
+      if (r.kind === 'unavailable') {
+        setUnavailableReason(r.reason);
+        setError('unavailable');
+        return;
+      }
+      if (r.kind === 'none') {
         setError('needs-onboarding');
         return;
       }
-      setHouseholdId(id);
-      return load(t, id);
+      setHouseholdId(r.householdId);
+      return load(t, r.householdId);
     });
   }, [load]);
 
@@ -149,6 +159,10 @@ export default function BudgetPage() {
         <LoadingState label="Loading your budget…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your budget" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {

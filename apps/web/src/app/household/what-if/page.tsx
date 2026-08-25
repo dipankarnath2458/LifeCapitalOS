@@ -27,7 +27,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/session';
-import { resolveHouseholdId } from '@/lib/household';
+import { resolveHousehold, type UnavailableReason } from '@/lib/household';
 import {
   BAND_LABEL,
   CATEGORY_LABEL,
@@ -52,6 +52,7 @@ import {
   type BadgeTone,
 } from '@/ui';
 import { ThemedPage } from '@/components/ThemedPage';
+import { HouseholdUnavailable } from '@/components/HouseholdUnavailable';
 
 const BAND_TONE: Record<string, BadgeTone> = {
   at_risk: 'danger',
@@ -86,6 +87,8 @@ export default function WhatIfPage() {
   const [token, setToken] = useState<string | null>(null);
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Gap 7: why resolution failed, so the message can be specific rather than generic. */
+  const [unavailableReason, setUnavailableReason] = useState<UnavailableReason | undefined>();
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -104,13 +107,21 @@ export default function WhatIfPage() {
       return;
     }
     setToken(t);
-    void resolveHouseholdId(t).then((id) => {
-      if (!id) {
+    void resolveHousehold(t).then((r) => {
+      // Gap 7: three outcomes, not two. A throttled lookup must not tell a family with a
+      // household that they have none — see `docs/GAP_7_HOUSEHOLD_RESOLUTION_ARCHITECTURE.md`.
+      if (r.kind === 'unavailable') {
+        setUnavailableReason(r.reason);
+        setError('unavailable');
+        setReady(true);
+        return;
+      }
+      if (r.kind === 'none') {
         setError('needs-onboarding');
         setReady(true);
         return;
       }
-      setHouseholdId(id);
+      setHouseholdId(r.householdId);
       setReady(true);
     });
   }, []);
@@ -154,6 +165,10 @@ export default function WhatIfPage() {
         <LoadingState label="Loading…" />
       </ThemedPage>
     );
+  }
+
+  if (error === 'unavailable') {
+    return <HouseholdUnavailable subject="your figures" reason={unavailableReason} />;
   }
 
   if (error === 'needs-onboarding') {
