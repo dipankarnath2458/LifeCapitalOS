@@ -25,6 +25,29 @@ export interface FinancialSnapshotPayload {
     accountId: string;
     name: string;
     assetClass: string | null;
+    /**
+     * The kind of account holding this asset — `Account.type` (M5.15, Gap 6; ADR-014).
+     *
+     * **Optional and additive**, so `schemaVersion` stays 1 (ADR-012, contract §8, following the
+     * `members` precedent). Distinct from `assetClass`, which says what kind of *asset* this is:
+     * a PPF balance is `accountType: 'retirement'` with `assetClass: 'debt'`, and without this
+     * field it is indistinguishable from a taxable debt fund.
+     *
+     * **`undefined` means "this snapshot was captured before account types were recorded".**
+     * It does NOT mean `other_asset`, and it must never be defaulted to one — snapshots are
+     * never rewritten (ADR-004/012), so pre-M5.15 payloads carry no type and never will.
+     * Substituting a value here would assert a fact about a family that nobody recorded, which
+     * is the `unknown → false` failure this codebase has fixed four times (#67, M5.9, M5.12,
+     * M5.14).
+     *
+     * Also absent on the simulator's synthetic rows (`accountId: 'sim'`), which have no real
+     * account behind them and therefore no honest type.
+     *
+     * **Nothing reads this yet, deliberately.** It is captured now because snapshots are
+     * immutable: every period without capture is permanently typeless, and that history cannot
+     * be recovered later. See `docs/architecture/GAP_6_ACCOUNT_TYPE_REVIEW.md`.
+     */
+    accountType?: string;
     entityId: string | null;
     nativeCurrency: string;
     nativeBalanceMinor: number;

@@ -677,6 +677,44 @@ Consequences · Alternatives considered.
   computing deltas by ad-hoc per-scenario score math (rejected — not reusable, error-prone vs a single
   virtual-payload re-score).
 
+### ADR-014 — Account type travels in the snapshot as an optional additive field (M5.15, Gap 6)
+
+- **Status:** Accepted
+- **Context:** `Account.type` (9 values, including a dedicated `retirement`) has been `NOT NULL` since the
+  first migration and is already loaded at capture — `accounts.list()` returns it — but the `schemaVersion 1`
+  payload projects `assetClass` only, so the composer discards it. Money earmarked for retirement is therefore
+  invisible to every consumer: M5.14's corpus is a class-based approximation, and the What-if scenarios
+  `increase_sip` and `retirement_contribution` are byte-identical because the payload offers no dimension on
+  which they could differ. Tax and Estate are driven by account type and cannot derive it from asset class at
+  all. Snapshots are immutable and never rewritten (ADR-004/012), so **any period without capture is
+  permanently typeless** — the cost of waiting accumulates and cannot be recovered.
+- **Decision:** Carry the account's type on `assets[]` as **`accountType`**, a **strictly optional** string.
+  `schemaVersion` stays **1**, per ADR-012 and contract §8's additive-only rule and following the `members`
+  precedent. It is populated from the existing `Account.type`: **no new column, no migration, no backfill, no
+  up-converter.** Absent means *"this snapshot was captured before account types were recorded"* and must never
+  be defaulted to a value. The field ships with **no consumer** — deliberately — and
+  `kernelContract.test.ts` is extended to pin the `assets[]` element shape so the next addition cannot land
+  silently.
+- **Consequences:** Historical series begin accruing account type immediately. No stored snapshot changes, no
+  checksum is invalidated (checksums are computed once at capture), no current consumer is affected, and no
+  figure a family sees moves — Net Worth, the Wealth Health Score (`fhs-2.0.0`) and What-if all read
+  `assetClass`. The field is unread on arrival, which is a deliberate exception to "no capability without a
+  consumer path", justified solely by the irreversibility above and recorded in
+  [`GAP_6_ACCOUNT_TYPE_REVIEW.md`](./GAP_6_ACCOUNT_TYPE_REVIEW.md). A future type-aware consumer must handle
+  both absent types and the simulator's synthetic `accountId: 'sim'` rows, which have no real account behind
+  them and therefore no honest type.
+- **Alternatives considered:** Keep account type outside the kernel as a module-owned assumption (rejected —
+  it is a property of a kernel entity, not a family-stated input; reading it live would mean querying `Account`
+  outside the snapshot, which ADR-012 forbids, and would break reproducibility: an old snapshot combined with
+  today's account types is neither the past nor the present); bump `schemaVersion` to 2 (rejected — reserved
+  for rename/remove/retype, and would set a precedent that every addition is breaking); extend `AssetClass`
+  with retirement-ish values (rejected — conflates two orthogonal dimensions, since an NPS account holds equity
+  *and* debt, and retyping an existing domain **is** a breaking change under §8); defer until Tax or Estate
+  makes the need concrete (rejected — silently forfeits unrecoverable history, and the change proved far
+  cheaper than the deferral assumed); ship a type-aware retirement corpus in the same milestone (rejected — no
+  consumer household has a `retirement`-typed account today, so it would be a no-op for every real family while
+  moving a figure M5.14 had just moved).
+
 ---
 
 _This document is maintained alongside Module 2 development. Update it in the same PR whenever an M2 change

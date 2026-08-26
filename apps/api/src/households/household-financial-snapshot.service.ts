@@ -45,6 +45,12 @@ interface AccountRow {
   id: string;
   name: string;
   assetClass: string | null;
+  /**
+   * `Account.type` — NOT NULL since the first migration, and already returned by
+   * `accounts.list()`. It was simply not declared here, so the projection below dropped it and
+   * the payload could not see it (M5.15, Gap 6; ADR-014).
+   */
+  type: string;
   entityId: string | null;
   currency: string;
   balanceMinor: number;
@@ -107,6 +113,10 @@ export class HouseholdFinancialSnapshotService {
         accountId: a.id,
         name: a.name,
         assetClass: a.assetClass,
+        // Gap 6 / ADR-014. Optional in the payload, so `schemaVersion` stays 1; the column is
+        // NOT NULL, so every account captured from here on carries one. Snapshots taken before
+        // this milestone keep no `accountType` and are never rewritten.
+        accountType: a.type,
         entityId: a.entityId,
         nativeCurrency: a.currency,
         nativeBalanceMinor: a.balanceMinor,
