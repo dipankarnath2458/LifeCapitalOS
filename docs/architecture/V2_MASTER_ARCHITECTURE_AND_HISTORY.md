@@ -640,13 +640,34 @@ either. For a consumer-primary product these are shipped capabilities nobody can
 than the M5.8/M5.9 pattern (nothing is silently wrong), but the same shape: **capability without a
 consumer path.**
 
-### Gap 6 — *newly identified* — The snapshot cannot see account `type`
+### Gap 6 — **CLOSED by M5.15** — The snapshot could not see account `type`
 
-`AccountType.retirement` exists and household accounts accept it, but the frozen payload's
-`assets[]` carries `assetClass` only. So "money earmarked for retirement" is **invisible to the
-Intelligence Layer**, which is why M5.10's corpus is a class-based approximation. Closing it means
-a `schemaVersion` change — the first real pressure on the frozen contract, and it will recur for
-Tax and Estate.
+`AccountType.retirement` exists and household accounts accept it, but the payload's `assets[]`
+carried `assetClass` only. So "money earmarked for retirement" was **invisible to the Intelligence
+Layer**, which is why M5.10's corpus is a class-based approximation, and why the What-if scenarios
+`increase_sip` and `retirement_contribution` are byte-identical transforms.
+
+**Correction — this assessment was wrong when written.** It claimed closing the gap "means a
+`schemaVersion` change — the first real pressure on the frozen contract". It does not, and the
+governing documents said so at the time. M5.15 closed it by adding **`assets[].accountType` as an
+optional additive field**, populated from the existing non-nullable `Account.type`:
+
+- **`FINANCIAL_SNAPSHOT_SCHEMA_VERSION` stays `1`** — no version bump.
+- **No migration** — the column already existed, and the payload is a JSON column.
+- **No up-converter** — the registry stub stays identity.
+- **Existing snapshots are not rewritten**, and no stored checksum is invalidated.
+- **Permitted by ADR-012's additive-only contract** ("new payload fields may be added under the
+  same version if strictly optional"), following the `members` precedent.
+
+The nuance that survives: **nothing reads the field yet.** It was captured now because snapshots
+are immutable, so every period without capture is permanently typeless and that history cannot be
+recovered later. Future consumers — a type-aware retirement corpus, Tax, Estate — will read it, and
+must distinguish an absent `accountType` in a pre-M5.15 snapshot from a present one, and from the
+simulator's synthetic `sim` rows. See ADR-014 and
+[`GAP_6_ACCOUNT_TYPE_REVIEW.md`](./GAP_6_ACCOUNT_TYPE_REVIEW.md).
+
+Still open, deliberately: `liabilities[]` carries no `accountType`. Recorded as a separate future
+architectural gap, for review when Tax, Estate or Debt Intelligence requires it.
 
 ### Gap 7 — *newly identified* — `/onboarding/status` is a systemic rate-limit pressure point
 
@@ -774,7 +795,7 @@ Duplication actually found in the tree, and the rules that follow from it.
 | **E. Risk Intelligence** | Early warning already ships 5 live signals (6 keys) | M3/M5 | Medium | Low | No | No | No | Yes |
 | **F. AI Family CFO** | Already native and grounded | M5.7 | Medium — depth, not capability | Medium (cost, prompt drift) | No | No | No | Yes |
 | **G. What-if expansion** | Engine exists; **no consumer surface** (Gap 5) | M3-3 | Medium-High | Low | No | No | No | No |
-| **H. Foundational: account `type` in the snapshot** | Gap 6; blocks truthful corpus, and will recur for Tax/Estate | M2-6 | Medium now, **high later** | **High** — first change to a frozen contract | No (payload only) | **Yes** | No | Yes |
+| **H. Foundational: account `type` in the snapshot** ✅ **DONE — M5.15** | Gap 6; blocks truthful corpus, and will recur for Tax/Estate | M2-6 | Medium now, **high later** | ~~**High** — first change to a frozen contract~~ → **Low**: an optional additive field, `schemaVersion` unchanged at 1, no migration, no up-converter, permitted by ADR-012 | No (payload only) | Additive only — no breaking change | No | Yes |
 
 ### RECOMMENDED NEXT 3 MILESTONES
 
@@ -838,13 +859,21 @@ AI Family CFO · the Advisor Workspace · Admin · V1 intact as the rollback pat
 
 ### OPEN
 
-The score ignores goals, protection and retirement (Gap 2) ·
-`usingDefaultAssumptions` is binary, not per-field (Gap 3) · nothing pins the score model (Gap 4) ·
-Budget and What-if have no consumer surface (Gap 5) · the snapshot cannot see account `type`
-(Gap 6) · `/onboarding/status` remains a rate-limit pressure point (Gap 7) ·
-`FIELD_ENCRYPTION_KEY` rotation deferred (#63) · self-member naming shows the household name ·
-retail↔household double entry at onboarding · Estate, Tax and Document Vault do not exist ·
-Module 10 V1 retirement decision.
+**Still open.** `FIELD_ENCRYPTION_KEY` rotation deferred (#63) · self-member naming shows the
+household name · retail↔household double entry at onboarding · Estate, Tax and Document Vault do
+not exist · Module 10 V1 retirement decision · `liabilities[]` carries no `accountType`
+(*newly identified*, M5.15 — see Gap 6).
+
+**Closed since this audit was written.** Every numbered gap it opened has now been closed:
+
+| Gap | Closed by | What changed |
+|---|---|---|
+| **2** — the score ignores goals, protection and retirement | **M5.12** | Protection and Retirement became scored categories (`fhs-2.0.0`). Goals deliberately remain a **signal**, not a scored category — a design decision, not an open gap. |
+| **3** — `usingDefaultAssumptions` is binary, not per-field | **M5.14** | Per-field `stated`/`derived`/`default` provenance; the flag is retained but now derived from it. Also unified the retirement corpus, which had two conflicting definitions. |
+| **4** — nothing pins the score model | **M5.11** | `finance.test.ts` pins `FINANCIAL_HEALTH_MODEL_VERSION`. |
+| **5** — Budget and What-if have no consumer surface | **M5.13** | `/household/budget` and `/household/what-if`; also fixed What-if disagreeing with the dashboard score by up to 16 points. |
+| **6** — the snapshot cannot see account `type` | **M5.15** | `assets[].accountType`, optional and additive; `schemaVersion` unchanged at 1, no migration. |
+| **7** — `/onboarding/status` is a rate-limit pressure point | **PR #77** | Three-state household resolution, and the amplification that caused it: 120 → 54 status calls measured. |
 
 ### NEXT
 
