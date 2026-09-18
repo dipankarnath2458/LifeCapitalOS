@@ -58,7 +58,14 @@ describe('Wealth Health Check idempotency (e2e)', () => {
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
   const period = () => new Date().toISOString().slice(0, 7);
 
-  const OWNED = { cash: 'Cash & savings', investments: 'Investments', property: 'Property', loan: 'Loan' };
+  const OWNED = {
+    cash: 'Cash & savings',
+    investments: 'Investments',
+    // M5.16 — the wizard's fourth asset row. Kept in step with `wealthHealth.ts`.
+    retirement: 'Retirement savings',
+    property: 'Property',
+    loan: 'Loan',
+  };
   const FLOW = {
     income: { type: 'income', category: 'salary' },
     expense: { type: 'expense', category: 'living' },
@@ -67,6 +74,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
   interface Figures {
     cash?: number;
     investments?: number;
+    retirement?: number;
     property?: number;
     loanOutstanding?: number;
     loanMonthlyPayment?: number;
@@ -81,7 +89,13 @@ describe('Wealth Health Check idempotency (e2e)', () => {
       http().get(`/api/households/${id}/cashflow?month=${period()}`).set(auth(token)),
     ]);
     return {
-      accounts: accounts.body as { id: string; name: string; balanceMinor: string | number }[],
+      accounts: accounts.body as {
+        id: string;
+        name: string;
+        balanceMinor: string | number;
+        type: string;
+        assetClass: string | null;
+      }[],
       debts: debts.body as {
         id: string;
         name: string;
@@ -109,6 +123,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     const f = {
       cash: 0,
       investments: 0,
+      retirement: 0,
       property: 0,
       loanOutstanding: 0,
       loanMonthlyPayment: 0,
@@ -124,7 +139,9 @@ describe('Wealth Health Check idempotency (e2e)', () => {
       { amount: f.cash, name: OWNED.cash, type: 'bank', assetClass: 'cash' },
       { amount: f.investments, name: OWNED.investments, type: 'investment', assetClass: 'equity' },
       { amount: f.property, name: OWNED.property, type: 'real_estate', assetClass: 'real_estate' },
-    ]) {
+      // M5.16 — appended last and carrying NO assetClass, exactly as `wealthHealth.ts` does.
+      { amount: f.retirement, name: OWNED.retirement, type: 'retirement' },
+    ] as { amount: number; name: string; type: string; assetClass?: string }[]) {
       const current = owned(asset.name)[0];
       if (current) {
         await http()
@@ -141,7 +158,8 @@ describe('Wealth Health Check idempotency (e2e)', () => {
         .send({
           name: asset.name,
           type: asset.type,
-          assetClass: asset.assetClass,
+          // Omitted, never null — `@IsEnum` rejects an explicit null (M5.16).
+          ...(asset.assetClass !== undefined ? { assetClass: asset.assetClass } : {}),
           currency: 'INR',
           balanceMinor: rupees(asset.amount),
           isLiability: false,
@@ -222,6 +240,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
   const FULL: Figures = {
     cash: 500000,
     investments: 1000000,
+    retirement: 400000,
     property: 300000,
     loanOutstanding: 350000,
     loanMonthlyPayment: 12000,
@@ -243,8 +262,12 @@ describe('Wealth Health Check idempotency (e2e)', () => {
 
     expect(named(s.accounts, OWNED.cash)).toHaveLength(1);
     expect(named(s.accounts, OWNED.investments)).toHaveLength(1);
+    expect(named(s.accounts, OWNED.retirement)).toHaveLength(1);
     expect(named(s.accounts, OWNED.property)).toHaveLength(1);
     expect(num(named(s.accounts, OWNED.cash)[0].balanceMinor)).toBe(rupees(500000));
+    // M5.16 — written as a retirement account, and with no asset class asserted for it.
+    expect(named(s.accounts, OWNED.retirement)[0].type).toBe('retirement');
+    expect(named(s.accounts, OWNED.retirement)[0].assetClass).toBeNull();
     expect(named(s.debts, OWNED.loan)).toHaveLength(1);
     expect(live(s.transactions, FLOW.income)).toHaveLength(1);
     expect(live(s.transactions, FLOW.expense)).toHaveLength(1);
@@ -259,6 +282,9 @@ describe('Wealth Health Check idempotency (e2e)', () => {
 
     expect(num(named(s.accounts, OWNED.cash)[0].balanceMinor)).toBe(rupees(500000));
     expect(num(named(s.accounts, OWNED.investments)[0].balanceMinor)).toBe(rupees(1000000));
+    // M5.16 — if this figure is not readable the form prefills a blank over real money, and
+    // the next submission writes that blank. Same failure mode as Gap 7.
+    expect(num(named(s.accounts, OWNED.retirement)[0].balanceMinor)).toBe(rupees(400000));
     expect(num(named(s.accounts, OWNED.property)[0].balanceMinor)).toBe(rupees(300000));
     expect(num(named(s.debts, OWNED.loan)[0].outstandingMinor)).toBe(rupees(350000));
     expect(num(named(s.debts, OWNED.loan)[0].minimumPaymentMinor)).toBe(rupees(12000));
@@ -278,6 +304,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     // 3 — no duplicate rows
     expect(named(s.accounts, OWNED.cash)).toHaveLength(1);
     expect(named(s.accounts, OWNED.investments)).toHaveLength(1);
+    expect(named(s.accounts, OWNED.retirement)).toHaveLength(1);
     expect(named(s.accounts, OWNED.property)).toHaveLength(1);
     expect(named(s.debts, OWNED.loan)).toHaveLength(1);
     expect(live(s.transactions, FLOW.income)).toHaveLength(1);
@@ -286,7 +313,10 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     // 10, 11 — assets and debts did not accumulate
     expect(second.body.netWorth.data.assetsMinor).toBe(first.body.netWorth.data.assetsMinor);
     expect(second.body.netWorth.data.totalDebtMinor).toBe(first.body.netWorth.data.totalDebtMinor);
-    expect(second.body.netWorth.data.assetsMinor).toBe(rupees(1800000));
+    // 22,00,000 not 18,00,000 since M5.16: the fixture now records ₹4L of retirement savings
+    // as a fourth asset. The property under test — that a second run does not accumulate —
+    // is unchanged.
+    expect(second.body.netWorth.data.assetsMinor).toBe(rupees(2200000));
 
     // 8, 9 — income and expenses did not accumulate
     expect(second.body.cashflow.data.incomeMinor).toBe(rupees(300000));
@@ -306,6 +336,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     expect(named(s.accounts, OWNED.cash)).toHaveLength(1);
     expect(num(named(s.accounts, OWNED.cash)[0].balanceMinor)).toBe(rupees(650000));
     expect(num(named(s.accounts, OWNED.investments)[0].balanceMinor)).toBe(rupees(1000000));
+    expect(num(named(s.accounts, OWNED.retirement)[0].balanceMinor)).toBe(rupees(400000));
     expect(live(s.transactions, FLOW.income)).toHaveLength(1);
   });
 
@@ -316,12 +347,14 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     await runCheck(token, householdId, FULL);
     const before = await state(token, householdId);
     const propertyId = named(before.accounts, OWNED.property)[0].id;
+    const retirementId = named(before.accounts, OWNED.retirement)[0].id;
     const loanId = named(before.debts, OWNED.loan)[0].id;
     const incomeId = live(before.transactions, FLOW.income)[0].id;
 
     await runCheck(token, householdId, {
       ...FULL,
       property: 0,
+      retirement: 0,
       loanOutstanding: 0,
       loanMonthlyPayment: 0,
       monthlyIncome: 0,
@@ -333,6 +366,14 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     expect(property).toHaveLength(1);
     expect(property[0].id).toBe(propertyId);
     expect(num(property[0].balanceMinor)).toBe(0);
+
+    // M5.16 — a cleared retirement figure behaves the same way: same row, zeroed, not deleted,
+    // and still typed `retirement` so a later correction has something to correct.
+    const retirement = named(s.accounts, OWNED.retirement);
+    expect(retirement).toHaveLength(1);
+    expect(retirement[0].id).toBe(retirementId);
+    expect(num(retirement[0].balanceMinor)).toBe(0);
+    expect(retirement[0].type).toBe('retirement');
 
     // The debt still exists, at zero, and is NOT closed — a blank field is not evidence
     // that a loan was settled.
@@ -403,7 +444,7 @@ describe('Wealth Health Check idempotency (e2e)', () => {
       .get(`/api/households/${householdId}/financial-snapshot/${first.id}`)
       .set(auth(token));
     expect(original.status).toBe(200);
-    expect(original.body.payload.netWorth.assetsMinor).toBe(rupees(1800000));
+    expect(original.body.payload.netWorth.assetsMinor).toBe(rupees(2200000));
     expect(original.body.checksum).toBe(first.checksum);
 
     const timeline = await http()
@@ -461,7 +502,10 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     // (cash + investments), not reconciled net worth. The home is not retirement money, and a
     // mortgage is a claim on income rather than on the retirement pot — so ₹3L of property is
     // excluded and the ₹3.5L loan is no longer netted off.
-    expect(twice.body.retirement.data.currentCorpusMinor).toBe(rupees(500000 + 1000000));
+    // M5.16 adds ₹4L of retirement savings, which carry no asset class and are therefore not
+    // `real_estate` — so `investableCorpusMinor` includes them. That is the point of recording
+    // them, and it needed no retirement-specific logic to happen.
+    expect(twice.body.retirement.data.currentCorpusMinor).toBe(rupees(500000 + 1000000 + 400000));
   });
 
   it('14 — AI grounding still receives the reconciled net worth', async () => {
@@ -472,16 +516,18 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     await runCheck(token, householdId, FULL);
 
     const intel = await intelligence(token, householdId);
-    expect(intel.body.netWorth.data.netWorthMinor).toBe(rupees(1800000 - 350000));
-    expect(intel.body.netWorth.data.grossNetWorthMinor).toBe(rupees(1800000));
+    expect(intel.body.netWorth.data.netWorthMinor).toBe(rupees(2200000 - 350000));
+    expect(intel.body.netWorth.data.grossNetWorthMinor).toBe(rupees(2200000));
 
     const ai = await http()
       .post(`/api/households/${householdId}/ai/insights`)
       .set(auth(token))
       .send({});
     expect(ai.body.available).toBe(true);
-    expect(ai.body.answer).toContain('₹14,50,000');
-    expect(ai.body.answer).not.toContain('₹18,00,000');
+    // Still the reconciled figure and still not the gross one — the guarantee this test exists
+    // for. Both figures moved by ₹4L because the fixture now records retirement savings.
+    expect(ai.body.answer).toContain('₹18,50,000');
+    expect(ai.body.answer).not.toContain('₹22,00,000');
   });
 
   it('15 — a repeated submission cannot duplicate the current records', async () => {
@@ -493,13 +539,14 @@ describe('Wealth Health Check idempotency (e2e)', () => {
     const s = await state(token, householdId);
     expect(named(s.accounts, OWNED.cash)).toHaveLength(1);
     expect(named(s.accounts, OWNED.investments)).toHaveLength(1);
+    expect(named(s.accounts, OWNED.retirement)).toHaveLength(1);
     expect(named(s.accounts, OWNED.property)).toHaveLength(1);
     expect(named(s.debts, OWNED.loan)).toHaveLength(1);
     expect(live(s.transactions, FLOW.income)).toHaveLength(1);
     expect(live(s.transactions, FLOW.expense)).toHaveLength(1);
 
     const intel = await intelligence(token, householdId);
-    expect(intel.body.netWorth.data.assetsMinor).toBe(rupees(1800000));
+    expect(intel.body.netWorth.data.assetsMinor).toBe(rupees(2200000));
     expect(intel.body.cashflow.data.incomeMinor).toBe(rupees(300000));
   });
 

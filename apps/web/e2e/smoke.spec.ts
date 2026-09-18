@@ -339,6 +339,7 @@ test.describe('wealth health check', () => {
 
     await page.getByLabel('Cash & savings (₹)').fill('600000');
     await page.getByLabel('Investments (₹)').fill('1400000');
+    await page.getByLabel('Retirement savings (₹)').fill('400000');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await page.getByLabel('Outstanding loan balance (₹)').fill('500000');
@@ -358,6 +359,22 @@ test.describe('wealth health check', () => {
     // reached the snapshot this reads "No income recorded for this period".
     await expect(page.getByText(/No income recorded/i)).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Savings' })).toBeVisible();
+
+    // M5.16 — the field a browser can see is only half of it. What matters is that the
+    // figure was written as a RETIREMENT account with no asset class invented for it, which
+    // is what puts `accountType: 'retirement'` into the next snapshot.
+    const saved = await page.evaluate(async (base) => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('lcos_access')}` };
+      const status = await (await fetch(`${base}/onboarding/status`, { headers: auth })).json();
+      const accounts = await (
+        await fetch(`${base}/households/${status.householdId}/accounts`, { headers: auth })
+      ).json();
+      return (accounts as { name: string; type: string; assetClass: string | null }[]).find(
+        (a) => a.name === 'Retirement savings',
+      );
+    }, API_URL);
+    expect(saved?.type).toBe('retirement');
+    expect(saved?.assetClass).toBeNull();
   });
 });
 
@@ -427,7 +444,8 @@ test.describe('household dashboard', () => {
     await page.getByRole('button', { name: 'Go to my dashboard' }).click();
     await expect(page).toHaveURL(/\/household$/);
 
-    // ₹20,00,000 of assets less a ₹4,00,000 loan.
+    // ₹20,00,000 of assets less a ₹4,00,000 loan. This test is about the debt ledger, so it
+    // leaves the M5.16 retirement field blank — and that blank must add nothing.
     await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
     // And the loan is on the page, not merely subtracted out of sight.
     await expect(page.getByText('Loans')).toBeVisible();
@@ -447,6 +465,7 @@ test.describe('household dashboard', () => {
     await page.goto('/wealth-health');
     await page.getByLabel('Cash & savings (₹)').fill('900000');
     await page.getByLabel('Investments (₹)').fill('1100000');
+    await page.getByLabel('Retirement savings (₹)').fill('500000');
     await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Outstanding loan balance (₹)').fill('400000');
     await page.getByLabel('Monthly payment (₹)').fill('12000');
@@ -456,7 +475,8 @@ test.describe('household dashboard', () => {
     await page.getByRole('button', { name: 'See my score' }).click();
     await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
     await page.getByRole('button', { name: 'Go to my dashboard' }).click();
-    await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
+    // 21,00,000 since M5.16: 9L + 11L + 5L of retirement savings, less the 4L loan.
+    await expect(page.getByTestId('net-worth')).toContainText('21,00,000');
 
     // Return to the check the way a consumer does — the dashboard's own button.
     await page.getByRole('button', { name: 'Update my figures' }).click();
@@ -467,6 +487,9 @@ test.describe('household dashboard', () => {
     // form while the rest silently accumulated.
     await expect(page.getByLabel('Cash & savings (₹)')).toHaveValue('900000');
     await expect(page.getByLabel('Investments (₹)')).toHaveValue('1100000');
+    // M5.16 — if this prefills blank, the next submission writes that blank over ₹5L of real
+    // money. It is the single highest-risk line in the milestone.
+    await expect(page.getByLabel('Retirement savings (₹)')).toHaveValue('500000');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByLabel('Outstanding loan balance (₹)')).toHaveValue('400000');
     await page.getByRole('button', { name: 'Continue' }).click();
@@ -478,8 +501,8 @@ test.describe('household dashboard', () => {
     await page.getByRole('button', { name: 'See my score' }).click();
     await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
     await page.getByRole('button', { name: 'Go to my dashboard' }).click();
-    await expect(page.getByTestId('net-worth')).toContainText('16,00,000');
-    await expect(page.getByText('₹32,00,000')).toHaveCount(0);
+    await expect(page.getByTestId('net-worth')).toContainText('21,00,000');
+    await expect(page.getByText('₹42,00,000')).toHaveCount(0);
   });
 
   test('invites a consumer with no data to run the check, rather than showing zeros', async ({

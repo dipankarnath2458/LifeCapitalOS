@@ -31,6 +31,21 @@ export interface WealthHealthInput {
   /** Cash and savings balances, in major units as typed. */
   cash: number;
   investments: number;
+  /**
+   * Money set aside for retirement — EPF, PPF, NPS (M5.16, Gap 6 consumer capture).
+   *
+   * Recorded separately from `investments` because the two are different *kinds of account*,
+   * not different kinds of asset: this one is written as `type: 'retirement'`, which is the
+   * value `assets[].accountType` has carried in the payload since M5.15 and which nothing
+   * could previously produce from a consumer surface.
+   *
+   * Until M5.16 the Investments field's own hint read "Mutual funds, stocks, EPF, PPF", so
+   * every family who followed it filed retirement money as ordinary investing. That hint is
+   * corrected in the same change. Existing figures are **not** split or backfilled — we cannot
+   * know how much of a stored Investments balance is retirement money, and guessing would
+   * assert a fact nobody recorded.
+   */
+  retirement: number;
   property: number;
   /** Outstanding loan balance; 0 means "no debt", and no Debt row is written. */
   loanOutstanding: number;
@@ -67,13 +82,20 @@ export function toMinor(value: number): number {
 interface AssetSpec {
   amount: number;
   name: string;
-  type: 'bank' | 'investment' | 'real_estate';
+  type: 'bank' | 'investment' | 'retirement' | 'real_estate';
   /**
    * Set deliberately, never defaulted. Emergency Liquidity counts `cash`, and
    * Diversification scores the spread of classes — filing everything as `other` would
    * understate a family that is genuinely well diversified.
+   *
+   * **Optional since M5.16**, and omitted for retirement savings. Retirement is an
+   * `accountType`, not an `assetClass`: PPF is debt, NPS-E is equity, and we have not asked
+   * which. A null class is already a first-class state in the kernel — the composer buckets it
+   * as `unclassified` (`household-financial-snapshot.service.ts:141`) — so omitting it asserts
+   * nothing, where picking one would. It must be **absent** rather than `null`: the API
+   * validates with `@IsEnum`, which rejects an explicit null.
    */
-  assetClass: 'cash' | 'equity' | 'real_estate';
+  assetClass?: 'cash' | 'equity' | 'real_estate';
 }
 
 /**
@@ -86,6 +108,7 @@ interface AssetSpec {
 const OWNED = {
   cash: 'Cash & savings',
   investments: 'Investments',
+  retirement: 'Retirement savings',
   property: 'Property',
   loan: 'Loan',
 } as const;
@@ -203,6 +226,10 @@ export async function loadCurrentFigures(token: string): Promise<CurrentFiguresR
     figures: {
       cash: balance(OWNED.cash),
       investments: balance(OWNED.investments),
+      // Must be read back, or the form shows a blank where real money is and the next
+      // submission writes that blank over it — the Gap 7 failure mode, and the reason this
+      // line carries its own regression test.
+      retirement: balance(OWNED.retirement),
       property: balance(OWNED.property),
       loanOutstanding: loan ? toMajor(Number(loan.outstandingMinor ?? 0)) : 0,
       loanMonthlyPayment: loan ? toMajor(loan.minimumPaymentMinor) : 0,
@@ -232,6 +259,10 @@ export async function runWealthHealthCheck(
     { amount: input.cash, name: OWNED.cash, type: 'bank', assetClass: 'cash' },
     { amount: input.investments, name: OWNED.investments, type: 'investment', assetClass: 'equity' },
     { amount: input.property, name: OWNED.property, type: 'real_estate', assetClass: 'real_estate' },
+    // Appended last, deliberately: the rows above keep the call order they have always had, and
+    // the transaction anchor below still prefers the cash account (it tests `assetClass`, which
+    // this row does not carry).
+    { amount: input.retirement, name: OWNED.retirement, type: 'retirement' },
   ];
 
   let anchorAccountId: string | null = null;
@@ -260,7 +291,9 @@ export async function runWealthHealthCheck(
       {
         name: asset.name,
         type: asset.type,
-        assetClass: asset.assetClass,
+        // Omitted entirely when the spec carries none (M5.16). `@IsEnum` rejects an explicit
+        // null, and a key that is present-but-undefined is a different thing from an absent one.
+        ...(asset.assetClass !== undefined ? { assetClass: asset.assetClass } : {}),
         currency: 'INR',
         balanceMinor: toMinor(asset.amount),
         isLiability: false,
