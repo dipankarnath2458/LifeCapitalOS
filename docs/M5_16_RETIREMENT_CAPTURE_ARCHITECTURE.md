@@ -98,35 +98,37 @@ are pre-existing behaviours for any unclassified account. Neither is introduced 
 
 ### Diversification was the one place distortion could hide
 
-Computed from the formula at `financialHealth.ts:239-240`, the `diversification` anchors at
-`:112-116`, and the composer's percentage rounding at `:148`. Analytical, from the source — not a
-test run. A family holding ₹2L cash, ₹3L equity and ₹50L property who records ₹5L of retirement
-savings:
+Measured by running `computeFinancialHealthScore` from the built `@lcos/core` — the real scorer,
+not a re-derivation of its formula. A family holding ₹2L cash, ₹3L equity and ₹50L property who
+records ₹5L of retirement savings:
 
-| `assetClass` used | Diversification sub-score |
-|---|---|
-| *(nothing recorded)* | 20.3 |
-| **omitted → `unclassified`** | **35.5** |
-| `debt` | 35.5 |
-| `equity` | 34.5 |
+| `assetClass` used | Diversification index | Sub-score | **Overall score** |
+|---|---|---|---|
+| *(nothing recorded)* | 0.17 | 20 | **83** |
+| **omitted → `unclassified`** | 0.30 | 35 | **84** |
+| `debt` | 0.30 | 35 | **84** |
+| `equity` (merged into the existing bucket) | 0.29 | 34 | **84** |
 
-**Omitting distorts nothing.** It produces the same number as `debt` and is within a point of
-`equity`. The movement comes from recording ₹5L outside the dominant class — which is true — not
-from the bucket being unnamed. Every honest choice moves this figure by about the same amount,
-because the family genuinely has more money outside real estate than we previously knew.
+**Omitting distorts nothing.** It produces a figure identical to `debt` and one sub-score point
+from `equity`, and the overall score is **84 whichever is chosen**. The movement from 83 to 84
+comes from recording ₹5L outside the dominant class — which is true — not from the bucket being
+unnamed. Every honest choice moves this figure by the same amount, because the family genuinely
+has more money outside real estate than we previously knew.
 
 ## 5. What this costs an existing family: nothing
 
 The family most affected is the one who followed the old hint and has EPF inside Investments. When
-they re-file ₹5L out of Investments into Retirement savings:
+they re-file ₹5L out of Investments into Retirement savings — the `equity` and `unclassified` rows
+of the table above, which are exactly the before and after of that correction:
 
 ```
-net worth                 delta = 0     (same total assets)
-investable corpus         delta = 0     (neither class is real_estate)
-diversification sub-score delta = +1.0  →  +0.07 on the overall score
+net worth                 delta = 0   (same total assets)
+investable corpus         delta = 0   (neither class is real_estate)
+diversification sub-score delta = +1  (34 → 35)
+OVERALL WEALTH HEALTH     delta = 0   (84 → 84)
 ```
 
-**No figure a family sees meaningfully moves when they correct their own filing.** That matters
+**Not one figure a family sees moves when they correct their own filing.** That matters
 because Gap 6 §9 warned explicitly against the alternative: *"Two shipped-number changes to the
 same figure in consecutive milestones is how a family stops trusting the number."* M5.14 changed
 the corpus definition. M5.16 does not change it again — it lets families record money the
