@@ -65,6 +65,22 @@ describe('Wealth Health Check pipeline (e2e)', () => {
       });
     expect(investments.status).toBe(201);
 
+    // M5.16 — retirement savings, written as a `retirement` account carrying NO assetClass.
+    // The key is omitted rather than sent as null: `@IsEnum` rejects an explicit null.
+    const retirement = await http()
+      .post(`/api/households/${householdId}/accounts`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Retirement savings',
+        type: 'retirement',
+        currency: 'INR',
+        balanceMinor: rupees(400000),
+        isLiability: false,
+      });
+    expect(retirement.status).toBe(201);
+    expect(retirement.body.type).toBe('retirement');
+    expect(retirement.body.assetClass).toBeNull();
+
     const debt = await http()
       .post(`/api/households/${householdId}/debts`)
       .set('Authorization', `Bearer ${token}`)
@@ -156,7 +172,16 @@ describe('Wealth Health Check pipeline (e2e)', () => {
 
     // The snapshot is the contract every downstream consumer reads, so assert on it
     // directly rather than only on the score derived from it.
-    expect(snapshot.payload.netWorth.assetsMinor).toBe(rupees(2000000));
+    // 24,00,000 not 20,00,000 since M5.16: 6L cash + 14L investments + 4L retirement savings.
+    expect(snapshot.payload.netWorth.assetsMinor).toBe(rupees(2400000));
+
+    // The retirement balance reaches the payload with its account type, and with no asset
+    // class invented for it — the first end-to-end use of M5.15's field from the check.
+    const retirementAsset = snapshot.payload.assets.find(
+      (a: { name: string }) => a.name === 'Retirement savings',
+    );
+    expect(retirementAsset.accountType).toBe('retirement');
+    expect(retirementAsset.assetClass).toBeNull();
     expect(snapshot.payload.cashflowSummary.incomeMinor).toBe(rupees(200000));
     expect(snapshot.payload.cashflowSummary.expenseMinor).toBe(rupees(100000));
     expect(snapshot.payload.debt.totalOutstandingMinor).toBe(rupees(500000));

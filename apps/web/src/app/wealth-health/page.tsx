@@ -64,6 +64,7 @@ export default function WealthHealthPage() {
   const [result, setResult] = useState<HealthScoreResult | null>(null);
   const [cash, setCash] = useState('');
   const [investments, setInvestments] = useState('');
+  const [retirement, setRetirement] = useState('');
   const [property, setProperty] = useState('');
   const [loanOutstanding, setLoanOutstanding] = useState('');
   const [loanMonthlyPayment, setLoanMonthlyPayment] = useState('');
@@ -99,6 +100,7 @@ export default function WealthHealthPage() {
         const put = (n: number) => (n > 0 ? String(n) : '');
         setCash(put(figures.cash));
         setInvestments(put(figures.investments));
+        setRetirement(put(figures.retirement));
         setProperty(put(figures.property));
         setLoanOutstanding(put(figures.loanOutstanding));
         setLoanMonthlyPayment(put(figures.loanMonthlyPayment));
@@ -120,6 +122,7 @@ export default function WealthHealthPage() {
       const score = await runWealthHealthCheck(token, {
         cash: num(cash),
         investments: num(investments),
+        retirement: num(retirement),
         property: num(property),
         loanOutstanding: num(loanOutstanding),
         loanMonthlyPayment: num(loanMonthlyPayment),
@@ -273,10 +276,17 @@ export default function WealthHealthPage() {
                 />
                 <LabeledInput
                   label="Investments (₹)"
-                  hint="Mutual funds, stocks, EPF, PPF."
+                  hint="Mutual funds, stocks, and other investments."
                   type="number"
                   value={investments}
                   onChange={(e) => setInvestments(e.target.value)}
+                />
+                <LabeledInput
+                  label="Retirement savings (₹)"
+                  hint="EPF, PPF, NPS — money set aside for retirement."
+                  type="number"
+                  value={retirement}
+                  onChange={(e) => setRetirement(e.target.value)}
                 />
                 <LabeledInput
                   label="Property (₹)"
