@@ -137,6 +137,18 @@ export interface InsuranceData {
 }
 
 export interface HouseholdIntelligence {
+  /**
+   * Money held in accounts the family said are for retirement (M5.17).
+   *
+   * Top level, not inside a `Section`: it is a fact about the snapshot, not an analysis that can
+   * fail. It briefly lived on the retirement section, whose availability depends on a member age
+   * and recorded expenses — so a family with neither could not be shown savings they had just
+   * recorded, for reasons unrelated to those savings.
+   *
+   * `null` means the snapshot predates account-type capture — NOT that they have none. Render
+   * nothing on `null`; a zero would answer a question nobody asked.
+   */
+  retirementAccountsMinor: number | null;
   available: true;
   household: { householdId: string; name: string | null; baseCurrency: string; memberCount: number };
   netWorth: Section<NetWorthData>;
@@ -243,6 +255,39 @@ export function formatMoney(minor: number, currency = 'INR'): string {
     return `${currency} ${Math.round(major).toLocaleString('en-IN')}`;
   }
 }
+
+/**
+ * Asset-class keys → the words a family reads (M5.17).
+ *
+ * The engine's keys are not copy. `unclassified` is the composer's bucket for an asset whose
+ * class we have never asked about (`household-financial-snapshot.service.ts`), and it was
+ * reaching the dashboard verbatim — so a family who had just recorded their retirement savings
+ * was shown the word "Unclassified".
+ *
+ * **The bucket keeps its meaning.** This renames nothing in the engine and merges nothing: an
+ * unknown asset class still reads as unknown, because it genuinely is one. "Not yet classified"
+ * says the same thing in the family's language and implies what it actually is — a gap that can
+ * be closed — rather than a verdict.
+ *
+ * One map, shared by every V2 consumer surface, following the `BAND_LABEL` convention already
+ * used by What-if. Unknown keys fall through to the previous behaviour, so a class added to the
+ * engine tomorrow degrades to readable text instead of disappearing.
+ */
+export const ASSET_CLASS_LABEL: Record<string, string> = {
+  equity: 'Equity',
+  debt: 'Debt',
+  gold: 'Gold',
+  real_estate: 'Real Estate',
+  cash: 'Cash',
+  crypto: 'Crypto',
+  business: 'Business',
+  other: 'Other',
+  unclassified: 'Not yet classified',
+};
+
+/** An asset-class key as a family should read it. Presentation only — no bucket changes. */
+export const assetClassLabel = (key: string): string =>
+  ASSET_CLASS_LABEL[key] ?? key.replace(/_/g, ' ');
 
 /** Engine status light → design-system tone. Presentation only. */
 export function toneFor(status: StatusLight): 'success' | 'warning' | 'danger' {

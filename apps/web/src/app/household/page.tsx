@@ -24,6 +24,7 @@ import { apiGet } from '@/lib/api';
 import { getAccessToken, signOut } from '@/lib/session';
 import { isAdminRole } from '@/lib/admin';
 import {
+  assetClassLabel,
   formatMoney,
   loadDashboard,
   toneFor,
@@ -453,7 +454,7 @@ export default function HouseholdDashboardPage() {
                   <div className="mb-4" data-testid="allocation-chart">
                     <AllocationDonutChart
                       slices={a.current.map((slice) => ({
-                        name: slice.assetClass.replace(/_/g, ' '),
+                        name: assetClassLabel(slice.assetClass),
                         value: Math.round(slice.pct),
                       }))}
                     />
@@ -461,8 +462,11 @@ export default function HouseholdDashboardPage() {
                 )}
                 {a.current.map((slice) => (
                   <div key={slice.assetClass} className="flex items-center justify-between gap-3">
-                    <span className="text-sm capitalize text-foreground">
-                      {slice.assetClass.replace(/_/g, ' ')}
+                    {/* The engine's bucket key is not copy. `unclassified` reads as "Not yet
+                        classified"; the bucket itself, and every figure computed from it, is
+                        untouched (M5.17). */}
+                    <span className="text-sm text-foreground">
+                      {assetClassLabel(slice.assetClass)}
                     </span>
                     <span className="text-sm text-subtle">
                       {Math.round(slice.pct)}% · {money(slice.baseValueMinor)}
@@ -472,8 +476,29 @@ export default function HouseholdDashboardPage() {
                 {a.topConcentration && (
                   <Badge tone={toneFor(a.concentrationRisk)} className="mt-2">
                     {Math.round(a.topConcentration.pct)}% in{' '}
-                    {a.topConcentration.assetClass.replace(/_/g, ' ')}
+                    {assetClassLabel(a.topConcentration.assetClass)}
                   </Badge>
+                )}
+                {/* M5.17 — the fact the allocation cannot carry.
+                    A family told us this money is for retirement (`accountType`), but never what
+                    it is invested in (`assetClass`), so the bucket above honestly reads "Not yet
+                    classified". Stating the retirement fact BESIDE the allocation — rather than
+                    folding it into a bucket — is what keeps the two ideas apart and leaves every
+                    figure above mathematically identical.
+
+                    Read from the TOP LEVEL, not from `i.retirement`. It briefly hung off that
+                    section, which reports unavailable without a member age or recorded expenses —
+                    so a family who had just recorded their retirement savings could not be shown
+                    them, for reasons that had nothing to do with the savings. That is the default
+                    state of a newly onboarded household.
+
+                    Hidden when null: `null` means this snapshot predates account-type capture,
+                    which is not the same as "they have none". */}
+                {i.retirementAccountsMinor !== null && i.retirementAccountsMinor > 0 && (
+                  <Text muted className="mt-3 block text-sm" data-testid="retirement-in-allocation">
+                    {money(i.retirementAccountsMinor)} of this is retirement savings. Tell us how
+                    it&apos;s invested to see your full allocation.
+                  </Text>
                 )}
               </div>
             )}

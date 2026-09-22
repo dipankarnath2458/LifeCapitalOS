@@ -718,6 +718,60 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByText('Monthly SIP needed')).toBeVisible();
   });
 
+  test('retirement money reads as retirement money, not "Unclassified"', async ({
+    page,
+    request,
+  }) => {
+    // M5.17. M5.16 let a family record retirement savings; because we never ask what that money
+    // is INVESTED in, the allocation bucket is honestly `unclassified` — and the dashboard was
+    // printing that key verbatim. So a family who had just told us "this is my retirement
+    // savings" read the word "Unclassified" back. This asserts both halves of the fix: the
+    // bucket now reads as words, and the retirement fact is stated beside it.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    // DELIBERATELY NO DATE OF BIRTH. This is the default state of every newly onboarded family —
+    // neither onboarding nor the Wealth Health Check records one — so the retirement PROJECTION
+    // cannot be made. That says nothing about how much sits in a retirement account, and the
+    // first cut of M5.17 hid the figure anyway because it hung off the retirement section.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('200000');
+    await page.getByLabel('Investments (₹)').fill('300000');
+    await page.getByLabel('Retirement savings (₹)').fill('500000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // ORDER MATTERS (rule 9.3 #10). The absence assertion below passes vacuously against a panel
+    // that has not rendered yet — it did exactly that on the first run of this test — so the
+    // positive signals come first and the negative one only after the panel is genuinely on screen.
+    await expect(page.getByTestId('allocation-chart')).toBeVisible();
+    // The honest state is still SHOWN: the asset class is genuinely unknown, and saying so is the
+    // point. It simply says so in words a family can read.
+    await expect(page.getByText('Not yet classified').first()).toBeVisible();
+    // Only now: the engine key must not reach the family — not in the list, donut or badge.
+    await expect(page.getByText(/unclassified/i)).toHaveCount(0);
+
+    // And the fact the allocation cannot carry, stated beside it.
+    const line = page.getByTestId('retirement-in-allocation');
+    await expect(line).toBeVisible();
+    await expect(line).toContainText('5,00,000');
+    await expect(line).toContainText(/retirement savings/i);
+
+    // The projection genuinely cannot be made without an age — and the line is shown regardless.
+    await expect(page.getByText(/No member age available/i)).toBeVisible();
+
+    // The retirement page names the same figure, from the same definition.
+    await page.goto('/household/retirement');
+    await expect(page.getByTestId('retirement-accounts')).toContainText('5,00,000');
+  });
+
   test('V1 family still works on the dashboard — the safety net is untouched', async ({
     page,
     request,

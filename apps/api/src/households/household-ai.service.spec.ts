@@ -50,6 +50,8 @@ const intelligence = (): HouseholdFinancialIntelligence =>
       entityCount: 1,
       lastUpdated: '2026-08-01T00:00:00.000Z',
     },
+    // M5.17 — top level and required, because it is a fact rather than an analysis that can fail.
+    retirementAccountsMinor: null,
     netWorth: { available: false, reason: 'n/a' },
     emergencyFund: { available: false, reason: 'n/a' },
     assetAllocation: { available: false, reason: 'n/a' },

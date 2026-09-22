@@ -270,6 +270,19 @@ export default function RetirementPage() {
                     source={data.assumptions.monthlyContributionMinor?.source ?? 'default'}
                   />
                 </div>
+                {/* M5.17 — the part of the corpus the family actually earmarked, read from
+                    `accountType`. Additive and read-only: the corpus above, its provenance and
+                    every projection are unchanged. Read from the overview's TOP LEVEL rather than
+                    from `retirement.data`, so it survives a projection that cannot be made.
+                    Hidden on `null`, which means this snapshot predates account-type capture
+                    rather than "they have none". */}
+                {data?.available &&
+                  data.retirementAccountsMinor !== null &&
+                  data.retirementAccountsMinor > 0 && (
+                    <Text muted className="mt-3 block text-xs" data-testid="retirement-accounts">
+                      Of which {money(data.retirementAccountsMinor)} is held in retirement accounts.
+                    </Text>
+                  )}
                 <Text muted className="mt-3 block text-xs">
                   Your home is deliberately not counted as retirement savings.
                 </Text>

@@ -100,6 +100,12 @@ export class HouseholdRetirementService {
         relation: subject.relation,
       },
       assumptions,
+      /**
+       * Money held in retirement accounts (M5.17). Beside `retirement`, not inside it: the
+       * projection can be unavailable (no member age, no recorded expenses) while this fact is
+       * perfectly well known, and the page must still be able to show it.
+       */
+      retirementAccountsMinor: intel.retirementAccountsMinor,
       /** Straight from the intelligence layer — never recomputed here. */
       retirement: intel.retirement,
       recommendations: this.recommendationsFor(intel.retirement, assumptions),

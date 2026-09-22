@@ -240,6 +240,34 @@ the score and the intelligence layer cannot diverge) and `deriveHealthFacts`, wh
 existing calculators and invents no maths. Design:
 `docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md`. **No migration. No kernel contract change.**
 
+#### M5.13 → M5.17 — the milestones after this audit was written
+
+Recorded here for continuity; each has its own design note under `docs/`.
+
+| Milestone | What it did |
+|---|---|
+| **M5.13** (PR #76) | Budget and What-if reach the consumer — `/household/budget`, `/household/what-if`. Closes Gap 5. |
+| **Gap 7** (PR #77) | Three-state household resolution: `resolved` / `none` / `unavailable`. |
+| **M5.14** (PR #79) | Per-field provenance (`stated`/`derived`/`default`). Closes Gap 3, and unifies the retirement corpus on `investableCorpusMinor`. |
+| **M5.15** (PR #80) | `assets[].accountType` in the payload — optional, additive, `schemaVersion` still 1, no migration. ADR-014. |
+| **M5.16** (PR #82) | A V2 consumer can record retirement savings; the Wealth Health Check writes `type: 'retirement'` with **no** `assetClass`, and corrects a hint that had told families to file EPF/PPF as ordinary investing since M5.5. |
+| **M5.17** | **Retirement money becomes legible.** `retirementAccountsMinor` — derived in the intelligence layer from `p.assets` by `accountType`, and the **first reader of that field anywhere** — plus a shared asset-class label map so the composer's `unclassified` bucket reads as "Not yet classified" instead of leaking an engine key to a family. |
+
+**M5.17 is presentation, not arithmetic.** It changes no calculation: `assetAllocation` bucketing,
+`baseValueMinor`, `pct`, HHI, `diversificationIndex`, `topConcentration`, `concentrationRisk`,
+`investableCorpusMinor` and every Wealth Health figure are byte-identical for the same input —
+pinned by a test that holds the allocation constant and varies only `accountType`. No Prisma
+change, no migration, no kernel change; `SCHEMA_VERSION` 1, `ENGINE_VERSION` `m2-6.1.0`,
+`FINANCIAL_HEALTH_MODEL_VERSION` `fhs-2.0.0` all unchanged. Design:
+`docs/M5_17_RETIREMENT_LEGIBILITY_ARCHITECTURE.md`.
+
+The boundary it protects is worth restating, because it is the thing most likely to be eroded
+later: **`accountType` says what kind of account holds the money; `assetClass` says what economic
+asset the money is.** A retirement account whose investment mix we have never asked about is
+genuinely unclassified at the asset-class layer, and M5.17 keeps saying so — it states the
+retirement fact *beside* the allocation rather than folding it into a bucket. There is no
+`retirement` asset class and there must not be one.
+
 ---
 
 ## 2. What exactly was M4? — definitive reconstruction
@@ -524,15 +552,15 @@ Judged on merged code, not roadmap position.
 | **Family Balance Sheet** | Complete | M2-7 | `apps/web/src/app/app/households/[id]/balance-sheet/` | Yes — advisor surface only |
 | **Net Worth** | Complete | M2-3 | `household-networth.service.ts`, `core/finance/networth.ts` | Yes |
 | **Cashflow** | Complete | M2-4 | `household-cashflow.service.ts`, `core/finance/cashflow.ts` | Yes |
-| **Budget** | Complete (API) | M2-4 | `household-budget.service.ts` | Yes — **no V2 consumer surface** |
+| **Budget** | Complete | M2-4 + **M5.13** | `household-budget.service.ts`, `/household/budget` | Yes — consumer surface shipped in M5.13 (Gap 5) |
 | **Debt** | Complete | M2-5 | `household-debt.service.ts`, `core/finance/debt.ts` | Yes |
-| **Financial Health Score** | Complete | M3-1/M3-2 | `core/finance/financialHealth.ts` | Yes — but blind to protection & retirement |
+| **Financial Health Score** | Complete | M3-1/M3-2 + **M5.12** | `core/finance/financialHealth.ts` | Yes — `fhs-2.0.0` scores 7 categories, Protection and Retirement among them (Gap 2) |
 | **Protection / Insurance** | Complete | M5.9 | `household-protection.service.ts`, `/household/protection` | Yes — verified in production |
 | **Retirement Planning** | Complete | M5.10 | `retirement-plan.service.ts`, `household-retirement.service.ts`, `/household/retirement` | **Yes — verified in production 2026-08-17** (§13); one open question: whether any household has yet saved a plan |
 | **Goals** | Complete | M5.8 + **M5.11** | `household-goals.service.ts`, `/household/goals` | Yes — CRUD, and since M5.11 a goal behind schedule raises a risk signal (Gap 1 closed). Still outside the score |
 | **Asset Allocation** | Complete (read-only) | M5 | `core/finance/assetAllocation.ts`; dashboard panel + donut | Yes — analysis only, no rebalancing |
 | **Risk Intelligence** | Complete (early warning) | M5 / M3 | `core/scoring/earlyWarning.ts` → `intelligence.risk` | Yes — all 6 signals now fire for a V2 household; `goal_slippage` was supplied from M5.11 (before it, the signal was emitted but permanently green, telling families with goals to *"add goals"*) |
-| **What-if Simulation** | Complete | M3-3 | `core/finance/financialSimulation.ts`, `household-simulation.service.ts` | Yes — **advisor surface only**, no V2 consumer page |
+| **What-if Simulation** | Complete | M3-3 + **M5.13** | `core/finance/financialSimulation.ts`, `household-simulation.service.ts`, `/household/what-if` | Yes — consumer surface shipped in M5.13 (Gap 5) |
 | **AI Family CFO** | Complete | M5.7 + M5.10 | `household-ai.service.ts`, `/household/coach` | Yes — coach gated on the `ai_recommendations` entitlement |
 | **Estate & Legacy** | **NOT BUILT** | — | none | No |
 | **Tax Planning** | **NOT BUILT** (helper only) | — | `core/finance/tax.ts` — `netOfTaxReturnPct` only | No |
@@ -872,13 +900,28 @@ not exist · Module 10 V1 retirement decision · `liabilities[]` carries no `acc
 | **3** — `usingDefaultAssumptions` is binary, not per-field | **M5.14** | Per-field `stated`/`derived`/`default` provenance; the flag is retained but now derived from it. Also unified the retirement corpus, which had two conflicting definitions. |
 | **4** — nothing pins the score model | **M5.11** | `finance.test.ts` pins `FINANCIAL_HEALTH_MODEL_VERSION`. |
 | **5** — Budget and What-if have no consumer surface | **M5.13** | `/household/budget` and `/household/what-if`; also fixed What-if disagreeing with the dashboard score by up to 16 points. |
-| **6** — the snapshot cannot see account `type` | **M5.15** | `assets[].accountType`, optional and additive; `schemaVersion` unchanged at 1, no migration. |
+| **6** — the snapshot cannot see account `type` | **M5.15 + M5.16 + M5.17** | M5.15 added `assets[].accountType`, optional and additive, `schemaVersion` unchanged at 1, no migration. M5.16 gave the V2 consumer a way to produce one (the Wealth Health Check writes `type: 'retirement'`). M5.17 made it legible: `retirement.retirementAccountsMinor`, the field's first reader, and an `unclassified` bucket that reads as "Not yet classified" instead of leaking an engine key. |
 | **7** — `/onboarding/status` is a rate-limit pressure point | **PR #77** | Three-state household resolution, and the amplification that caused it: 120 → 54 status calls measured. |
 
 ### NEXT
 
-**M5.11** Goals become a signal (+ gaps 3 and 4) → **M5.12** Wealth Health Score v2 →
-**M5.13** What-if and Budget reach the consumer.
+**Nothing is scheduled.** Every milestone this section once named — M5.11, M5.12, M5.13 — is
+merged, as are M5.14, M5.15, M5.16 and M5.17, and all seven numbered gaps are closed.
+
+Recorded, deliberately unscheduled:
+
+- **Account-type correction** (tentatively M5.18): `PATCH type`, the `type`/`isLiability` guard,
+  a correction UI, its audit behaviour, and proof that correcting an account never rewrites a
+  stored snapshot. Deferred because **no consumer surface can produce a mis-typed account** — the
+  wizard always writes the correct type — so the hole is real but unreached. It becomes urgent the
+  day any surface lets a user choose a type freely. See
+  [`../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md`](../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md) §6.2.
+- **Advisor surfaces still render raw asset-class keys** — the balance sheet's own summary and the
+  `/app` concentration tile. Excluded from M5.17 by decision; a separately tracked follow-up.
+- **Tax / Section 80C.** The engine is further along than §6 below implies, but its *inputs* do
+  not exist: 80C needs contributions per instrument (ELSS/EPF/PPF/NPS/life insurance), and neither
+  `AccountType` nor Protection can supply them. A real milestone with a migration, not a wiring
+  exercise.
 
 ---
 
@@ -890,20 +933,20 @@ not exist · Module 10 V1 retirement decision · `liabilities[]` carries no `acc
 | M5.10 migration exists in main | `git ls-tree origin/main apps/api/prisma/migrations/` → `20260814171645_add_retirement_plan` |
 | M4 = Dashboard Foundation | `docs/architecture/M4_DASHBOARD_FOUNDATION.md:1`; impl `af5d34a`, `e7fad41`; 7 components present |
 | M4 conflict | `docs/blueprint/09_ROADMAP.md:67` vs the above |
-| Score has 5 categories | `packages/core/src/finance/financialHealth.ts:44-48` |
+| Score has **7** categories (`fhs-2.0.0`, since M5.12) | `packages/core/src/finance/financialHealth.ts:66-72` |
 | V1 score weights protection 20% | `packages/core/src/scoring/scores.ts:60`, `:88` |
 | Snapshot has no goals | `grep -c goals packages/core/src/finance/financialSnapshot.ts` → 0 |
 | Goals tripwire | `apps/api/test/household-goals.e2e-spec.ts:192` |
 | Parity tripwire | `apps/api/test/early-warning-parity.e2e-spec.ts:314` |
-| `usingDefaults` is binary | `packages/core/src/finance/financialIntelligence.ts:469` |
+| `usingDefaults` is **derived from per-field provenance** (M5.14) | `packages/core/src/finance/financialIntelligence.ts` — `FieldSource`, `ResolvedRetirementAssumptions` |
 | Assumptions resolved centrally | `apps/api/src/households/household-intelligence.service.ts::resolveAssumptions` |
 | `goalSlippage` already accepted | `packages/core/src/scoring/earlyWarning.ts:22` |
-| Snapshot lacks account `type` | `packages/core/src/finance/financialSnapshot.ts:24-32` |
+| Snapshot **carries** `assets[].accountType` (M5.15), a consumer can produce one (M5.16), and the intelligence layer reads it (M5.17) | `financialSnapshot.ts` `accountType?`, `household-financial-snapshot.service.ts` `accountType: a.type`, `financialIntelligence.ts` `retirementAccountsMinor` |
 | Contract frozen | `packages/core/src/finance/kernelContract.test.ts` |
 | ADRs 001-013 | `docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md:469-659` |
 | No feature migration M5.5→M5.8 | `ls apps/api/prisma/migrations` — between `20260715120000` and `20260814152922` only `20260806153040_add_login_attempt_lockout` (auth kernel) |
 | Migrations run on deploy | `railway.json` `deploy.startCommand` |
-| Test counts | 32 API e2e specs · 11 core test files · 8 API unit specs · 35 web smoke cases in 12 groups (`apps/web/e2e/smoke.spec.ts`) — counted, not estimated |
+| Test counts at M5.17 | **38** API e2e specs (271 cases) · **14** core test files (213 cases) · **8** API unit specs (72 cases) · **4** web unit specs (54 cases) · **52** browser smoke cases — counted from this repository, not estimated |
 
 ---
 

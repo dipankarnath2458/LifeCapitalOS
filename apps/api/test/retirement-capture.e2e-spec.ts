@@ -300,6 +300,93 @@ describe('Retirement capture (e2e)', () => {
     expect(intel.body.emergencyFund.data.cashMinor).toBe(rupees(200000));
   });
 
+  /** Sets a date of birth so the retirement section can report at all. */
+  async function withAge(token: string, householdId: string) {
+    const members = await http().get(`/api/households/${householdId}/members`).set(auth(token));
+    const self = (members.body as { id: string; relation: string }[]).find(
+      (m) => m.relation === 'self',
+    )!;
+    const dob = new Date();
+    dob.setFullYear(dob.getFullYear() - 41);
+    await http()
+      .patch(`/api/households/${householdId}/members/${self.id}`)
+      .set(auth(token))
+      .send({ dateOfBirth: dob.toISOString().slice(0, 10) });
+  }
+
+  it('4b — M5.17: the intelligence layer reports the retirement balance, end to end', async () => {
+    // The first reader of `accountType` anywhere. M5.15 put the field in the payload and M5.16
+    // let a family produce one; until M5.17 nothing read it back, so a family who said "this is
+    // my retirement savings" was shown a bucket called `unclassified` and nothing else. This
+    // walks the whole path: wizard -> account -> snapshot -> intelligence.
+    const { token, householdId } = await newConsumer('cap_legible');
+    await withAge(token, householdId);
+    await runCheck(token, householdId, FULL);
+
+    const intel = await http()
+      .get(`/api/households/${householdId}/intelligence/current`)
+      .set(auth(token));
+    expect(intel.status).toBe(200);
+
+    // The new figure: exactly what the family recorded, and nothing else. TOP LEVEL, not inside
+    // the retirement section — see 4d for why that distinction is the milestone's real fix.
+    expect(intel.body.retirementAccountsMinor).toBe(rupees(500000));
+
+    // And it changed NOTHING it sits beside. The corpus is the figure case 4 asserts, the
+    // allocation still buckets the money as unclassified, and no `retirement` class exists.
+    expect(intel.body.retirement.data.currentCorpusMinor).toBe(rupees(200000 + 300000 + 500000));
+    const classes = (
+      intel.body.assetAllocation.data.current as { assetClass: string }[]
+    ).map((c) => c.assetClass);
+    expect(classes).toContain('unclassified');
+    expect(classes).not.toContain('retirement');
+
+    // The same figure reaches the retirement page's own endpoint — one definition, two readers.
+    const overview = await http().get(`/api/households/${householdId}/retirement`).set(auth(token));
+    expect(overview.status).toBe(200);
+    expect(overview.body.retirementAccountsMinor).toBe(rupees(500000));
+  });
+
+  it('4c — M5.17: a household with no retirement account reports 0, not null', async () => {
+    // "We asked and they have none" is an answer, and must stay distinguishable from "this
+    // snapshot predates account types", which is null. The three-state rule, a sixth time.
+    const { token, householdId } = await newConsumer('cap_none');
+    await withAge(token, householdId);
+    await runCheck(token, householdId, { ...FULL, retirement: 0 });
+
+    const intel = await http()
+      .get(`/api/households/${householdId}/intelligence/current`)
+      .set(auth(token));
+    expect(intel.body.retirementAccountsMinor).toBe(0);
+    expect(intel.body.retirementAccountsMinor).not.toBeNull();
+  });
+
+  it('4d — M5.17: the figure survives a household with NO date of birth', async () => {
+    // The default state of every newly onboarded family: neither onboarding nor the Wealth
+    // Health Check records a date of birth, so the retirement PROJECTION cannot be made. That
+    // says nothing about how much sits in a retirement account, and must not hide it.
+    //
+    // This is the case the first cut of M5.17 got wrong: the figure hung off the retirement
+    // section, so the family who most needed to see their retirement savings could not.
+    const { token, householdId } = await newConsumer('cap_nodob');
+    await runCheck(token, householdId, FULL); // deliberately NO withAge()
+
+    const intel = await http()
+      .get(`/api/households/${householdId}/intelligence/current`)
+      .set(auth(token));
+    expect(intel.status).toBe(200);
+
+    // The projection genuinely cannot be made …
+    expect(intel.body.retirement.available).toBe(false);
+    // … and the fact is reported anyway.
+    expect(intel.body.retirementAccountsMinor).toBe(rupees(500000));
+
+    // Same on the retirement page's own endpoint.
+    const overview = await http().get(`/api/households/${householdId}/retirement`).set(auth(token));
+    expect(overview.body.retirement.available).toBe(false);
+    expect(overview.body.retirementAccountsMinor).toBe(rupees(500000));
+  });
+
   it('5 — recording it rewrites no stored snapshot, checksum included', async () => {
     // Immutability is what the whole kernel rests on (ADR-004/012). A family recording a new
     // kind of account must not disturb a single byte of what was already captured.
