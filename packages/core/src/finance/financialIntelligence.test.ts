@@ -351,3 +351,136 @@ describe('financial intelligence — backward + snapshot compatibility', () => {
     expect(out.meta.currency).toBe('INR');
   });
 });
+
+/**
+ * M5.17 — retirement money becomes legible.
+ *
+ * The milestone's entire claim is that reading `accountType` changes what a family is TOLD and
+ * nothing about what is COMPUTED. These tests are written to fail if that ever stops being true:
+ * the pinning test below holds the allocation input constant and varies only `accountType`, so
+ * any figure that moves is by definition a figure that should not have.
+ */
+describe('financial intelligence — retirement accounts (M5.17)', () => {
+  /** The same three assets, now carrying account types; the third is a retirement account. */
+  const typedPayload = (retirementType: string): FinancialSnapshotPayload => ({
+    ...richPayload,
+    assets: [
+      { ...richPayload.assets[0]!, accountType: 'bank' },
+      { ...richPayload.assets[1]!, accountType: 'investment' },
+      // assetClass stays null — a retirement account whose economic asset we never asked about.
+      {
+        accountId: 'a4',
+        name: 'Retirement savings',
+        assetClass: null,
+        accountType: retirementType,
+        entityId: null,
+        nativeCurrency: 'INR',
+        nativeBalanceMinor: 2_000_000,
+        baseBalanceMinor: 2_000_000,
+      },
+    ],
+    // The allocation the composer would have produced for exactly those assets. Held IDENTICAL
+    // across both variants below — that is the point.
+    assetAllocation: [
+      { assetClass: 'equity', baseValueMinor: 5_500_000, pct: 61.1 },
+      { assetClass: 'unclassified', baseValueMinor: 2_000_000, pct: 22.2 },
+      { assetClass: 'cash', baseValueMinor: 1_500_000, pct: 16.7 },
+    ],
+  });
+
+  const intel = (p: FinancialSnapshotPayload) => computeHouseholdFinancialIntelligence(baseInput(p));
+  const retirementOf = (p: FinancialSnapshotPayload) => {
+    const r = intel(p).retirement;
+    if (!r.available) throw new Error(`retirement unavailable: ${r.reason}`);
+    return r.data;
+  };
+
+  it('1 — detects a retirement account and sums it', () => {
+    expect(retirementOf(typedPayload('retirement')).retirementAccountsMinor).toBe(2_000_000);
+  });
+
+  it('2 — reports 0, not null, when the snapshot understands types but holds no retirement account', () => {
+    // The difference that matters: "we asked and they have none" is an answer; "we never asked"
+    // is not. Both must remain distinguishable.
+    expect(retirementOf(typedPayload('investment')).retirementAccountsMinor).toBe(0);
+  });
+
+  it('3 — reports null, never 0, for a snapshot captured before account types existed', () => {
+    // `richPayload` carries no `accountType` on any asset — the shape of every pre-M5.15
+    // snapshot, which is never rewritten (ADR-004/012), so this stays true of them forever.
+    const legacy = retirementOf(richPayload).retirementAccountsMinor;
+    expect(legacy).toBeNull();
+    expect(legacy).not.toBe(0);
+  });
+
+  it('4 — a retirement account stays in the unclassified bucket; it is NOT given an asset class', () => {
+    const alloc = intel(typedPayload('retirement')).assetAllocation;
+    expect(alloc.available).toBe(true);
+    if (!alloc.available) return;
+    const classes = alloc.data.current.map((c) => c.assetClass);
+    expect(classes).toContain('unclassified');
+    expect(classes).not.toContain('retirement');
+    expect(alloc.data.current.find((c) => c.assetClass === 'unclassified')!.baseValueMinor).toBe(
+      2_000_000,
+    );
+  });
+
+  it('5 — PINNED: changing only accountType moves no figure except the new one', () => {
+    // The whole milestone in one assertion. Identical assets and identical allocation; the only
+    // difference is what KIND of account the third one is. Every computed figure must match.
+    const asRetirement = intel(typedPayload('retirement'));
+    const asInvestment = intel(typedPayload('investment'));
+
+    const allocOf = (i: ReturnType<typeof intel>) => {
+      if (!i.assetAllocation.available) throw new Error('allocation unavailable');
+      return i.assetAllocation.data;
+    };
+    const a = allocOf(asRetirement);
+    const b = allocOf(asInvestment);
+
+    // assetAllocation: bucket membership, baseValueMinor and pct — byte-identical.
+    expect(JSON.stringify(a.current)).toBe(JSON.stringify(b.current));
+    // HHI-derived diversification, and the concentration triplet.
+    expect(a.diversificationIndex).toBe(b.diversificationIndex);
+    expect(JSON.stringify(a.topConcentration)).toBe(JSON.stringify(b.topConcentration));
+    expect(a.concentrationRisk).toBe(b.concentrationRisk);
+
+    // investableCorpusMinor, reached through the retirement section.
+    const ra = retirementOf(typedPayload('retirement'));
+    const rb = retirementOf(typedPayload('investment'));
+    expect(ra.currentCorpusMinor).toBe(rb.currentCorpusMinor);
+    // …and every other retirement figure the projection produces.
+    expect(ra.requiredCorpusMinor).toBe(rb.requiredCorpusMinor);
+    expect(ra.fundingGapMinor).toBe(rb.fundingGapMinor);
+    expect(ra.readinessPct).toBe(rb.readinessPct);
+    expect(ra.monthlySipRequiredMinor).toBe(rb.monthlySipRequiredMinor);
+
+    // The Wealth Health Score, and the model behind it.
+    expect(JSON.stringify(asRetirement.wealthHealth)).toBe(JSON.stringify(asInvestment.wealthHealth));
+    expect(FINANCIAL_HEALTH_MODEL_VERSION).toBe('fhs-2.0.0');
+
+    // Exactly one thing differs.
+    expect(ra.retirementAccountsMinor).toBe(2_000_000);
+    expect(rb.retirementAccountsMinor).toBe(0);
+  });
+
+  it('6 — the corpus already included the retirement balance, and still does', () => {
+    // M5.17 must not "add" retirement money to the corpus: `investableCorpusMinor` excludes only
+    // `real_estate`, so the unclassified bucket was always in. Same data, same corpus.
+    const r = retirementOf(typedPayload('retirement'));
+    expect(r.currentCorpusMinor).toBe(5_500_000 + 2_000_000 + 1_500_000);
+  });
+
+  it("7 — the simulator's synthetic rows are never counted as retirement money", () => {
+    // `financialSimulation` pushes rows with `accountId: 'sim'` and no real account behind them,
+    // so they carry no honest account type and must not be summed.
+    const withSim: FinancialSnapshotPayload = {
+      ...typedPayload('retirement'),
+      assets: [
+        ...typedPayload('retirement').assets,
+        { accountId: 'sim', name: 'Simulated', assetClass: 'equity', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 9_000_000, baseBalanceMinor: 9_000_000 },
+      ],
+    };
+    expect(retirementOf(withSim).retirementAccountsMinor).toBe(2_000_000);
+  });
+});

@@ -52,6 +52,13 @@ export interface RetirementData {
   onTrack: boolean;
   monthlySipRequiredMinor: number;
   usingDefaultAssumptions: boolean;
+  /**
+   * Of the corpus, how much sits in accounts the family said are for retirement (M5.17).
+   *
+   * `null` means the snapshot predates account-type capture — NOT that they have none. Render
+   * nothing on `null`; a zero would state a fact nobody gave us.
+   */
+  retirementAccountsMinor: number | null;
   inflatedAnnualIncomeMinor: number;
   retirementAge: number;
   planningToAge: number;

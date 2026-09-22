@@ -253,6 +253,15 @@ export interface HouseholdFinancialIntelligence {
     usingDefaultAssumptions: boolean;
     /** Every assumption the projection used, each with its provenance (M5.14, Gap 3). */
     assumptions: ResolvedRetirementAssumptions;
+    /**
+     * Of the corpus above, how much sits in accounts the family told us are for retirement
+     * (M5.17). **Additive and presentational** — no projection, corpus, allocation, HHI or
+     * score reads it.
+     *
+     * `null` means this snapshot predates account-type capture, which is not the same as `0`
+     * ("they have none"). Surfaces must hide the figure on `null` rather than render a zero.
+     */
+    retirementAccountsMinor: number | null;
     /** The lifestyle being funded, per year, inflated to retirement (M5.10). */
     inflatedAnnualIncomeMinor: number;
     /** The age the projection retires at, and the age it plans to. */
@@ -376,6 +385,50 @@ const trendFromSeries = (series: number[]): { trend: Trend; changeMinor: number 
 /** Cash held (assets classified as cash), in base-currency minor units. */
 const cashMinorOf = (p: FinancialSnapshotPayload): number =>
   p.assets.filter((a) => a.assetClass === 'cash').reduce((s, a) => s + a.baseBalanceMinor, 0);
+
+/**
+ * Money held in retirement accounts, in base-currency minor units (M5.17).
+ *
+ * **The first reader of `accountType` anywhere in the codebase.** M5.15 taught the payload to
+ * carry it and M5.16 let a family produce one; until now nothing read it back, so a family who
+ * told us "this is my retirement savings" saw the allocation call it `unclassified` — true about
+ * the *asset class*, and silent about the fact they had actually stated.
+ *
+ * ## Read from `assets`, never from `assetAllocation`
+ *
+ * `assetAllocation` buckets by `assetClass` and carries no `accountType`, so it *cannot* answer
+ * this. Deriving it here from `p.assets` is what keeps the two concepts apart: `assetClass` says
+ * what economic asset the money is, `accountType` says what kind of account holds it. A PPF
+ * balance is a retirement account whose asset class we have never asked about. Folding retirement
+ * into a bucket would assert an economic fact nobody recorded — and would silently move the
+ * allocation, the HHI, the diversification sub-score and every stored comparison with it.
+ *
+ * **Nothing downstream of this function changes.** It is additive and read-only: no bucket, no
+ * percentage, no corpus and no score is computed from it.
+ *
+ * ## Three states, not two
+ *
+ * - `null` — this snapshot predates account-type capture (M5.15). Not one of its assets carries
+ *   an `accountType`, so we cannot say whether any of it is retirement money. Snapshots are never
+ *   rewritten (ADR-004/012), so this stays true of them forever.
+ * - `0` — this snapshot *does* understand account types and none of them is retirement.
+ * - positive — the sum of the retirement accounts it holds.
+ *
+ * Collapsing `null` into `0` is the `unknown → value` defect this codebase has now fixed five
+ * times (#67, M5.9, M5.12, M5.14, M5.15). "We never asked" and "they have none" are different
+ * answers and a family deserves to be told which one applies.
+ *
+ * The simulator's synthetic rows (`accountId: 'sim'`) carry no `accountType` and so are never
+ * counted — correct, since no real account stands behind them.
+ */
+export const retirementAccountsMinor = (p: FinancialSnapshotPayload): number | null => {
+  const assets = p.assets ?? [];
+  const typed = assets.filter((a) => a.accountType !== undefined);
+  if (typed.length === 0) return null; // pre-M5.15 snapshot: we cannot know.
+  return typed
+    .filter((a) => a.accountType === 'retirement')
+    .reduce((sum, a) => sum + a.baseBalanceMinor, 0);
+};
 
 const dependentsOf = (p: FinancialSnapshotPayload): number =>
   (p.members ?? []).filter((m) => m.isDependent).length;
@@ -635,6 +688,12 @@ export function computeHouseholdFinancialIntelligence(
         usingDefaultAssumptions: usingDefaults,
         /** Gap 3: every assumption above, with where it came from. */
         assumptions: resolvedAssumptions,
+        /**
+         * M5.17. Derived from `p.assets` by `accountType`, deliberately NOT from
+         * `p.assetAllocation` — which buckets by `assetClass` and cannot answer this. Nothing
+         * above reads it; `currentCorpusMinor` is unchanged.
+         */
+        retirementAccountsMinor: retirementAccountsMinor(p),
         inflatedAnnualIncomeMinor: result.inflatedAnnualExpenses.minor,
         retirementAge: ra.retirementAge,
         planningToAge: ra.retirementAge + ra.yearsInRetirement,
