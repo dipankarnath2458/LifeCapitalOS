@@ -1,13 +1,17 @@
 # M5.16 — A family can record retirement savings (Gap 6, consumer capture)
 
-> **Status: designed and approved. Not yet implemented.** Every figure below was read or
-> computed from source at `9367a0e` (`origin/main` after M5.15 and the Gap 6 audit correction),
-> not recalled.
+> **Status: implemented, and its scope approved at the merge gate.** Built in `cd5160e` on
+> `claude/life-capital-module-1-roadmap-8ulqh1` (PR #82), from a design read or computed from
+> source at `9367a0e` (`origin/main` after M5.15 and the Gap 6 audit correction), not recalled.
 >
 > Mandated by [`architecture/GAP_6_ACCOUNT_TYPE_REVIEW.md`](./architecture/GAP_6_ACCOUNT_TYPE_REVIEW.md)
 > §9, which split Gap 6 on a seam: M5.15 captured `accountType` in the payload; *"later, and
 > separately: a **consumer-capture** milestone that lets a family actually record a retirement
 > account."* This is that milestone.
+>
+> **M5.16 is capture-only.** Its contract, and the correction capability deliberately held back
+> for M5.17, are recorded in **§6** — which is the authoritative scope statement for this
+> milestone. Where the plan this note originally carried differs from what shipped, §6 governs.
 >
 > **This milestone changes no shipped number for any existing family.** A family who records
 > nothing new sees exactly what they saw before. See §5.
@@ -30,23 +34,24 @@ possible to populate. Verified from source, not from the roadmap:
 | **V1 *can*** — it offers all 9 types | `components/AddAccount.tsx:8-17`, POSTing to retail `/accounts` (`:43`) |
 
 That last pair is the shape this codebase keeps producing: **V1 ahead of V2**. It is the same
-asymmetry as Gap 1 (goal slippage), M5.8 (Family) and M5.9 (Protection). A V1 user at
-`/dashboard` can file a PPF as a retirement account today; a V2 household cannot, from anywhere.
+asymmetry as Gap 1 (goal slippage), M5.8 (Family) and M5.9 (Protection). Before M5.16 a V1 user at
+`/dashboard` could file a PPF as a retirement account and a V2 household could not, from anywhere.
+**That is the asymmetry this milestone closes.**
 
 ## 2. The defect nobody had written down: our own copy mis-files retirement money
 
-`apps/web/src/app/wealth-health/page.tsx:277` currently reads:
+Until this milestone, `apps/web/src/app/wealth-health/page.tsx` read:
 
 > **Investments (₹)** — *"Mutual funds, stocks, EPF, PPF."*
 
-**We instruct families to file EPF and PPF as `type: 'investment'`, `assetClass: 'equity'`.**
+**We instructed families to file EPF and PPF as `type: 'investment'`, `assetClass: 'equity'`.**
 Every household that followed that hint has retirement money recorded as ordinary investing —
 by our instruction, not by their error.
 
-So M5.16 is not only additive capture. It is a correction of guidance that has been wrong since
-M5.5, and the hint must change in the same milestone that offers somewhere better to put the
-figure. Offering the new field while still telling families to put PPF under Investments would
-invite double entry.
+So M5.16 is not only additive capture. It is a correction of guidance that had been wrong since
+M5.5, and the hint changed in the same milestone that offers somewhere better to put the figure —
+it now reads *"Mutual funds, stocks, and other investments."* Offering the new field while still
+telling families to put PPF under Investments would have invited double entry.
 
 **No backfill, and no inference.** We cannot know how much of an existing Investments figure is
 retirement money, and splitting it on a guess would assert a fact about a family that nobody
@@ -138,47 +143,97 @@ A family who records retirement savings they had never entered anywhere will see
 rise. That is new information, not a re-scoring: no stored score is re-banded, and
 `FINANCIAL_HEALTH_MODEL_VERSION` stays `fhs-2.0.0`.
 
-## 6. Account-type correction is deferred to M5.17 (Option B)
+## 6. Approved scope: M5.16 is capture-only, correction is M5.17 (Option B)
 
-`UpdateHouseholdAccountDto` carries no `type` field, so **an account's type is immutable after
-creation**. That is a genuine correctness hole: a mis-typed account can never be corrected, by
-anyone.
+This section is the authoritative scope record for the milestone, approved at the merge gate.
+Every claim in §6.1 was re-verified from source at `cd5160e` before it was written here.
 
-It is not closed here. The wizard never needs it — it creates each row with the right type, and a
-family correcting their filing moves money between fields rather than re-typing an account. So
-shipping `PATCH type` in M5.16 would add an API capability with **no V2 consumer path**, which is
-rule 9.3 #8 and precisely the defect class that produced Gaps 2 and 5 and M5.9.
+### 6.1 The M5.16 contract — capture-only
 
-**M5.16 stays strictly consumer-first.** The correction capability, and the surface that makes it
-reachable, are M5.17.
+| # | The contract | Verified by |
+|---|---|---|
+| 1 | A consumer can **create** an account with `type: 'retirement'` | `wealthHealth.ts:265` — `{ amount: input.retirement, name: OWNED.retirement, type: 'retirement' }`; `OWNED.retirement` at `:111` |
+| 2 | The next snapshot **carries `accountType: 'retirement'`** | `household-financial-snapshot.service.ts:119` — `accountType: a.type`, **unchanged by this milestone**; the field ships from M5.15/ADR-014 |
+| 3 | **No new asset class.** `AssetClass` keeps its 8 values and the retirement row carries none | `schema.prisma` enum untouched; the spec at `:265` has no `assetClass` key, and the POST omits it rather than sending `null` |
+| 4 | **No historical snapshot is mutated.** Nothing is rewritten, recomputed or re-checksummed | The kernel exposes no snapshot mutation path at all: `financialSnapshot.update` / `.delete` / `.upsert` appear **nowhere** in `apps/api/src`. The wizard's only snapshot call is `POST .../financial-snapshot`, which appends |
+| 5 | **No API, kernel, schema or migration change.** Web-only | `git diff origin/main...HEAD --name-only` touches nothing under `apps/api/src/`, `packages/core/src/` or `apps/api/prisma/`. `SCHEMA_VERSION` 1, `ENGINE_VERSION` `m2-6.1.0`, `FINANCIAL_HEALTH_MODEL_VERSION` `fhs-2.0.0`, 16 migrations — all unchanged |
 
-## 7. What gets built
+**Capture-only means exactly this: a family can state a retirement account, and that statement
+reaches the next snapshot. Nothing reads it, nothing re-files it, and nothing already recorded
+moves.**
+
+### 6.2 Deferred to M5.17 — current-account type correction
+
+`UpdateHouseholdAccountDto` carries no `type` field, so **`Account.type` is immutable after
+creation** — verified at `cd5160e`: its fields are `name`, `balanceMinor`, `assetClass`,
+`isLiability`, `entityId`, and `update()` spreads exactly those five. A mis-typed account
+therefore cannot be corrected by anyone today.
+
+That is a real correctness hole, and it is **deliberately not closed here**. The wizard never
+needs it: it creates each row with the right type, and a family correcting their own filing moves
+money between fields rather than re-typing an account. Shipping `PATCH type` in M5.16 would have
+added an API capability with **no V2 consumer path** — rule 9.3 #8, and precisely the defect class
+that produced Gaps 2 and 5 and M5.9.
+
+M5.17 owns the whole of it:
+
+1. **API `PATCH` / update semantics for `Account.type`.** `type` becomes an optional field on
+   `UpdateHouseholdAccountDto` and one more conditional spread in
+   `HouseholdAccountsService.update()`. It must reject a change that would leave `type` and
+   `isLiability` contradictory — `loan` and `credit_card` are the liability types — evaluated
+   against the **resulting** state, since one request may change both. Without that guard,
+   re-typing becomes a way to corrupt the balance sheet.
+2. **Account-correction UI.** The surface that makes the capability reachable, so it does not ship
+   as an API-only affordance. Its absence is the whole reason for this deferral; M5.17 is not done
+   without it.
+3. **Audit behaviour.** `household.account.update` already records `fields: Object.keys(dto)`, so a
+   type correction is audited with no new code — but M5.17 must assert that, rather than inherit
+   it silently, and should carry the old and new type where the audit metadata allows.
+4. **Proof that correcting the current account never rewrites historical snapshots.** The strongest
+   available form, not an assertion in prose: correct an account's type, then re-read every
+   previously stored snapshot and show it byte-identical — `canonicalStringify(payload)` equal and
+   `checksum` equal — and show that a snapshot captured *before* the correction still reports the
+   **old** type while one captured after reports the new. A snapshot says what was true when it was
+   taken; a correction is visible only from the next capture onward. This follows from ADR-004/012
+   and from the absence of any mutation path (§6.1, row 4), but M5.17 must demonstrate it rather
+   than rely on it.
+
+Also still open, and separate from both: `liabilities[]` carries no `accountType`, and
+`assetClass` cannot be *cleared* once set (`@IsEnum` rejects `null`).
+
+**No part of items 1–4 appears in PR #82.**
+
+## 7. What was built
+
+As shipped in `cd5160e`. Seven files, +787 / −21, none of them under
+`apps/api/src/`, `packages/core/src/` or `apps/api/prisma/`.
 
 **Web — the capture path**
 
 - `apps/web/src/lib/wealthHealth.ts`
-  - `AssetSpec.type` gains `'retirement'`; `assetClass` becomes optional on the spec, so the
+  - `AssetSpec.type` gained `'retirement'`; `assetClass` became optional on the spec, so the
     compiler enforces that the retirement row carries none
   - `OWNED.retirement = 'Retirement savings'` — the name key that makes the row idempotent
-  - `WealthHealthInput` gains `retirement`
-  - the `assets` array gains the retirement spec, **appended after property** so the call order of
+  - `WealthHealthInput` gained `retirement`
+  - the `assets` array gained the retirement spec, **appended after property** so the call order of
     existing rows is unchanged
   - the create call omits `assetClass` when the spec has none
   - `loadCurrentFigures` reads the new row back
 - `apps/web/src/app/wealth-health/page.tsx`
   - one `LabeledInput` in step 1, after Investments:
     **"Retirement savings (₹)"** — *"EPF, PPF, NPS — money set aside for retirement."*
-  - the Investments hint drops EPF and PPF
+  - the Investments hint dropped EPF and PPF
   - state, prefill and submit extended by one field
 
 No new step, no new screen, no navigation change. The `hydrating` guard and the Gap 7
 `HouseholdUnavailable` path apply unchanged.
 
-**API** — nothing. `POST /households/:id/accounts` already accepts `type: 'retirement'` with no
-`assetClass`, and `compose()` already copies the type into the payload.
+**API** — nothing changed. `POST /households/:id/accounts` already accepted `type: 'retirement'`
+with no `assetClass`, and `compose()` already copied the type into the payload (M5.15). In
+particular **no `PATCH type`** was added — see §6.2.
 
-**Kernel** — nothing. No payload key, no `schemaVersion` decision, no `kernelContract.test.ts`
-change, no migration, no up-converter, no `@lcos/core` change.
+**Kernel** — nothing changed. No payload key, no `schemaVersion` decision, no
+`kernelContract.test.ts` change, no migration, no up-converter, no `@lcos/core` change.
 
 ## 8. Idempotency and blank-field semantics
 
@@ -219,7 +274,7 @@ the tests assert something the product does not do. Both change together, in the
 
 | Spec | What changes |
 |---|---|
-| `wealth-check-idempotency.e2e-spec.ts` | `OWNED`, `Figures`, `runCheck`; cases 2 (prefill), 3 (twice changes nothing), 4 (one value), 5 (clearing zeroes), 7 (snapshots immutable), 15 (no duplication) all gain the retirement row |
+| `wealth-check-idempotency.e2e-spec.ts` | `OWNED`, `Figures`, `runCheck` and `FULL`; cases **1** (records created), **2** (prefill), **3** (twice changes nothing), **4** (one value), **5** (clearing zeroes), **7** (snapshots immutable), **13** (corpus), **14** (AI grounding) and **15** (no duplication). Nine existing assertions moved because the fixture now holds a fourth asset — each keeps its original intent; case 14 still asserts the model reads the *reconciled* figure and not the gross one |
 | `wealth-health-check.e2e-spec.ts` | the pipeline scores the new figure |
 | `apps/web/e2e/smoke.spec.ts` | the `wealth health check` group, and *"re-running the check updates the figures instead of doubling them"* |
 
@@ -236,9 +291,15 @@ the tests assert something the product does not do. Both change together, in the
 6. A blank retirement field zeroes the balance and keeps the row; zero on a first run creates no
    account at all.
 
-**Proof discipline (rule 9.3 #10).** Every new test is verified to fail against pre-change
+**Proof discipline (rule 9.3 #10).** Every new test was verified to fail against pre-change
 behaviour, with `packages/core` and `apps/api/dist` rebuilt first. Stale `dist` has produced two
 false greens in this project; a test that has not been shown to bite is not evidence.
+
+**Result.** Each spec's mirror of the wizard was reverted to three asset rows with the new
+assertions kept — a reconstruction of the old product, not a deletion of assertions. **17 of 24
+failed**, including all seven capture cases, the prefill case, the corpus case and the
+immutability case. Restored, all 24 passed. Final: **38 API e2e suites / 269 tests** (from 37 /
+262), **51/51** browser smoke, core 206, web 48, API unit 72, typecheck and lint clean.
 
 ## 11. Acceptance criteria
 
@@ -255,6 +316,9 @@ false greens in this project; a test that has not been shown to bite is not evid
 9. No schema change, no migration, no kernel contract change, no `PATCH type`.
 10. Full CI green: `build · lint · core · web · api unit · migrate deploy · seed · api e2e ·
     playwright`.
+
+**All ten met**, locally and on CI for `cd5160e` (`build-test` ×2 and the Vercel preview all
+green). Criterion 9's "no `PATCH type`" is the M5.17 deferral recorded in §6.2.
 
 ## 12. Risks
 
