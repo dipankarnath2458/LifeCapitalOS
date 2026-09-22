@@ -328,8 +328,9 @@ describe('Retirement capture (e2e)', () => {
       .set(auth(token));
     expect(intel.status).toBe(200);
 
-    // The new figure: exactly what the family recorded, and nothing else.
-    expect(intel.body.retirement.data.retirementAccountsMinor).toBe(rupees(500000));
+    // The new figure: exactly what the family recorded, and nothing else. TOP LEVEL, not inside
+    // the retirement section — see 4d for why that distinction is the milestone's real fix.
+    expect(intel.body.retirementAccountsMinor).toBe(rupees(500000));
 
     // And it changed NOTHING it sits beside. The corpus is the figure case 4 asserts, the
     // allocation still buckets the money as unclassified, and no `retirement` class exists.
@@ -343,7 +344,7 @@ describe('Retirement capture (e2e)', () => {
     // The same figure reaches the retirement page's own endpoint — one definition, two readers.
     const overview = await http().get(`/api/households/${householdId}/retirement`).set(auth(token));
     expect(overview.status).toBe(200);
-    expect(overview.body.retirement.data.retirementAccountsMinor).toBe(rupees(500000));
+    expect(overview.body.retirementAccountsMinor).toBe(rupees(500000));
   });
 
   it('4c — M5.17: a household with no retirement account reports 0, not null', async () => {
@@ -356,8 +357,34 @@ describe('Retirement capture (e2e)', () => {
     const intel = await http()
       .get(`/api/households/${householdId}/intelligence/current`)
       .set(auth(token));
-    expect(intel.body.retirement.data.retirementAccountsMinor).toBe(0);
-    expect(intel.body.retirement.data.retirementAccountsMinor).not.toBeNull();
+    expect(intel.body.retirementAccountsMinor).toBe(0);
+    expect(intel.body.retirementAccountsMinor).not.toBeNull();
+  });
+
+  it('4d — M5.17: the figure survives a household with NO date of birth', async () => {
+    // The default state of every newly onboarded family: neither onboarding nor the Wealth
+    // Health Check records a date of birth, so the retirement PROJECTION cannot be made. That
+    // says nothing about how much sits in a retirement account, and must not hide it.
+    //
+    // This is the case the first cut of M5.17 got wrong: the figure hung off the retirement
+    // section, so the family who most needed to see their retirement savings could not.
+    const { token, householdId } = await newConsumer('cap_nodob');
+    await runCheck(token, householdId, FULL); // deliberately NO withAge()
+
+    const intel = await http()
+      .get(`/api/households/${householdId}/intelligence/current`)
+      .set(auth(token));
+    expect(intel.status).toBe(200);
+
+    // The projection genuinely cannot be made …
+    expect(intel.body.retirement.available).toBe(false);
+    // … and the fact is reported anyway.
+    expect(intel.body.retirementAccountsMinor).toBe(rupees(500000));
+
+    // Same on the retirement page's own endpoint.
+    const overview = await http().get(`/api/households/${householdId}/retirement`).set(auth(token));
+    expect(overview.body.retirement.available).toBe(false);
+    expect(overview.body.retirementAccountsMinor).toBe(rupees(500000));
   });
 
   it('5 — recording it rewrites no stored snapshot, checksum included', async () => {

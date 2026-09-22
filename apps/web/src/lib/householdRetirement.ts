@@ -52,13 +52,6 @@ export interface RetirementData {
   onTrack: boolean;
   monthlySipRequiredMinor: number;
   usingDefaultAssumptions: boolean;
-  /**
-   * Of the corpus, how much sits in accounts the family said are for retirement (M5.17).
-   *
-   * `null` means the snapshot predates account-type capture — NOT that they have none. Render
-   * nothing on `null`; a zero would state a fact nobody gave us.
-   */
-  retirementAccountsMinor: number | null;
   inflatedAnnualIncomeMinor: number;
   retirementAge: number;
   planningToAge: number;
@@ -76,6 +69,14 @@ export type RetirementOverview =
       /** Whose retirement this projects — the oldest non-dependant. `null` with no birth date. */
       subject: { memberId: string; ageYears: number | null; relation: string } | null;
       assumptions: ResolvedAssumptions;
+      /**
+       * Money held in accounts the family said are for retirement (M5.17).
+       *
+       * Beside `retirement`, not inside it: the projection can be unavailable (no member age, no
+       * recorded expenses) while this fact is perfectly well known. `null` means the snapshot
+       * predates account-type capture, not that they have none.
+       */
+      retirementAccountsMinor: number | null;
       retirement:
         | { available: true; confidence: string; data: RetirementData }
         | { available: false; reason: string };

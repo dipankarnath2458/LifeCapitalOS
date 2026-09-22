@@ -731,13 +731,10 @@ test.describe('V2 primary / V1 safety net', () => {
     await asReturningConsumer(page, request, consumer);
     await signIn(page, consumer, PASSWORD);
 
-    // A date of birth first — the retirement section, and therefore the line, needs an age.
-    await page.goto('/household/family');
-    await page.getByLabel('Name').fill('Meera Bhuyan');
-    await page.getByLabel('Date of birth').fill('1985-04-02');
-    await page.getByRole('button', { name: 'Add to my family' }).click();
-    await expect(page.getByTestId('member-list')).toContainText('Meera Bhuyan');
-
+    // DELIBERATELY NO DATE OF BIRTH. This is the default state of every newly onboarded family —
+    // neither onboarding nor the Wealth Health Check records one — so the retirement PROJECTION
+    // cannot be made. That says nothing about how much sits in a retirement account, and the
+    // first cut of M5.17 hid the figure anyway because it hung off the retirement section.
     await page.goto('/wealth-health');
     await page.getByLabel('Cash & savings (₹)').fill('200000');
     await page.getByLabel('Investments (₹)').fill('300000');
@@ -766,6 +763,9 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(line).toBeVisible();
     await expect(line).toContainText('5,00,000');
     await expect(line).toContainText(/retirement savings/i);
+
+    // The projection genuinely cannot be made without an age — and the line is shown regardless.
+    await expect(page.getByText(/No member age available/i)).toBeVisible();
 
     // The retirement page names the same figure, from the same definition.
     await page.goto('/household/retirement');

@@ -196,6 +196,28 @@ export interface HouseholdFinancialIntelligence {
     entityCount: number;
     lastUpdated: string | null;
   };
+  /**
+   * Money held in accounts the family told us are for retirement (M5.17).
+   *
+   * ## Why this is top level and not inside a `Section`
+   *
+   * It is a **fact**, not an analysis: the sum of snapshot assets whose `accountType` is
+   * `retirement`. It needs no age, retirement age, inflation, return assumption or projection,
+   * so there is no circumstance in which it *cannot* be produced.
+   *
+   * It first shipped inside the `retirement` section, and that was wrong. A `Section` means
+   * "this analysis may be impossible", and that section's gates answer a different question —
+   * *can we project a retirement?* It reports unavailable without a member age or recorded
+   * expenses, which took this figure down with it. The result was that a family who had just
+   * recorded their retirement savings could not be shown them, for reasons that had nothing to
+   * do with the savings: the default state of every newly onboarded household, since neither
+   * onboarding nor the Wealth Health Check records a date of birth.
+   *
+   * `null` still means "this snapshot predates account-type capture" (M5.15) — the honest
+   * unknown this figure genuinely has. That is the only unknown it has, and a `Section` was
+   * never the right way to carry it.
+   */
+  retirementAccountsMinor: number | null;
   netWorth: Section<{
     assetsMinor: number;
     /** Liability-flagged **accounts** only (overdrafts, credit cards). Excludes the debt ledger. */
@@ -253,15 +275,6 @@ export interface HouseholdFinancialIntelligence {
     usingDefaultAssumptions: boolean;
     /** Every assumption the projection used, each with its provenance (M5.14, Gap 3). */
     assumptions: ResolvedRetirementAssumptions;
-    /**
-     * Of the corpus above, how much sits in accounts the family told us are for retirement
-     * (M5.17). **Additive and presentational** — no projection, corpus, allocation, HHI or
-     * score reads it.
-     *
-     * `null` means this snapshot predates account-type capture, which is not the same as `0`
-     * ("they have none"). Surfaces must hide the figure on `null` rather than render a zero.
-     */
-    retirementAccountsMinor: number | null;
     /** The lifestyle being funded, per year, inflated to retirement (M5.10). */
     inflatedAnnualIncomeMinor: number;
     /** The age the projection retires at, and the age it plans to. */
@@ -688,12 +701,6 @@ export function computeHouseholdFinancialIntelligence(
         usingDefaultAssumptions: usingDefaults,
         /** Gap 3: every assumption above, with where it came from. */
         assumptions: resolvedAssumptions,
-        /**
-         * M5.17. Derived from `p.assets` by `accountType`, deliberately NOT from
-         * `p.assetAllocation` — which buckets by `assetClass` and cannot answer this. Nothing
-         * above reads it; `currentCorpusMinor` is unchanged.
-         */
-        retirementAccountsMinor: retirementAccountsMinor(p),
         inflatedAnnualIncomeMinor: result.inflatedAnnualExpenses.minor,
         retirementAge: ra.retirementAge,
         planningToAge: ra.retirementAge + ra.yearsInRetirement,
@@ -901,6 +908,10 @@ export function computeHouseholdFinancialIntelligence(
       entityCount: p.relationships.entityCount,
       lastUpdated: meta.capturedAt ?? null,
     },
+    // M5.17. UNCONDITIONAL, and that is the point: it is a fact about the snapshot, not an
+    // analysis that can fail. Computed from `p.assets` by `accountType`, never from
+    // `p.assetAllocation`, which buckets by `assetClass` and cannot answer it.
+    retirementAccountsMinor: retirementAccountsMinor(p),
     netWorth,
     emergencyFund,
     assetAllocation,

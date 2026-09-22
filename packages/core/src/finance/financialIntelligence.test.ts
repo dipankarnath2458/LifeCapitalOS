@@ -394,23 +394,46 @@ describe('financial intelligence — retirement accounts (M5.17)', () => {
     if (!r.available) throw new Error(`retirement unavailable: ${r.reason}`);
     return r.data;
   };
+  /** Top level, not inside a section — the whole point of where this figure lives. */
+  const accountsOf = (p: FinancialSnapshotPayload) => intel(p).retirementAccountsMinor;
 
   it('1 — detects a retirement account and sums it', () => {
-    expect(retirementOf(typedPayload('retirement')).retirementAccountsMinor).toBe(2_000_000);
+    expect(accountsOf(typedPayload('retirement'))).toBe(2_000_000);
   });
 
   it('2 — reports 0, not null, when the snapshot understands types but holds no retirement account', () => {
     // The difference that matters: "we asked and they have none" is an answer; "we never asked"
     // is not. Both must remain distinguishable.
-    expect(retirementOf(typedPayload('investment')).retirementAccountsMinor).toBe(0);
+    expect(accountsOf(typedPayload('investment'))).toBe(0);
   });
 
   it('3 — reports null, never 0, for a snapshot captured before account types existed', () => {
     // `richPayload` carries no `accountType` on any asset — the shape of every pre-M5.15
     // snapshot, which is never rewritten (ADR-004/012), so this stays true of them forever.
-    const legacy = retirementOf(richPayload).retirementAccountsMinor;
+    const legacy = accountsOf(richPayload);
     expect(legacy).toBeNull();
     expect(legacy).not.toBe(0);
+  });
+
+  it('3b — is reported even when the retirement PROJECTION cannot be made', () => {
+    // The bug this placement fixes. The figure first shipped inside the retirement section,
+    // whose gates answer a different question — *can we project a retirement?* It reports
+    // unavailable without a member age, and without recorded expenses. Neither has anything to
+    // do with how much sits in a retirement account, yet both used to hide it.
+    //
+    // A household with no date of birth is not an edge case: it is the DEFAULT state of every
+    // newly onboarded family, since neither onboarding nor the Wealth Health Check records one.
+    const noAge: FinancialSnapshotPayload = { ...typedPayload('retirement'), members: [] };
+    const noExpenses: FinancialSnapshotPayload = {
+      ...typedPayload('retirement'),
+      cashflowSummary: { ...richPayload.cashflowSummary, expenseMinor: 0 },
+    };
+
+    expect(intel(noAge).retirement.available).toBe(false);
+    expect(accountsOf(noAge)).toBe(2_000_000);
+
+    expect(intel(noExpenses).retirement.available).toBe(false);
+    expect(accountsOf(noExpenses)).toBe(2_000_000);
   });
 
   it('4 — a retirement account stays in the unclassified bucket; it is NOT given an asset class', () => {
@@ -460,8 +483,8 @@ describe('financial intelligence — retirement accounts (M5.17)', () => {
     expect(FINANCIAL_HEALTH_MODEL_VERSION).toBe('fhs-2.0.0');
 
     // Exactly one thing differs.
-    expect(ra.retirementAccountsMinor).toBe(2_000_000);
-    expect(rb.retirementAccountsMinor).toBe(0);
+    expect(accountsOf(typedPayload('retirement'))).toBe(2_000_000);
+    expect(accountsOf(typedPayload('investment'))).toBe(0);
   });
 
   it('6 — the corpus already included the retirement balance, and still does', () => {
@@ -481,6 +504,6 @@ describe('financial intelligence — retirement accounts (M5.17)', () => {
         { accountId: 'sim', name: 'Simulated', assetClass: 'equity', entityId: null, nativeCurrency: 'INR', nativeBalanceMinor: 9_000_000, baseBalanceMinor: 9_000_000 },
       ],
     };
-    expect(retirementOf(withSim).retirementAccountsMinor).toBe(2_000_000);
+    expect(accountsOf(withSim)).toBe(2_000_000);
   });
 });

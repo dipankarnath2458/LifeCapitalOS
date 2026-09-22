@@ -64,9 +64,9 @@ export const retirementAccountsMinor = (p: FinancialSnapshotPayload): number | n
 and carries no `accountType`, so it *cannot* answer this — and reaching for it is exactly how the
 two concepts would have collapsed into one. Arithmetic lives in `@lcos/core` (rule 9.3 #4).
 
-Exposed on the **retirement** section of the intelligence response, not the allocation section:
-it is a fact about retirement money, not about allocation, and keeping it out of
-`assetAllocation` leaves that section's shape untouched.
+Exposed at the **top level** of the intelligence response — not inside any `Section`, and not on
+`assetAllocation`, whose shape is left untouched. §6 explains why that placement is the important
+part of this milestone.
 
 ### 3.2 Three states, not two
 
@@ -139,15 +139,18 @@ one thing differs: the new figure.
 
 | Where | Cases |
 |---|---|
-| `financialIntelligence.test.ts` | 7 — detection, the three states, bucket membership, **the pinning test**, corpus unchanged, simulator rows excluded |
+| `financialIntelligence.test.ts` | 8 — detection, the three states, **reported when the projection cannot be made**, bucket membership, **the pinning test**, corpus unchanged, simulator rows excluded |
 | `intelligence.spec.ts` *(new)* | 6 — the label map, including "introduces no asset class of its own" |
-| `retirement-capture.e2e-spec.ts` | +2 — end-to-end through snapshot → intelligence → the retirement endpoint; and `0` ≠ `null` |
-| `smoke.spec.ts` | +1 — the browser proof |
+| `retirement-capture.e2e-spec.ts` | +3 — end-to-end through snapshot → intelligence → the retirement endpoint; `0` ≠ `null`; and **the figure survives a household with no date of birth** |
+| `smoke.spec.ts` | +1 — the browser proof, run **without** a date of birth so it exercises the default state of a new family |
 
 **Proof discipline (rule 9.3 #10).** `packages/core` and `apps/api/dist` were rebuilt before any
 result was trusted — including deleting `tsconfig.tsbuildinfo`, which had made `tsc` emit nothing
 after `dist` was removed. Against pre-M5.17 code the new behavioural tests failed **13** times
 (core 5, web 6, API e2e 2) plus the browser case.
+
+A second round of proof followed the placement correction in §6: the tests covering the no-date-of-
+birth case fail against the first cut of this milestone, which is what identified the coupling.
 
 One test had to be repaired before it could be trusted: the browser case's
 `expect(getByText(/unclassified/i)).toHaveCount(0)` **passed vacuously** on its first run, because
@@ -155,21 +158,41 @@ it executed before the allocation panel had rendered. It now sits behind two pos
 the chart being visible, and "Not yet classified" being present — which is rule 9.3 #10's *"order
 absence assertions behind a positive signal"*, learned again the hard way.
 
-## 6. Known limitation
+## 6. Where this figure lives, and why that matters
 
-The `/household` explanatory line reads `retirementAccountsMinor` from the **retirement**
-section, and that section reports `available: false` until a household member has a date of
-birth — neither onboarding nor the Wealth Health Check records one
-(`onboarding.service.ts`; `wealthHealth.ts` writes no member data).
+`retirementAccountsMinor` sits at the **top level** of the intelligence response, not inside the
+`retirement` section. That was not the first design, and the correction is the most important
+thing in this milestone.
 
-**So a family who records retirement savings but never adds a date of birth sees the improved
-label but not the explanatory line.** They are strictly better off than before M5.17 — "Not yet
-classified" rather than "Unclassified" — but the sentence naming their retirement money is
-withheld for a reason unrelated to it.
+It first shipped inside `retirement.data`. That section is a `Section<T>`, and its gates
+(`financialIntelligence.ts`) are:
 
-This follows directly from the approved placement decision and is recorded, not worked around.
-Resolving it means either surfacing the figure somewhere availability-independent or prompting
-for a date of birth earlier; both are product decisions beyond this milestone.
+```ts
+if (primaryAge === null)  → unavailable: "No member age available to project retirement."
+else if (expense <= 0)    → unavailable: "No expenses recorded to size retirement needs."
+```
+
+Both gates answer a different question — *can we project a retirement?* — and neither has anything
+to do with how much sits in a retirement account. Measured against the built engine:
+
+| Scenario | `retirement.available` | Figure reachable (before) | The fact itself |
+|---|---|---|---|
+| No date of birth | `false` | **No** | ₹5,00,000 |
+| DOB, no recorded expenses | `false` | **No** | ₹5,00,000 |
+| DOB + expenses | `true` | Yes | ₹5,00,000 |
+
+**The first row is the default state of every newly onboarded family**: neither onboarding nor the
+Wealth Health Check records a date of birth. So the family the milestone was written for — one who
+had just recorded their retirement savings — was the one who could not be shown them.
+
+A `Section` means *"this analysis may be impossible to produce."* Summing snapshot assets by
+`accountType` is never impossible. The only unknown this figure has is *"the snapshot predates
+account-type capture"*, and `null` already carries it. Wrapping a fact in a section that answers a
+different question is a category error, and it coupled a factual aggregation to the retirement
+projection engine.
+
+At the top level the figure is populated unconditionally, and `/household`, the retirement page
+and the `/households/:id/retirement` overview all read it without an availability check.
 
 ## 7. Explicitly out of scope
 

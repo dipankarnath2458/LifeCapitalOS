@@ -125,13 +125,6 @@ export interface RetirementData {
    */
   usingDefaultAssumptions: boolean;
   assumptions: ResolvedRetirementAssumptions;
-  /**
-   * Of the corpus, how much sits in accounts the family said are for retirement (M5.17).
-   *
-   * `null` means the snapshot predates account-type capture — NOT that they have none. Render
-   * nothing on `null`; a zero would answer a question nobody asked.
-   */
-  retirementAccountsMinor: number | null;
 }
 
 export interface InsuranceData {
@@ -144,6 +137,18 @@ export interface InsuranceData {
 }
 
 export interface HouseholdIntelligence {
+  /**
+   * Money held in accounts the family said are for retirement (M5.17).
+   *
+   * Top level, not inside a `Section`: it is a fact about the snapshot, not an analysis that can
+   * fail. It briefly lived on the retirement section, whose availability depends on a member age
+   * and recorded expenses — so a family with neither could not be shown savings they had just
+   * recorded, for reasons unrelated to those savings.
+   *
+   * `null` means the snapshot predates account-type capture — NOT that they have none. Render
+   * nothing on `null`; a zero would answer a question nobody asked.
+   */
+  retirementAccountsMinor: number | null;
   available: true;
   household: { householdId: string; name: string | null; baseCurrency: string; memberCount: number };
   netWorth: Section<NetWorthData>;

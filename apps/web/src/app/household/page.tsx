@@ -485,16 +485,21 @@ export default function HouseholdDashboardPage() {
                     classified". Stating the retirement fact BESIDE the allocation — rather than
                     folding it into a bucket — is what keeps the two ideas apart and leaves every
                     figure above mathematically identical.
+
+                    Read from the TOP LEVEL, not from `i.retirement`. It briefly hung off that
+                    section, which reports unavailable without a member age or recorded expenses —
+                    so a family who had just recorded their retirement savings could not be shown
+                    them, for reasons that had nothing to do with the savings. That is the default
+                    state of a newly onboarded household.
+
                     Hidden when null: `null` means this snapshot predates account-type capture,
                     which is not the same as "they have none". */}
-                {i.retirement.available &&
-                  i.retirement.data.retirementAccountsMinor !== null &&
-                  i.retirement.data.retirementAccountsMinor > 0 && (
-                    <Text muted className="mt-3 block text-sm" data-testid="retirement-in-allocation">
-                      {money(i.retirement.data.retirementAccountsMinor)} of this is retirement
-                      savings. Tell us how it&apos;s invested to see your full allocation.
-                    </Text>
-                  )}
+                {i.retirementAccountsMinor !== null && i.retirementAccountsMinor > 0 && (
+                  <Text muted className="mt-3 block text-sm" data-testid="retirement-in-allocation">
+                    {money(i.retirementAccountsMinor)} of this is retirement savings. Tell us how
+                    it&apos;s invested to see your full allocation.
+                  </Text>
+                )}
               </div>
             )}
           </Panel>
