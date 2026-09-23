@@ -43,9 +43,11 @@ export interface FinancialSnapshotPayload {
      * Also absent on the simulator's synthetic rows (`accountId: 'sim'`), which have no real
      * account behind them and therefore no honest type.
      *
-     * **Nothing reads this yet, deliberately.** It is captured now because snapshots are
-     * immutable: every period without capture is permanently typeless, and that history cannot
-     * be recovered later. See `docs/architecture/GAP_6_ACCOUNT_TYPE_REVIEW.md`.
+     * It was captured before anything read it, because snapshots are immutable: every period
+     * without capture is permanently typeless, and that history cannot be recovered later. See
+     * `docs/architecture/GAP_6_ACCOUNT_TYPE_REVIEW.md`. Two readers since: `retirementAccountsMinor`
+     * (M5.17) names the money held in retirement accounts, and `isReachableCash` (M5.19) keeps it
+     * out of emergency liquidity. Both answer questions `assetClass` cannot.
      */
     accountType?: string;
     entityId: string | null;
@@ -168,6 +170,54 @@ export const investableCorpusMinor = (p: FinancialSnapshotPayload): number =>
   (p.assetAllocation ?? [])
     .filter((a) => a.assetClass !== 'real_estate')
     .reduce((sum, a) => sum + a.baseValueMinor, 0);
+
+/**
+ * Is this asset cash a family could **actually reach in a crisis** (M5.19)?
+ *
+ * ## The defect this closes
+ *
+ * "Cash you can reach" was defined four separate times, and no copy looked at `accountType`:
+ *
+ * | Site | What it fed |
+ * | --- | --- |
+ * | `financialIntelligence.ts` `cashMinorOf` | `emergencyFund.cashMinor`, and `emergencyFundMinor`/`liquidAssetsMinor` into the early-warning engine |
+ * | `financialHealth.ts` | the **Emergency Liquidity** score dimension, weight 14 |
+ * | `financialHealthExplanation.ts` | the gap a family is told to close to reach a 6-month buffer |
+ * | the retail composer in `apps/api` | the V1 score, and the Wealth Coach's grounding context |
+ *
+ * So a family whose EPF was recorded as `assetClass: 'cash'` was told they held months of
+ * emergency buffer in money locked until 58 — **covered when they are not** — and told they
+ * needed to save *less* than they do. That is the one direction this product must never be
+ * wrong in.
+ *
+ * It was reachable by default, not in theory: V1's `AddAccount` (still live on `/dashboard`
+ * until Module 10) offers `type: 'retirement'` and defaults the asset class to `cash`.
+ *
+ * ## Why the rule reads `accountType`, not `assetClass`
+ *
+ * The boundary M5.16–M5.18 drew: **`assetClass` says what the money IS, `accountType` says what
+ * holds it.** Cash inside an EPF is genuinely cash — it is simply not *reachable*. Reachability
+ * is a property of the wrapper, so it is the wrapper this asks about. Excluding it by asset class
+ * would be a lie about the asset; excluding it by account type is the truth about access.
+ *
+ * ## Absent `accountType` stays reachable, deliberately
+ *
+ * A pre-M5.15 payload carries no `accountType` at all, and `undefined !== 'retirement'` keeps it
+ * counted — byte-identical to today. Treating the unknown as locked would silently cut every
+ * historical family's emergency fund on the strength of a fact nobody recorded, which is the
+ * `unknown → false` failure this codebase has now fixed five times.
+ *
+ * It lives here beside `investableCorpusMinor` for the reason that one gives: more than one
+ * caller, and a second copy is how definitions drift apart.
+ */
+export const isReachableCash = (a: {
+  assetClass?: string | null;
+  accountType?: string | null;
+}): boolean => a.assetClass === 'cash' && a.accountType !== 'retirement';
+
+/** Cash a family could reach in a crisis, in base-currency minor units (M5.19). */
+export const reachableCashMinor = (p: FinancialSnapshotPayload): number =>
+  (p.assets ?? []).filter(isReachableCash).reduce((sum, a) => sum + a.baseBalanceMinor, 0);
 
 /**
  * Deterministic canonicalization: recursively sort object keys so the same logical

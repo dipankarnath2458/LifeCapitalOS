@@ -1,4 +1,4 @@
-import { FinancialSnapshotPayload } from './financialSnapshot.js';
+import { FinancialSnapshotPayload, isReachableCash } from './financialSnapshot.js';
 import type {
   CategoryKey,
   CategoryScore,
@@ -199,7 +199,9 @@ function financialImpactFor(
   const { cashflowSummary, assets, debt } = payload;
   switch (c.key) {
     case 'liquidity': {
-      const cash = assets.filter((a) => a.assetClass === 'cash').reduce((s, a) => s + a.baseBalanceMinor, 0);
+      // M5.19 — the shared definition. Counting a retirement account here understated the gap,
+      // so a family was told to save LESS than they actually need to reach a 6-month buffer.
+      const cash = assets.filter(isReachableCash).reduce((s, a) => s + a.baseBalanceMinor, 0);
       const target = 6 * cashflowSummary.expenseMinor;
       const gap = Math.max(0, target - cash);
       return { summary: 'Additional cash to reach a 6-month buffer.', gapMinor: gap };

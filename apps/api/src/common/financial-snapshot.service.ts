@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   allocationFromValues,
   computeRetirement,
+  isReachableCash,
   planGoalAsOf,
   type Allocation,
   type AssetClass,
@@ -102,15 +103,22 @@ export class FinancialSnapshotService {
       }
       assets += bal;
       if (a.assetClass) byClass[a.assetClass as AssetClass] = (byClass[a.assetClass as AssetClass] ?? 0) + bal;
-      if (a.assetClass === 'cash' || a.type === 'bank') liquid += bal;
+      // M5.19 — the shared rule, applied to rows rather than a payload: `Account.type` IS the
+      // `accountType` the payload carries. The `type === 'bank'` arm is unchanged and safe, since
+      // a retirement account is never typed `bank`.
+      if (isReachableCash({ assetClass: a.assetClass, accountType: a.type }) || a.type === 'bank')
+        liquid += bal;
       if (a.assetClass && INVESTMENT_CLASSES.includes(a.assetClass as AssetClass)) investments += bal;
     }
     const allocationPct = Object.keys(byClass).length ? allocationFromValues(byClass) : {};
 
     const monthlyExpenses = Number(profile?.monthlyExpensesMinor ?? 0);
     const annualIncome = Number(profile?.annualIncomeMinor ?? 0);
+    // M5.19 — same rule as the V2 path. This figure reaches `toScoreInput` as
+    // `emergencyFundMinor` and grounds the Wealth Coach, so a retirement account counted here
+    // told a V1 user they were covered when they were not.
     const emergencyFund = accounts
-      .filter((a) => !a.isLiability && a.assetClass === 'cash')
+      .filter((a) => !a.isLiability && isReachableCash({ assetClass: a.assetClass, accountType: a.type }))
       .reduce((s, a) => s + Number(a.balanceMinor), 0);
     const monthlyDebtPayment = debts.reduce((s, d) => s + Number(d.minimumPaymentMinor), 0);
 

@@ -240,7 +240,7 @@ the score and the intelligence layer cannot diverge) and `deriveHealthFacts`, wh
 existing calculators and invents no maths. Design:
 `docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md`. **No migration. No kernel contract change.**
 
-#### M5.13 → M5.18 — the milestones after this audit was written
+#### M5.13 → M5.19 — the milestones after this audit was written
 
 Recorded here for continuity; each has its own design note under `docs/`.
 
@@ -253,6 +253,7 @@ Recorded here for continuity; each has its own design note under `docs/`.
 | **M5.16** (PR #82) | A V2 consumer can record retirement savings; the Wealth Health Check writes `type: 'retirement'` with **no** `assetClass`, and corrects a hint that had told families to file EPF/PPF as ordinary investing since M5.5. |
 | **M5.17** | **Retirement money becomes legible.** `retirementAccountsMinor` — derived in the intelligence layer from `p.assets` by `accountType`, and the **first reader of that field anywhere** — plus a shared asset-class label map so the composer's `unclassified` bucket reads as "Not yet classified" instead of leaking an engine key to a family. |
 | **M5.18** | **A family can say how their retirement money is invested.** The Wealth Health Check asks, once there is a balance to ask about; "Not sure yet" is the default and sends nothing, so the honest `unclassified` state survives. The M5.17 dashboard sentence becomes the link to it. No endpoint, field, migration or kernel change. |
+| **M5.19** | **Retirement money is never emergency liquidity.** "Cash you can reach in a crisis" was defined four times and no copy read `accountType`, so an EPF recorded as cash counted as emergency buffer on all four — including the Wealth Health score's heaviest dimension. One definition now, imported by every reader. |
 
 **M5.17 is presentation, not arithmetic.** It changes no calculation: `assetAllocation` bucketing,
 `baseValueMinor`, `pct`, HHI, `diversificationIndex`, `topConcentration`, `concentrationRisk`,
@@ -284,13 +285,28 @@ endpoint, field, migration or kernel derivation was added — the PATCH has acce
 all along, and the gap was entirely a missing consumer path. Design:
 `docs/M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md`.
 
-One deferral it records, deliberately: `cash` is **not** offered as an answer. `cashMinorOf`
-(`financialIntelligence.ts:399`) and the composer's liquidity sum
-(`financial-snapshot.service.ts:105`, `:113`) read `assetClass === 'cash'` as "reachable in a
-crisis" with no regard for `accountType`, so a family who classed their EPF as cash would be told
-they hold months of buffer in money locked until 58 — measured at ₹2,00,000 → ₹7,00,000 in the
-suite's own fixture. Withholding the option keeps a consumer-surface milestone out of a frozen
-derivation; teaching those derivations to exclude retirement accounts is carried in `NEXT`.
+One deferral it records, deliberately: `cash` is **not** offered as an answer, because the
+liquidity derivations read `assetClass === 'cash'` as "reachable in a crisis" with no regard for
+`accountType`. Withholding the option kept a consumer-surface milestone out of a frozen
+derivation. **M5.19 then fixed the derivations**, and in doing so corrected two things M5.18's own
+note got wrong: there were **four** such copies, not two, and one of them was the *retail*
+composer rather than the household one; and the state was reachable **by default** from V1's
+`AddAccount` — which offers `type: 'retirement'` and defaulted the class to `cash` — not only by
+an advisor or a direct API call. `cash` remains off M5.18's answer set by decision, not by
+necessity.
+
+**M5.19 — one definition, four copies.** `isReachableCash` in `financialSnapshot.ts` is now the
+single rule, imported by the intelligence layer, the Wealth Health score, the explanation engine
+and the retail composer. A retirement account no longer counts toward the emergency fund on any
+of them, and `AddAccount` stops guessing an asset class it was never told. This **moves real
+numbers** for an affected household — the liquidity sub-score at weight 14, and the overall score
+through it — and that is the correction, not a side effect: they were told they were covered when
+they were not, and shown liquidity as a *strength* with no advice against a shortfall.
+`FINANCIAL_HEALTH_MODEL_VERSION` holds at `fhs-2.0.0`, because the model did not change — its
+input was wrong. Nothing else moves: net worth, the allocation, `investableCorpusMinor`,
+`retirementAccountsMinor`, every stored snapshot and checksum, `SCHEMA_VERSION` 1. No past score
+is recomputed or re-banded, and a pre-M5.15 snapshot (no `accountType` at all) reads exactly as it
+always has. Design: `docs/M5_19_REACHABLE_CASH_ARCHITECTURE.md`.
 
 ---
 
@@ -930,20 +946,10 @@ not exist · Module 10 V1 retirement decision · `liabilities[]` carries no `acc
 ### NEXT
 
 **Nothing is scheduled.** Every milestone this section once named — M5.11, M5.12, M5.13 — is
-merged, as are M5.14, M5.15, M5.16, M5.17 and M5.18, and all seven numbered gaps are closed.
+merged, as are M5.14 through M5.19, and all seven numbered gaps are closed.
 
 Recorded, deliberately unscheduled:
 
-- **Liquidity derivations are blind to `accountType`** — raised by M5.18, and the sharpest of
-  these. `cashMinorOf` (`financialIntelligence.ts:399`) and the composer's liquidity sum
-  (`financial-snapshot.service.ts:105`, `:113`) count any `assetClass === 'cash'` asset as
-  reachable in a crisis, including a retirement account. No consumer surface can reach that state
-  — M5.18 withholds `cash` from the answers for exactly this reason — but an advisor or a direct
-  API call can, and the family would be told they are covered when they are not (₹2,00,000 →
-  ₹7,00,000 in the suite's own fixture). It is a kernel change with, as far as can be measured
-  today, **zero** effect on any existing household, which makes it cheap to do properly. It should
-  land before any surface widens the offered classes. See
-  [`../M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md`](../M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md) §7.
 - **Account-type correction**: `PATCH type`, the `type`/`isLiability` guard,
   a correction UI, its audit behaviour, and proof that correcting an account never rewrites a
   stored snapshot. Deferred because **no consumer surface can produce a mis-typed account** — the
@@ -951,8 +957,15 @@ Recorded, deliberately unscheduled:
   change that: it lets a family state an `assetClass`, never a `type`. It becomes urgent the day
   any surface lets a user choose a type freely. See
   [`../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md`](../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md) §6.2.
-- **Advisor surfaces still render raw asset-class keys** — the balance sheet's own summary and the
-  `/app` concentration tile. Excluded from M5.17 and M5.18 by decision; a separately tracked follow-up.
+- **Advisor surfaces still render raw asset-class keys** — the balance sheet's own summary
+  (`app/households/[id]/balance-sheet/page.tsx:119`, `:164`, `:338`), the snapshot page
+  (`financial-snapshot/page.tsx:222`) and the `/app` concentration tile (`app/page.tsx:254`). A
+  consumer reads "Not yet classified" and "Real Estate"; an advisor reads `unclassified` and
+  `real_estate`. Excluded from M5.17, M5.18 and M5.19 by decision; cosmetic, and advisors are
+  professionals, which is why it keeps losing to defects that mislead families.
+- **Offering `cash` as a retirement asset class.** M5.19 made it safe — the liquidity rule now
+  reads `accountType` — but widening M5.18's answer set is a separate product decision and stays
+  closed. `RetirementAssetClass` is `'equity' | 'debt' | 'other'`.
 - **Tax / Section 80C.** The engine is further along than §6 below implies, but its *inputs* do
   not exist: 80C needs contributions per instrument (ELSS/EPF/PPF/NPS/life insurance), and neither
   `AccountType` nor Protection can supply them. A real milestone with a migration, not a wiring
@@ -976,12 +989,12 @@ Recorded, deliberately unscheduled:
 | `usingDefaults` is **derived from per-field provenance** (M5.14) | `packages/core/src/finance/financialIntelligence.ts` — `FieldSource`, `ResolvedRetirementAssumptions` |
 | Assumptions resolved centrally | `apps/api/src/households/household-intelligence.service.ts::resolveAssumptions` |
 | `goalSlippage` already accepted | `packages/core/src/scoring/earlyWarning.ts:22` |
-| Snapshot **carries** `assets[].accountType` (M5.15), a consumer can produce one (M5.16), the intelligence layer reads it (M5.17), and a family can state its asset class (M5.18) | `financialSnapshot.ts` `accountType?`, `household-financial-snapshot.service.ts` `accountType: a.type`, `financialIntelligence.ts` `retirementAccountsMinor` |
+| Snapshot **carries** `assets[].accountType` (M5.15), a consumer can produce one (M5.16), the intelligence layer reads it (M5.17), a family can state its asset class (M5.18), and the liquidity rule reads it so locked money is never counted as reachable (M5.19) | `financialSnapshot.ts` `accountType?`, `household-financial-snapshot.service.ts` `accountType: a.type`, `financialIntelligence.ts` `retirementAccountsMinor` |
 | Contract frozen | `packages/core/src/finance/kernelContract.test.ts` |
 | ADRs 001-013 | `docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md:469-659` |
 | No feature migration M5.5→M5.8 | `ls apps/api/prisma/migrations` — between `20260715120000` and `20260814152922` only `20260806153040_add_login_attempt_lockout` (auth kernel) |
 | Migrations run on deploy | `railway.json` `deploy.startCommand` |
-| Test counts at M5.18 | **38** API e2e specs (278 cases) · **14** core test files (214 cases) · **8** API unit specs (72 cases) · **4** web unit specs (54 cases) · **53** browser smoke cases — counted from this repository, not estimated |
+| Test counts at M5.19 | **39** API e2e specs (285 cases) · **15** core test files (226 cases) · **8** API unit specs (72 cases) · **4** web unit specs (54 cases) · **54** browser smoke cases — counted from this repository, not estimated |
 
 ---
 

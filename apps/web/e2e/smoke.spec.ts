@@ -864,6 +864,59 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByText(/Application error/i)).toHaveCount(0);
   });
 
+  test('V1 add-account stops guessing the asset class of a retirement account', async ({
+    page,
+    request,
+  }) => {
+    // M5.19. This form is what made the liquidity defect reachable by accident rather than in
+    // theory: it offers `type: 'retirement'` and defaulted the asset class to `cash`, so a user
+    // adding their EPF and not touching the dropdown asserted "this is cash" — money then counted
+    // as emergency buffer they could not touch until 58.
+    //
+    // The kernel fix makes that harmless. This keeps the form from stating it at all, which is the
+    // honest position and the one the V2 wizard takes: retirement is a kind of ACCOUNT, and we
+    // have not asked what the money is invested in.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    await page.goto('/dashboard');
+    await page.getByRole('button', { name: '+ Add account' }).click();
+
+    const type = page.locator('select').first();
+    const assetClass = page.locator('select').nth(1);
+
+    // The ordinary case is unchanged: a bank account still defaults to cash, because that is a
+    // true statement about a savings balance.
+    await expect(assetClass).toHaveValue('cash');
+
+    // Choosing retirement clears it. "Not sure" is a real answer and the default from here.
+    await type.selectOption('retirement');
+    await expect(assetClass).toHaveValue('');
+    await expect(assetClass.locator('option[value=""]')).toHaveText('Not sure');
+
+    // And it is genuinely submittable in that state — the account is created with no asset
+    // class at all, which the kernel already treats as `unclassified`.
+    await page.getByPlaceholder('e.g. HDFC Savings').fill('EPF');
+    await page.getByLabel('Balance (₹)').fill('2000000');
+    // The opener ("+ Add account") is replaced by the form, so this is unambiguous once open.
+    await page.getByRole('button', { name: 'Add account' }).click();
+
+    const login = await request.post(`${API_URL}/auth/login`, {
+      data: { email: consumer, password: PASSWORD },
+    });
+    const { accessToken } = await login.json();
+    const accounts = await request.get(`${API_URL}/accounts`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(accounts.ok()).toBeTruthy();
+    const epf = ((await accounts.json()) as { name: string; type: string; assetClass: string | null }[])
+      .find((a) => a.name === 'EPF');
+    expect(epf).toBeDefined();
+    expect(epf!.type).toBe('retirement');
+    expect(epf!.assetClass).toBeNull();
+  });
+
   test('goals are native, and the dashboard draws its charts', async ({ page, request }) => {
     // M5.8 PR 2. Goals move to the household, and the charts V1 had are drawn from layer data.
     const consumer = await createAccount(request);

@@ -1,4 +1,4 @@
-import { FinancialSnapshotPayload } from './financialSnapshot.js';
+import { FinancialSnapshotPayload, isReachableCash } from './financialSnapshot.js';
 
 /**
  * Financial Health Score (M3-1) — a **pure, explainable, deterministic** function of a
@@ -232,9 +232,11 @@ export function computeFinancialHealthScore(
   const dti = income > 0 ? debt.totalMonthlyPaymentMinor / income : null;
   const debtToAssets =
     netWorth.assetsMinor > 0 ? debt.totalOutstandingMinor / netWorth.assetsMinor : 0;
-  const cashMinor = assets
-    .filter((x) => x.assetClass === 'cash')
-    .reduce((s, x) => s + x.baseBalanceMinor, 0);
+  // M5.19 — the shared definition. This filter used to read `assetClass === 'cash'` alone, so a
+  // retirement account recorded as cash inflated Emergency Liquidity, the heaviest single
+  // dimension at weight 14. The MODEL is unchanged: same weights, same anchors, same arithmetic.
+  // What changed is the INPUT, which was wrong.
+  const cashMinor = assets.filter(isReachableCash).reduce((s, x) => s + x.baseBalanceMinor, 0);
   const liquidityMonths = expense > 0 ? cashMinor / expense : cashMinor > 0 ? 99 : 0;
   const hhi = assetAllocation.reduce((s, c) => s + (c.pct / 100) * (c.pct / 100), 0);
   const diversification = assetAllocation.length > 0 ? 1 - hhi : 0;
