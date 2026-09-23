@@ -718,6 +718,54 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByText('Monthly SIP needed')).toBeVisible();
   });
 
+  test('"Make this more accurate" names the gaps in words, and each one goes somewhere', async ({
+    page,
+    request,
+  }) => {
+    // M5.20. This panel's whole job is to be acted on — its heading is an instruction — and it
+    // printed the engine's own identifiers joined with commas: "Still missing: memberAges,
+    // insurancePolicies, retirementAssumptions". A family does not know what `memberAges` is,
+    // and nothing said where to answer it.
+    //
+    // Not an edge case: `memberAges` is missing for EVERY newly onboarded family, because
+    // neither onboarding nor the Wealth Health Check records a date of birth.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    // A complete-as-the-wizard-can-make-it household, which still leaves real gaps.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('200000');
+    await page.getByLabel('Investments (₹)').fill('300000');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // ORDER MATTERS (rule 9.3 #10): the panel on screen first, then what it says, and only then
+    // the assertion that the engine keys are gone.
+    const panel = page.getByTestId('completeness-missing');
+    await expect(panel).toBeVisible();
+
+    // The gap every family has, in words a person can read.
+    await expect(panel).toContainText("your family's dates of birth");
+
+    // Only now: no identifier reaches the family, anywhere on the page.
+    await expect(page.getByText('memberAges')).toHaveCount(0);
+    await expect(page.getByText('insurancePolicies')).toHaveCount(0);
+    await expect(page.getByText('retirementAssumptions')).toHaveCount(0);
+
+    // And the instruction is followable — which is the half M5.18 taught us not to skip.
+    await panel.getByRole('link', { name: 'Add them on your Family page' }).click();
+    await expect(page).toHaveURL(/\/household\/family$/);
+    // The destination genuinely records the thing it was offered for.
+    await expect(page.getByText(/date of birth/i).first()).toBeVisible();
+  });
+
   test('retirement money reads as retirement money, not "Unclassified"', async ({
     page,
     request,

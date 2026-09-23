@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ASSET_CLASS_LABEL, assetClassLabel } from './intelligence';
+import { ASSET_CLASS_LABEL, assetClassLabel, MISSING_LABEL, missingItem } from './intelligence';
 
 /**
  * Asset-class display labels (M5.17).
@@ -60,5 +60,79 @@ describe('assetClassLabel', () => {
   it('degrades readably for a key it has never seen', () => {
     // A class added to the engine tomorrow must not vanish from the screen.
     expect(assetClassLabel('managed_futures')).toBe('managed futures');
+  });
+});
+
+/**
+ * What a family is still missing (M5.20).
+ *
+ * The defect these close: `meta.dataCompleteness.missing` carries the engine's own identifiers,
+ * and the dashboard printed them verbatim — a panel headed "Make this more accurate" telling a
+ * family they were missing `memberAges`, with nowhere to go. Two failures this codebase has
+ * already fixed separately: an engine key as copy (M5.17), and an instruction with no path
+ * (M5.18).
+ *
+ * These tests keep the fix presentation-only: it invents no gap, hides none, and every gap it
+ * names it can also point at.
+ */
+describe('missingItem', () => {
+  /** Every key `computeHouseholdFinancialIntelligence` can push, read from its source. */
+  const ENGINE_KEYS = [
+    'income',
+    'expenses',
+    'assets',
+    'memberAges',
+    'insurancePolicies',
+    'retirementAssumptions',
+  ];
+
+  it('covers every key the engine can report, so none reaches a family raw', () => {
+    // If the engine gains a seventh, this fails and the map learns about it — which is the point
+    // of asserting the whole set rather than spot-checking three of them.
+    expect(Object.keys(MISSING_LABEL).sort()).toEqual([...ENGINE_KEYS].sort());
+  });
+
+  it('never shows a family an engine identifier', () => {
+    // The M5.17 lesson, in a second place. No camelCase, no underscores, nothing that reads
+    // like a variable.
+    for (const key of ENGINE_KEYS) {
+      const { label } = missingItem(key);
+      expect(label).not.toBe(key);
+      expect(label).not.toMatch(/[a-z][A-Z]/); // camelCase
+      expect(label).not.toMatch(/_/);
+    }
+  });
+
+  it('points every gap at a page that actually records it', () => {
+    // The M5.18 lesson: an invitation with nowhere to go is worse than no invitation. Each
+    // destination was checked against the page that captures that fact.
+    expect(missingItem('income').href).toBe('/wealth-health');
+    expect(missingItem('expenses').href).toBe('/wealth-health');
+    expect(missingItem('assets').href).toBe('/wealth-health');
+    expect(missingItem('memberAges').href).toBe('/household/family');
+    expect(missingItem('insurancePolicies').href).toBe('/household/protection');
+    expect(missingItem('retirementAssumptions').href).toBe('/household/retirement');
+
+    // And each names the action, so the link is not a bare "click here".
+    for (const key of ENGINE_KEYS) {
+      expect(missingItem(key).cta).toBeTruthy();
+    }
+  });
+
+  it('degrades readably for a key it has never seen, without inventing a destination', () => {
+    // A gap added to the engine tomorrow must still reach the family. Sending them to a page
+    // that does not record it would be worse than sending them nowhere.
+    const unknown = missingItem('taxRegime');
+    expect(unknown.label).toBe('tax regime');
+    expect(unknown.href).toBeUndefined();
+    expect(unknown.cta).toBeUndefined();
+  });
+
+  it('introduces no gap of its own', () => {
+    // Presentation only. The engine decides what is missing; this decides how to say it. A key
+    // here that the engine never emits would be a gap invented by the web layer.
+    for (const key of Object.keys(MISSING_LABEL)) {
+      expect(ENGINE_KEYS).toContain(key);
+    }
   });
 });
