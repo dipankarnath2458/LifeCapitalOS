@@ -19,6 +19,21 @@ const TYPES = [
 const CLASSES = ['cash', 'equity', 'debt', 'gold', 'real_estate', 'crypto', 'business', 'other'];
 const LIABILITY_TYPES = ['loan', 'credit_card'];
 
+/**
+ * Account types whose asset class this form must NOT guess (M5.19).
+ *
+ * Retirement is a kind of *account*, not a kind of *asset*: a PPF is debt, an NPS equity tier is
+ * equity, and this form never asked which. It defaulted the class to `cash`, so a user adding
+ * their EPF and not touching the dropdown asserted "this is cash" — which, until M5.19 taught the
+ * liquidity rule to read the account type, put locked retirement money into their emergency fund
+ * and told them they were covered when they were not.
+ *
+ * The kernel fix makes that harmless for liquidity. This keeps the form from stating the thing at
+ * all, which is the honest position and the same one the V2 wizard takes: "Not sure" is a real
+ * answer, and it writes no class rather than a guessed one.
+ */
+const UNGUESSABLE_CLASS_TYPES = ['retirement'];
+
 const label = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 /** Real add-account form (replaces the old hardcoded demo account). */
@@ -44,7 +59,10 @@ export function AddAccount({ token, onAdded }: { token: string; onAdded: () => v
         {
           name: name.trim(),
           type,
-          ...(isLiability ? {} : { assetClass }),
+          // M5.19 — omitted, never null, when the user has not stated one. The API validates with
+          // `@IsEnum`, which rejects an explicit null, and the kernel already treats a missing
+          // class as `unclassified` — an honest state, unlike a guess.
+          ...(isLiability || !assetClass ? {} : { assetClass }),
           currency: 'INR',
           balanceMinor: parseField(balance) * 100,
           isLiability,
@@ -87,7 +105,12 @@ export function AddAccount({ token, onAdded }: { token: string; onAdded: () => v
           <span className="mb-1 block text-slate-600">Type</span>
           <select
             value={type}
-            onChange={(e) => setType(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              setType(next);
+              // Clear a class we would otherwise be asserting on the user's behalf (M5.19).
+              if (UNGUESSABLE_CLASS_TYPES.includes(next)) setAssetClass('');
+            }}
             className="w-full rounded-lg border border-slate-200 px-3 py-2"
           >
             {TYPES.map((t) => (
@@ -105,6 +128,7 @@ export function AddAccount({ token, onAdded }: { token: string; onAdded: () => v
               onChange={(e) => setAssetClass(e.target.value)}
               className="w-full rounded-lg border border-slate-200 px-3 py-2"
             >
+              <option value="">Not sure</option>
               {CLASSES.map((c) => (
                 <option key={c} value={c}>
                   {label(c)}

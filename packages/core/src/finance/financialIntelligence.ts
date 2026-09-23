@@ -2,6 +2,7 @@ import { CurrencyCode, formatMoney, fromMinor } from '../money/money.js';
 import {
   FinancialSnapshotPayload,
   investableCorpusMinor,
+  reachableCashMinor,
   reconciledNetWorthMinor,
 } from './financialSnapshot.js';
 import {
@@ -395,9 +396,14 @@ const trendFromSeries = (series: number[]): { trend: Trend; changeMinor: number 
   return { trend, changeMinor, changePct };
 };
 
-/** Cash held (assets classified as cash), in base-currency minor units. */
-const cashMinorOf = (p: FinancialSnapshotPayload): number =>
-  p.assets.filter((a) => a.assetClass === 'cash').reduce((s, a) => s + a.baseBalanceMinor, 0);
+/**
+ * Cash a family could reach in a crisis, in base-currency minor units.
+ *
+ * M5.19 replaced a local `assetClass === 'cash'` filter here with the shared definition: this
+ * copy counted a retirement account as emergency buffer, and so did three others. See
+ * `isReachableCash`.
+ */
+const cashMinorOf = (p: FinancialSnapshotPayload): number => reachableCashMinor(p);
 
 /**
  * Money held in retirement accounts, in base-currency minor units (M5.17).
