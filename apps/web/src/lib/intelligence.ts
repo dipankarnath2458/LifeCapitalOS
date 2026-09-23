@@ -289,6 +289,82 @@ export const ASSET_CLASS_LABEL: Record<string, string> = {
 export const assetClassLabel = (key: string): string =>
   ASSET_CLASS_LABEL[key] ?? key.replace(/_/g, ' ');
 
+/**
+ * What a family is still missing → what to call it, and where they answer it (M5.20).
+ *
+ * ## The defect this closes
+ *
+ * `meta.dataCompleteness.missing` carries the engine's own identifiers —
+ * `income`, `expenses`, `assets`, `memberAges`, `insurancePolicies`, `retirementAssumptions`
+ * (`financialIntelligence.ts:493-498`). The dashboard joined them with commas and printed them,
+ * so the panel headed **"Make this more accurate"** read:
+ *
+ * > We have 67% of the picture. Still missing: memberAges, insurancePolicies,
+ * > retirementAssumptions.
+ *
+ * Two failures at once, and this codebase has now fixed each of them separately. An engine key
+ * reaching a family as copy is the M5.17 defect. An instruction with nowhere to go is the M5.18
+ * defect — and this one is a panel whose entire heading is an instruction.
+ *
+ * It is not an edge case: `memberAges` is missing for **every newly onboarded family**, because
+ * neither onboarding nor the Wealth Health Check records a date of birth (M5.17 §6).
+ *
+ * ## Why a destination, not just a label
+ *
+ * Naming the gap in words would be the M5.17 half of the fix. The reason this panel exists is to
+ * be acted on, and a family who now understands that we lack their family's ages still has to
+ * guess which of seven pages records one. Every key already has a real V2 surface that captures
+ * exactly it, so the honest thing is to say where.
+ *
+ * ## This adds no key and changes no percentage
+ *
+ * Presentation only, exactly as `ASSET_CLASS_LABEL` is. The engine decides what is missing and
+ * what `pct` is; this decides how to say it. An unrecognised key degrades to readable text with
+ * no link rather than disappearing — a key added to the engine tomorrow must still reach the
+ * family, even before this map learns about it.
+ */
+export const MISSING_LABEL: Record<string, { label: string; href?: string; cta?: string }> = {
+  income: {
+    label: 'what you earn each month',
+    href: '/wealth-health',
+    cta: 'Add it in your Wealth Health Check',
+  },
+  expenses: {
+    label: 'what you spend each month',
+    href: '/wealth-health',
+    cta: 'Add it in your Wealth Health Check',
+  },
+  assets: {
+    label: 'what you own',
+    href: '/wealth-health',
+    cta: 'Add it in your Wealth Health Check',
+  },
+  memberAges: {
+    label: "your family's dates of birth",
+    href: '/household/family',
+    cta: 'Add them on your Family page',
+  },
+  insurancePolicies: {
+    label: 'the insurance you already hold',
+    href: '/household/protection',
+    cta: 'Record it on your Protection page',
+  },
+  retirementAssumptions: {
+    label: 'when you want to retire, and what you save',
+    href: '/household/retirement',
+    cta: 'Set it on your Retirement page',
+  },
+};
+
+/**
+ * A `dataCompleteness.missing` key as a family should read it, with where to answer it.
+ *
+ * An unknown key keeps the old behaviour — readable text, no link — so the panel never hides
+ * something the engine reported just because this map has not caught up.
+ */
+export const missingItem = (key: string): { label: string; href?: string; cta?: string } =>
+  MISSING_LABEL[key] ?? { label: key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() };
+
 /** Engine status light → design-system tone. Presentation only. */
 export function toneFor(status: StatusLight): 'success' | 'warning' | 'danger' {
   if (status === 'green') return 'success';

@@ -27,6 +27,7 @@ import {
   assetClassLabel,
   formatMoney,
   loadDashboard,
+  missingItem,
   toneFor,
   type DashboardState,
   type HouseholdIntelligence,
@@ -588,9 +589,36 @@ export default function HouseholdDashboardPage() {
                   Make this more accurate
                 </Heading>
                 <Text muted className="mt-1 block text-sm">
-                  We have {Math.round(i.meta.dataCompleteness.pct)}% of the picture. Still missing:{' '}
-                  {i.meta.dataCompleteness.missing.join(', ')}.
+                  We have {Math.round(i.meta.dataCompleteness.pct)}% of the picture. Here is what
+                  we still do not know about you:
                 </Text>
+                {/* M5.20 — one row per gap, in words, each linked to the page that records it.
+                    This list used to be `missing.join(', ')`, which printed the engine's own
+                    identifiers (`memberAges`, `insurancePolicies`) at a family and told them
+                    nothing about where to answer. A key this map has not learned yet still
+                    appears, as readable text without a link — the panel never hides a gap the
+                    engine reported. */}
+                <ul className="mt-3 space-y-2" data-testid="completeness-missing">
+                  {i.meta.dataCompleteness.missing.map((key) => {
+                    const item = missingItem(key);
+                    return (
+                      <li key={key} className="text-sm">
+                        <span className="text-foreground">{item.label}</span>
+                        {item.href && (
+                          <>
+                            {' — '}
+                            <a
+                              href={item.href}
+                              className="underline underline-offset-2 hover:text-foreground"
+                            >
+                              {item.cta}
+                            </a>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               </CardContent>
             </Card>
           </section>
