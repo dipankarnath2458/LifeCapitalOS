@@ -16,6 +16,7 @@ import {
   loadCurrentFigures,
   runWealthHealthCheck,
   type HealthScoreResult,
+  type RetirementAssetClass,
 } from '@/lib/wealthHealth';
 import {
   Badge,
@@ -23,8 +24,10 @@ import {
   Card,
   CardContent,
   ErrorState,
+  Field,
   LabeledInput,
   Heading,
+  Select,
   Spinner,
   Text,
 } from '@/ui';
@@ -65,6 +68,14 @@ export default function WealthHealthPage() {
   const [cash, setCash] = useState('');
   const [investments, setInvestments] = useState('');
   const [retirement, setRetirement] = useState('');
+  /**
+   * How the family says their retirement savings are invested (M5.18).
+   *
+   * Empty string is the UNANSWERED state, and is deliberately not a value: submitting it sends no
+   * `assetClass`, the balance stays in the honest `unclassified` bucket, and any answer already
+   * recorded is left exactly as it was.
+   */
+  const [retirementClass, setRetirementClass] = useState<RetirementAssetClass | ''>('');
   const [property, setProperty] = useState('');
   const [loanOutstanding, setLoanOutstanding] = useState('');
   const [loanMonthlyPayment, setLoanMonthlyPayment] = useState('');
@@ -101,6 +112,7 @@ export default function WealthHealthPage() {
         setCash(put(figures.cash));
         setInvestments(put(figures.investments));
         setRetirement(put(figures.retirement));
+        setRetirementClass(figures.retirementAssetClass ?? '');
         setProperty(put(figures.property));
         setLoanOutstanding(put(figures.loanOutstanding));
         setLoanMonthlyPayment(put(figures.loanMonthlyPayment));
@@ -123,6 +135,8 @@ export default function WealthHealthPage() {
         cash: num(cash),
         investments: num(investments),
         retirement: num(retirement),
+        // Omitted when unanswered — never coerced to a class we were not given.
+        ...(retirementClass !== '' ? { retirementAssetClass: retirementClass } : {}),
         property: num(property),
         loanOutstanding: num(loanOutstanding),
         loanMonthlyPayment: num(loanMonthlyPayment),
@@ -288,6 +302,33 @@ export default function WealthHealthPage() {
                   value={retirement}
                   onChange={(e) => setRetirement(e.target.value)}
                 />
+                {/* M5.18 — the path for the question M5.17 asks on the dashboard.
+                    Shown only once there is retirement money to classify: asking how ₹0 is
+                    invested is a question about nothing.
+                    "Not sure yet" is a real answer and the default. It sends no `assetClass`, so
+                    the balance stays in the honest `unclassified` bucket rather than being
+                    assigned a class the family never chose. */}
+                {parseFloat(retirement) > 0 && (
+                  <Field
+                    label="How is your retirement money invested?"
+                    htmlFor="retirement-class"
+                    hint="EPF and PPF count as debt; NPS equity and ELSS count as equity. Not sure is fine — you can tell us later."
+                  >
+                    <Select
+                      id="retirement-class"
+                      data-testid="retirement-class"
+                      value={retirementClass}
+                      onChange={(e) =>
+                        setRetirementClass(e.target.value as RetirementAssetClass | '')
+                      }
+                    >
+                      <option value="">Not sure yet</option>
+                      <option value="debt">Mostly debt (EPF, PPF)</option>
+                      <option value="equity">Mostly equity (NPS equity, ELSS)</option>
+                      <option value="other">Something else</option>
+                    </Select>
+                  </Field>
+                )}
                 <LabeledInput
                   label="Property (₹)"
                   hint="Current market value, if you own any."

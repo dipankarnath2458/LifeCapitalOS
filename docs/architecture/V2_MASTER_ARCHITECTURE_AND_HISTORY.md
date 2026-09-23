@@ -240,7 +240,7 @@ the score and the intelligence layer cannot diverge) and `deriveHealthFacts`, wh
 existing calculators and invents no maths. Design:
 `docs/M5_12_WEALTH_HEALTH_SCORE_V2_ARCHITECTURE.md`. **No migration. No kernel contract change.**
 
-#### M5.13 → M5.17 — the milestones after this audit was written
+#### M5.13 → M5.18 — the milestones after this audit was written
 
 Recorded here for continuity; each has its own design note under `docs/`.
 
@@ -252,6 +252,7 @@ Recorded here for continuity; each has its own design note under `docs/`.
 | **M5.15** (PR #80) | `assets[].accountType` in the payload — optional, additive, `schemaVersion` still 1, no migration. ADR-014. |
 | **M5.16** (PR #82) | A V2 consumer can record retirement savings; the Wealth Health Check writes `type: 'retirement'` with **no** `assetClass`, and corrects a hint that had told families to file EPF/PPF as ordinary investing since M5.5. |
 | **M5.17** | **Retirement money becomes legible.** `retirementAccountsMinor` — derived in the intelligence layer from `p.assets` by `accountType`, and the **first reader of that field anywhere** — plus a shared asset-class label map so the composer's `unclassified` bucket reads as "Not yet classified" instead of leaking an engine key to a family. |
+| **M5.18** | **A family can say how their retirement money is invested.** The Wealth Health Check asks, once there is a balance to ask about; "Not sure yet" is the default and sends nothing, so the honest `unclassified` state survives. The M5.17 dashboard sentence becomes the link to it. No endpoint, field, migration or kernel change. |
 
 **M5.17 is presentation, not arithmetic.** It changes no calculation: `assetAllocation` bucketing,
 `baseValueMinor`, `pct`, HHI, `diversificationIndex`, `topConcentration`, `concentrationRisk`,
@@ -267,6 +268,29 @@ asset the money is.** A retirement account whose investment mix we have never as
 genuinely unclassified at the asset-class layer, and M5.17 keeps saying so — it states the
 retirement fact *beside* the allocation rather than folding it into a bucket. There is no
 `retirement` asset class and there must not be one.
+
+**M5.18 is the first of this sequence that deliberately moves numbers**, and the distinction
+matters. M5.17 asked a family to *"tell us how it's invested"* and gave them nowhere to answer;
+M5.18 is that path. The question is asked in the Wealth Health Check — not on `/household`, which
+is read-only by design and where a PATCH alone would change nothing visible, since the allocation
+is snapshot-derived — and the dashboard sentence becomes a link to it. For a family who answers,
+the allocation buckets, HHI, `diversificationIndex`, `topConcentration`, `concentrationRisk` and
+the diversification sub-score all change, because an answer is new information. Everything else
+holds: `investableCorpusMinor` (`unclassified` and `debt`/`equity`/`other` are alike inside it),
+`retirementAccountsMinor` (it reads `accountType`, which no answer touches), emergency liquidity,
+every stored snapshot and checksum, `SCHEMA_VERSION` 1, `ENGINE_VERSION` `m5-fil-1.0.0`,
+`MODEL_VERSION` `fhs-2.0.0`, and the scoring weights. No score is re-banded retroactively. No
+endpoint, field, migration or kernel derivation was added — the PATCH has accepted `assetClass`
+all along, and the gap was entirely a missing consumer path. Design:
+`docs/M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md`.
+
+One deferral it records, deliberately: `cash` is **not** offered as an answer. `cashMinorOf`
+(`financialIntelligence.ts:399`) and the composer's liquidity sum
+(`financial-snapshot.service.ts:105`, `:113`) read `assetClass === 'cash'` as "reachable in a
+crisis" with no regard for `accountType`, so a family who classed their EPF as cash would be told
+they hold months of buffer in money locked until 58 — measured at ₹2,00,000 → ₹7,00,000 in the
+suite's own fixture. Withholding the option keeps a consumer-surface milestone out of a frozen
+derivation; teaching those derivations to exclude retirement accounts is carried in `NEXT`.
 
 ---
 
@@ -900,24 +924,35 @@ not exist · Module 10 V1 retirement decision · `liabilities[]` carries no `acc
 | **3** — `usingDefaultAssumptions` is binary, not per-field | **M5.14** | Per-field `stated`/`derived`/`default` provenance; the flag is retained but now derived from it. Also unified the retirement corpus, which had two conflicting definitions. |
 | **4** — nothing pins the score model | **M5.11** | `finance.test.ts` pins `FINANCIAL_HEALTH_MODEL_VERSION`. |
 | **5** — Budget and What-if have no consumer surface | **M5.13** | `/household/budget` and `/household/what-if`; also fixed What-if disagreeing with the dashboard score by up to 16 points. |
-| **6** — the snapshot cannot see account `type` | **M5.15 + M5.16 + M5.17** | M5.15 added `assets[].accountType`, optional and additive, `schemaVersion` unchanged at 1, no migration. M5.16 gave the V2 consumer a way to produce one (the Wealth Health Check writes `type: 'retirement'`). M5.17 made it legible: `retirement.retirementAccountsMinor`, the field's first reader, and an `unclassified` bucket that reads as "Not yet classified" instead of leaking an engine key. |
+| **6** — the snapshot cannot see account `type` | **M5.15 + M5.16 + M5.17 + M5.18** | M5.15 added `assets[].accountType`, optional and additive, `schemaVersion` unchanged at 1, no migration. M5.16 gave the V2 consumer a way to produce one (the Wealth Health Check writes `type: 'retirement'`). M5.17 made it legible: `retirement.retirementAccountsMinor`, the field's first reader, and an `unclassified` bucket that reads as "Not yet classified" instead of leaking an engine key. M5.18 closed the loop the sentence opened: a family can now state the asset class themselves, and the bucket empties when they do. |
 | **7** — `/onboarding/status` is a rate-limit pressure point | **PR #77** | Three-state household resolution, and the amplification that caused it: 120 → 54 status calls measured. |
 
 ### NEXT
 
 **Nothing is scheduled.** Every milestone this section once named — M5.11, M5.12, M5.13 — is
-merged, as are M5.14, M5.15, M5.16 and M5.17, and all seven numbered gaps are closed.
+merged, as are M5.14, M5.15, M5.16, M5.17 and M5.18, and all seven numbered gaps are closed.
 
 Recorded, deliberately unscheduled:
 
-- **Account-type correction** (tentatively M5.18): `PATCH type`, the `type`/`isLiability` guard,
+- **Liquidity derivations are blind to `accountType`** — raised by M5.18, and the sharpest of
+  these. `cashMinorOf` (`financialIntelligence.ts:399`) and the composer's liquidity sum
+  (`financial-snapshot.service.ts:105`, `:113`) count any `assetClass === 'cash'` asset as
+  reachable in a crisis, including a retirement account. No consumer surface can reach that state
+  — M5.18 withholds `cash` from the answers for exactly this reason — but an advisor or a direct
+  API call can, and the family would be told they are covered when they are not (₹2,00,000 →
+  ₹7,00,000 in the suite's own fixture). It is a kernel change with, as far as can be measured
+  today, **zero** effect on any existing household, which makes it cheap to do properly. It should
+  land before any surface widens the offered classes. See
+  [`../M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md`](../M5_18_RETIREMENT_CLASSIFICATION_ARCHITECTURE.md) §7.
+- **Account-type correction**: `PATCH type`, the `type`/`isLiability` guard,
   a correction UI, its audit behaviour, and proof that correcting an account never rewrites a
   stored snapshot. Deferred because **no consumer surface can produce a mis-typed account** — the
-  wizard always writes the correct type — so the hole is real but unreached. It becomes urgent the
-  day any surface lets a user choose a type freely. See
+  wizard always writes the correct type — so the hole is real but unreached, and M5.18 did not
+  change that: it lets a family state an `assetClass`, never a `type`. It becomes urgent the day
+  any surface lets a user choose a type freely. See
   [`../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md`](../M5_16_RETIREMENT_CAPTURE_ARCHITECTURE.md) §6.2.
 - **Advisor surfaces still render raw asset-class keys** — the balance sheet's own summary and the
-  `/app` concentration tile. Excluded from M5.17 by decision; a separately tracked follow-up.
+  `/app` concentration tile. Excluded from M5.17 and M5.18 by decision; a separately tracked follow-up.
 - **Tax / Section 80C.** The engine is further along than §6 below implies, but its *inputs* do
   not exist: 80C needs contributions per instrument (ELSS/EPF/PPF/NPS/life insurance), and neither
   `AccountType` nor Protection can supply them. A real milestone with a migration, not a wiring
@@ -941,12 +976,12 @@ Recorded, deliberately unscheduled:
 | `usingDefaults` is **derived from per-field provenance** (M5.14) | `packages/core/src/finance/financialIntelligence.ts` — `FieldSource`, `ResolvedRetirementAssumptions` |
 | Assumptions resolved centrally | `apps/api/src/households/household-intelligence.service.ts::resolveAssumptions` |
 | `goalSlippage` already accepted | `packages/core/src/scoring/earlyWarning.ts:22` |
-| Snapshot **carries** `assets[].accountType` (M5.15), a consumer can produce one (M5.16), and the intelligence layer reads it (M5.17) | `financialSnapshot.ts` `accountType?`, `household-financial-snapshot.service.ts` `accountType: a.type`, `financialIntelligence.ts` `retirementAccountsMinor` |
+| Snapshot **carries** `assets[].accountType` (M5.15), a consumer can produce one (M5.16), the intelligence layer reads it (M5.17), and a family can state its asset class (M5.18) | `financialSnapshot.ts` `accountType?`, `household-financial-snapshot.service.ts` `accountType: a.type`, `financialIntelligence.ts` `retirementAccountsMinor` |
 | Contract frozen | `packages/core/src/finance/kernelContract.test.ts` |
 | ADRs 001-013 | `docs/architecture/M2_HOUSEHOLD_WEALTH_ARCHITECTURE.md:469-659` |
 | No feature migration M5.5→M5.8 | `ls apps/api/prisma/migrations` — between `20260715120000` and `20260814152922` only `20260806153040_add_login_attempt_lockout` (auth kernel) |
 | Migrations run on deploy | `railway.json` `deploy.startCommand` |
-| Test counts at M5.17 | **38** API e2e specs (271 cases) · **14** core test files (213 cases) · **8** API unit specs (72 cases) · **4** web unit specs (54 cases) · **52** browser smoke cases — counted from this repository, not estimated |
+| Test counts at M5.18 | **38** API e2e specs (278 cases) · **14** core test files (214 cases) · **8** API unit specs (72 cases) · **4** web unit specs (54 cases) · **53** browser smoke cases — counted from this repository, not estimated |
 
 ---
 

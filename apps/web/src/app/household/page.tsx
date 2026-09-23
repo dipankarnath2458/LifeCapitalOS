@@ -496,8 +496,20 @@ export default function HouseholdDashboardPage() {
                     which is not the same as "they have none". */}
                 {i.retirementAccountsMinor !== null && i.retirementAccountsMinor > 0 && (
                   <Text muted className="mt-3 block text-sm" data-testid="retirement-in-allocation">
-                    {money(i.retirementAccountsMinor)} of this is retirement savings. Tell us how
-                    it&apos;s invested to see your full allocation.
+                    {money(i.retirementAccountsMinor)} of this is retirement savings.{' '}
+                    {/* M5.18 — the path this sentence has asked for since M5.17. The question is
+                        answered in the Wealth Health Check rather than here: this page is READ
+                        ONLY (see the header), and the allocation is snapshot-derived, so an answer
+                        only becomes visible once a snapshot is captured — which the check already
+                        does at the end of its run. */}
+                    <a
+                      href="/wealth-health"
+                      className="underline underline-offset-2 hover:text-foreground"
+                      data-testid="classify-retirement-link"
+                    >
+                      Tell us how it&apos;s invested
+                    </a>{' '}
+                    to see your full allocation.
                   </Text>
                 )}
               </div>

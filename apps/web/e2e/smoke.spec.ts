@@ -772,6 +772,83 @@ test.describe('V2 primary / V1 safety net', () => {
     await expect(page.getByTestId('retirement-accounts')).toContainText('5,00,000');
   });
 
+  test('a family can say how their retirement money is invested, and the allocation follows', async ({
+    page,
+    request,
+  }) => {
+    // M5.18. The test above ends with the dashboard asking a family to "tell us how it's
+    // invested" — an invitation with nowhere to go: no consumer surface could set an asset class
+    // on a retirement account. This walks the path that answers it, in a browser, because the
+    // whole milestone is a question a person has to be able to find and answer.
+    const consumer = await createAccount(request);
+    await asReturningConsumer(page, request, consumer);
+    await signIn(page, consumer, PASSWORD);
+
+    // A first run that leaves the question at "Not sure yet" — the state every family starts in,
+    // and a perfectly good place to stop.
+    await page.goto('/wealth-health');
+    await page.getByLabel('Cash & savings (₹)').fill('200000');
+    await page.getByLabel('Investments (₹)').fill('300000');
+    await page.getByLabel('Retirement savings (₹)').fill('500000');
+    // The question appears only once there is retirement money to ask about.
+    await expect(page.getByTestId('retirement-class')).toBeVisible();
+    await expect(page.getByTestId('retirement-class')).toHaveValue('');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByLabel('Monthly income (₹)').fill('300000');
+    await page.getByLabel('Monthly expenses (₹)').fill('75000');
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // Unanswered still means unclassified, in words, exactly as M5.17 left it.
+    await expect(page.getByTestId('allocation-chart')).toBeVisible();
+    await expect(page.getByText('Not yet classified').first()).toBeVisible();
+
+    // The invitation is now a link, and it goes somewhere.
+    const link = page.getByTestId('classify-retirement-link');
+    await expect(link).toBeVisible();
+    await link.click();
+    await expect(page).toHaveURL(/\/wealth-health$/);
+
+    // Their figures came back with them, the question among them — still unanswered, because
+    // they have not answered it. An unanswered control over an answer already given would be
+    // the Gap 7 failure mode in a new field.
+    await expect(page.getByLabel('Retirement savings (₹)')).toHaveValue('500000');
+    await expect(page.getByTestId('retirement-class')).toHaveValue('');
+
+    // They answer: EPF and PPF, so debt.
+    await page.getByTestId('retirement-class').selectOption('debt');
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByRole('button', { name: 'See my score' }).click();
+    await expect(page.getByRole('heading', { name: 'Your Wealth Health' })).toBeVisible();
+    await page.getByRole('button', { name: 'Go to my dashboard' }).click();
+    await expect(page).toHaveURL(/\/household$/);
+
+    // ORDER MATTERS (rule 9.3 #10). Both positive signals first — the panel on screen, then the
+    // class they chose in it — and only then the assertion that the unknown state is gone. The
+    // reverse order passes against a panel that has not rendered, which is how a vacuous
+    // assertion got into this file once already.
+    // Scoped to the panel: "Debt" also names the loans section, and an unscoped match would
+    // pass without the allocation ever changing.
+    await expect(page.getByTestId('allocation-chart')).toBeVisible();
+    await expect(page.getByTestId('allocation-chart').getByText('Debt')).toBeVisible();
+    await expect(page.getByText('Not yet classified')).toHaveCount(0);
+    // The engine key never reaches the family either, answered or not.
+    await expect(page.getByText(/unclassified/i)).toHaveCount(0);
+
+    // The retirement fact is unchanged: an asset class is not an account type, and saying what
+    // the money is invested in does not stop it being retirement money.
+    await expect(page.getByTestId('retirement-in-allocation')).toContainText('5,00,000');
+
+    // And the answer survives the round trip, so a later run does not ask it again as if it had
+    // never been given.
+    await page.goto('/wealth-health');
+    await expect(page.getByTestId('retirement-class')).toHaveValue('debt');
+  });
+
   test('V1 family still works on the dashboard — the safety net is untouched', async ({
     page,
     request,
